@@ -18,7 +18,8 @@
  */
 
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { LAZYBRAIN_DIR, GRAPH_PATH, GRAPH_VERSION } from '../src/constants.js';
 import { Graph } from '../src/graph/graph.js';
 import { match } from '../src/matcher/matcher.js';
@@ -63,6 +64,9 @@ async function main() {
       break;
     case 'wiki':
       cmdWiki();
+      break;
+    case 'hook':
+      cmdHook();
       break;
     case '--version':
     case '-v':
@@ -517,6 +521,89 @@ function cmdWiki() {
   const result = generateWiki(graph);
   console.log(`Wiki generated: ${result.articlesWritten} articles`);
   console.log(`  Index: ${result.indexPath}`);
+}
+
+// ─── Hook ─────────────────────────────────────────────────────────────────
+
+function cmdHook() {
+  const sub = args[1];
+  const settingsPath = join(
+    process.env.CLAUDE_CONFIG_DIR ?? join(process.env.HOME ?? '~', '.claude'),
+    'settings.json',
+  );
+
+  // Resolve the hook script path from this binary's location
+  const binDir = dirname(fileURLToPath(import.meta.url));
+  const hookScript = resolve(binDir, 'hook.js');
+
+  switch (sub) {
+    case 'install': {
+      if (!existsSync(hookScript)) {
+        console.error(`Hook script not found: ${hookScript}`);
+        console.error('Run `npm run build` first.');
+        process.exit(1);
+      }
+
+      let settings: Record<string, unknown> = {};
+      if (existsSync(settingsPath)) {
+        try {
+          settings = JSON.parse(readFileSync(settingsPath, 'utf-8')) as Record<string, unknown>;
+        } catch {
+          console.error(`Failed to parse ${settingsPath}`);
+          process.exit(1);
+        }
+      }
+
+      const hooks = (settings.hooks ?? {}) as Record<string, unknown>;
+      const existing = (hooks.UserPromptSubmit ?? []) as Array<Record<string, unknown>>;
+
+      // Remove any existing lazybrain hook
+      const filtered = existing.filter(
+        (h) => !(typeof h.command === 'string' && h.command.includes('lazybrain')),
+      );
+
+      filtered.push({
+        matcher: '',
+        hooks: [{ type: 'command', command: `node ${hookScript}` }],
+      });
+
+      hooks.UserPromptSubmit = filtered;
+      settings.hooks = hooks;
+
+      writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+      console.log(`Hook installed: ${settingsPath}`);
+      console.log(`  Script: ${hookScript}`);
+      console.log(`  Restart Claude Code to activate.`);
+      break;
+    }
+    case 'uninstall': {
+      if (!existsSync(settingsPath)) {
+        console.log('No settings file found.');
+        return;
+      }
+      let settings: Record<string, unknown> = {};
+      try {
+        settings = JSON.parse(readFileSync(settingsPath, 'utf-8')) as Record<string, unknown>;
+      } catch {
+        console.error(`Failed to parse ${settingsPath}`);
+        process.exit(1);
+      }
+
+      const hooks = (settings.hooks ?? {}) as Record<string, unknown>;
+      const existing = (hooks.UserPromptSubmit ?? []) as Array<Record<string, unknown>>;
+      hooks.UserPromptSubmit = existing.filter(
+        (h) => !(typeof h.command === 'string' && h.command.includes('lazybrain')),
+      );
+      settings.hooks = hooks;
+
+      writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+      console.log('Hook uninstalled.');
+      break;
+    }
+    default:
+      console.error('Usage: lazybrain hook [install|uninstall]');
+      process.exit(1);
+  }
 }
 
 // ─── Help ─────────────────────────────────────────────────────────────────
