@@ -5,9 +5,9 @@
  *
  * Usage:
  *   lazybrain scan                    Scan all capability sources
- *   lazybrain compile                 LLM-compile the knowledge graph
+ *   lazybrain compile [--offline]     LLM-compile the knowledge graph (--offline: no LLM)
  *   lazybrain match "<query>"         Match user input to capabilities
- *   lazybrain list                    List all indexed capabilities
+ *   lazybrain list [--category <c>]   List all indexed capabilities
  *   lazybrain stats                   Show graph statistics
  *   lazybrain alias set <name> <target>  Set an alias
  *   lazybrain alias list              List all aliases
@@ -15,15 +15,20 @@
  *   lazybrain config set <key> <val>  Set a config value
  *   lazybrain config show             Show current config
  *   lazybrain wiki                    Generate wiki articles
- *   lazybrain hook install            Install Claude Code hook
- *   lazybrain hook uninstall          Remove Claude Code hook
  */
 
-import { existsSync, mkdirSync } from 'node:fs';
-import { LAZYBRAIN_DIR, GRAPH_PATH, DEFAULT_CONFIG } from '../src/constants.js';
+import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { LAZYBRAIN_DIR, GRAPH_PATH, GRAPH_VERSION } from '../src/constants.js';
 import { Graph } from '../src/graph/graph.js';
 import { match } from '../src/matcher/matcher.js';
-import type { UserConfig } from '../src/types.js';
+import { scan } from '../src/scanner/scanner.js';
+import { compile, makeCapabilityId } from '../src/compiler/compiler.js';
+import { createLLMProvider } from '../src/compiler/llm-provider.js';
+import { classifyCategory } from '../src/compiler/category-classifier.js';
+import { loadConfig, saveConfig, updateConfig } from '../src/config/config.js';
+import { generateWiki } from '../src/graph/wiki-generator.js';
+import type { Capability, RawCapability, UserConfig } from '../src/types.js';
 
 const args = process.argv.slice(2);
 const cmd = args[0];
@@ -36,13 +41,13 @@ if (!existsSync(LAZYBRAIN_DIR)) {
 async function main() {
   switch (cmd) {
     case 'scan':
-      await cmdScan();
+      cmdScan();
       break;
     case 'compile':
       await cmdCompile();
       break;
     case 'match':
-      await cmdMatch();
+      cmdMatch();
       break;
     case 'list':
       cmdList();
@@ -57,7 +62,7 @@ async function main() {
       cmdConfig();
       break;
     case 'wiki':
-      await cmdWiki();
+      cmdWiki();
       break;
     case '--version':
     case '-v':
@@ -69,10 +74,9 @@ async function main() {
       printHelp();
       break;
     default:
-      // If no command, treat as implicit match
+      // Treat unknown non-flag args as implicit match
       if (!cmd?.startsWith('-')) {
-        args.unshift('match');
-        await cmdMatch();
+        cmdMatch(cmd);
       } else {
         console.error(`Unknown command: ${cmd}`);
         printHelp();
@@ -81,21 +85,220 @@ async function main() {
   }
 }
 
-// ─── Commands ─────────────────────────────────────────────────────────────
+// ─── Scan ─────────────────────────────────────────────────────────────────
 
-async function cmdScan() {
-  // Delegate to scanner (MiniMax will implement)
+function cmdScan() {
+  const config = loadConfig();
   console.log('Scanning capability sources...');
-  console.log('TODO: Scanner implementation pending (MiniMax task)');
+
+  const result = scan({
+    extraPaths: config.scanPaths,
+    onProgress: (scanned, found) => {
+      process.stdout.write(`\r  Scanned ${scanned} files, found ${found} capabilities`);
+    },
+  });
+
+  console.log(`\n\nScan complete:`);
+  console.log(`  Paths scanned: ${result.scannedPaths}`);
+  console.log(`  Files scanned: ${result.scannedFiles}`);
+  console.log(`  Capabilities found: ${result.capabilities.length}`);
+
+  if (result.errors.length > 0) {
+    console.log(`  Errors: ${result.errors.length}`);
+    for (const err of result.errors.slice(0, 5)) {
+      console.log(`    - ${err}`);
+    }
+  }
+
+  // Save raw scan results for compile step
+  const scanCachePath = join(LAZYBRAIN_DIR, 'scan-cache.json');
+  writeFileSync(scanCachePath, JSON.stringify(result.capabilities, null, 2));
+  console.log(`\n  Saved to ${scanCachePath}`);
+  console.log(`  Run 'lazybrain compile' to build the knowledge graph.`);
 }
+
+// ─── Compile ──────────────────────────────────────────────────────────────
 
 async function cmdCompile() {
-  console.log('Compiling knowledge graph...');
-  console.log('TODO: Full compile pipeline pending (requires scanner + LLM)');
+  const scanCachePath = join(LAZYBRAIN_DIR, 'scan-cache.json');
+  if (!existsSync(scanCachePath)) {
+    console.error('No scan cache found. Run `lazybrain scan` first.');
+    process.exit(1);
+  }
+
+  const rawCapabilities: RawCapability[] = JSON.parse(
+    readFileSync(scanCachePath, 'utf-8'),
+  );
+  console.log(`Compiling ${rawCapabilities.length} capabilities...`);
+
+  const isOffline = args.includes('--offline');
+  const config = loadConfig();
+
+  if (isOffline || !config.compileApiBase) {
+    // Offline mode: use category-classifier + raw triggers, no LLM
+    console.log('  Mode: offline (no LLM, using rule-based classification)');
+    const graph = compileOffline(rawCapabilities);
+    graph.save(GRAPH_PATH);
+    const s = graph.stats();
+    console.log(`\nGraph built:`);
+    console.log(`  Nodes: ${s.nodes}`);
+    console.log(`  Categories: ${s.categories}`);
+    console.log(`  By kind: ${JSON.stringify(s.byKind)}`);
+    console.log(`\n  Saved to ${GRAPH_PATH}`);
+    console.log(`  Run 'lazybrain match "<query>"' to test matching.`);
+  } else {
+    // LLM mode
+    console.log(`  Mode: LLM (${config.compileModel})`);
+    const llm = createLLMProvider({
+      model: config.compileModel,
+      apiBase: config.compileApiBase,
+      apiKey: config.compileApiKey,
+    });
+
+    // Load existing graph for incremental compilation
+    const existingGraph = existsSync(GRAPH_PATH) ? Graph.load(GRAPH_PATH) : undefined;
+
+    const result = await compile(rawCapabilities, {
+      llm,
+      modelName: config.compileModel,
+      existingGraph,
+      onProgress: (current, total, name) => {
+        process.stdout.write(`\r  [${current}/${total}] ${name}`);
+      },
+    });
+
+    result.graph.save(GRAPH_PATH);
+    console.log(`\n\nCompile complete:`);
+    console.log(`  Compiled: ${result.compiled}`);
+    console.log(`  Skipped (cached): ${result.skipped}`);
+    console.log(`  Tokens: ${result.totalTokens.input} in / ${result.totalTokens.output} out`);
+    if (result.errors.length > 0) {
+      console.log(`  Errors: ${result.errors.length}`);
+      for (const err of result.errors.slice(0, 5)) {
+        console.log(`    - ${err}`);
+      }
+    }
+    const s = result.graph.stats();
+    console.log(`  Nodes: ${s.nodes}, Links: ${s.links}, Categories: ${s.categories}`);
+    console.log(`\n  Saved to ${GRAPH_PATH}`);
+  }
 }
 
-async function cmdMatch() {
-  const query = args[1];
+/**
+ * Offline compilation: no LLM, uses rule-based category classifier
+ * and raw triggers/name/description as tags.
+ */
+function compileOffline(rawCapabilities: RawCapability[]): Graph {
+  const graph = new Graph();
+
+  for (const raw of rawCapabilities) {
+    const id = makeCapabilityId(raw.kind, raw.name, raw.origin);
+    const category = classifyCategory(raw);
+
+    // Generate basic tags from name, description, triggers
+    const tags = generateOfflineTags(raw);
+
+    // Generate basic example queries
+    const exampleQueries = generateOfflineQueries(raw);
+
+    const capability: Capability = {
+      id,
+      kind: raw.kind,
+      name: raw.name,
+      description: raw.description,
+      origin: raw.origin,
+      status: 'installed',
+      compatibility: raw.compatibility,
+      filePath: raw.filePath,
+      tags,
+      exampleQueries,
+      category,
+      triggers: raw.triggers,
+      meta: raw.meta,
+    };
+
+    graph.addNode(capability);
+  }
+
+  graph.setCompileInfo('offline');
+  return graph;
+}
+
+function generateOfflineTags(raw: RawCapability): string[] {
+  const tags = new Set<string>();
+
+  // From name: split on hyphens/underscores (high value)
+  for (const part of raw.name.split(/[-_\s]+/)) {
+    if (part.length > 1) tags.add(part.toLowerCase());
+  }
+
+  // From triggers (high value)
+  if (raw.triggers) {
+    for (const t of raw.triggers) {
+      const cleaned = t.replace(/^[/"']|[/"']$/g, '').toLowerCase();
+      if (cleaned.length > 1) tags.add(cleaned);
+    }
+  }
+
+  // From description: extract meaningful words (4+ chars, aggressive stop word filter)
+  const stopWords = new Set([
+    // English function words
+    'the', 'and', 'for', 'with', 'this', 'that', 'from', 'use', 'used',
+    'when', 'you', 'your', 'are', 'not', 'but', 'all', 'can', 'has',
+    'have', 'will', 'been', 'more', 'also', 'into', 'than', 'each',
+    'any', 'only', 'using', 'after', 'before', 'about', 'should',
+    'would', 'could', 'does', 'make', 'made', 'like', 'just', 'over',
+    'such', 'take', 'other', 'some', 'them', 'then', 'these', 'those',
+    'what', 'which', 'while', 'where', 'here', 'there', 'their',
+    'being', 'both', 'between', 'through', 'during', 'most', 'much',
+    'very', 'well', 'back', 'even', 'still', 'every', 'need', 'needs',
+    'across', 'along', 'based', 'best', 'high', 'grade', 'level',
+    'first', 'last', 'next', 'same', 'work', 'working', 'works',
+    'including', 'includes', 'include', 'ensure', 'ensures',
+    'comprehensive', 'specific', 'particular', 'general', 'common',
+    'follows', 'following', 'prefer', 'directly', 'instead',
+    'matters', 'asks', 'sessions', 'compounds', 'model',
+    'distinctive', 'production', 'direction', 'applications',
+    'persistent', 'markdown', 'knowledge', 'base',
+  ]);
+  const words = raw.description.toLowerCase().match(/[a-z]{4,}/g) ?? [];
+  for (const w of words) {
+    if (!stopWords.has(w)) tags.add(w);
+  }
+
+  // CJK terms from description (2+ chars)
+  const cjkTerms = raw.description.match(/[\u4e00-\u9fff]{2,}/g) ?? [];
+  for (const t of cjkTerms) {
+    tags.add(t);
+  }
+
+  return [...tags].slice(0, 15);
+}
+
+function generateOfflineQueries(raw: RawCapability): string[] {
+  const queries: string[] = [];
+
+  // Basic query patterns
+  queries.push(raw.name);
+  if (raw.description.length <= 80) {
+    queries.push(raw.description);
+  }
+
+  // From triggers
+  if (raw.triggers) {
+    for (const t of raw.triggers) {
+      const cleaned = t.replace(/^[/"']|[/"']$/g, '');
+      if (cleaned.length > 2) queries.push(cleaned);
+    }
+  }
+
+  return queries.slice(0, 5);
+}
+
+// ─── Match ────────────────────────────────────────────────────────────────
+
+function cmdMatch(implicitQuery?: string) {
+  const query = implicitQuery ?? args[1];
   if (!query) {
     console.error('Usage: lazybrain match "<query>"');
     process.exit(1);
@@ -111,39 +314,35 @@ async function cmdMatch() {
 
   const result = match(query, { graph, config });
 
-  // Format output
   if (result.matches.length === 0) {
-    console.log('No matching capabilities found.');
+    console.log(`No matches for "${query}".`);
     return;
   }
 
-  console.log(`\nLazyBrain: ${result.matches.length} match(es) for "${query}"\n`);
+  console.log(`\n${result.matches.length} match(es) for "${query}"\n`);
 
   for (const [i, m] of result.matches.entries()) {
     const pct = Math.round(m.score * 100);
     const origin = m.capability.origin ? ` [${m.capability.origin}]` : '';
-    const platform = m.capability.compatibility.join(', ');
     console.log(`  [${i + 1}] ${m.capability.name} (${pct}%)${origin}`);
     console.log(`      ${m.capability.description}`);
     if (m.capability.scenario) {
-      console.log(`      场景: ${m.capability.scenario}`);
+      console.log(`      Scenario: ${m.capability.scenario}`);
     }
-    console.log(`      平台: ${platform}`);
+    console.log(`      Category: ${m.capability.category} | ${m.capability.compatibility.join(', ')}`);
     console.log();
   }
 
-  // Show comparisons
   if (result.comparisons.length > 0) {
-    console.log('  对比:');
+    console.log('  Comparisons:');
     for (const c of result.comparisons) {
       console.log(`    ${c.a.name} vs ${c.b.name}: ${c.diff}`);
     }
     console.log();
   }
 
-  // Show compositions
   if (result.compositions.length > 0) {
-    console.log('  推荐组合:');
+    console.log('  Recommended combos:');
     for (const c of result.compositions) {
       const names = c.capabilities.map((cap: { name: string }) => cap.name).join(' + ');
       console.log(`    ${names} — ${c.reason}`);
@@ -151,25 +350,25 @@ async function cmdMatch() {
     console.log();
   }
 
-  // Show upgrades
   if (result.upgrades.length > 0) {
-    console.log('  版本提示:');
+    console.log('  Version hints:');
     for (const u of result.upgrades) {
-      console.log(`    ⬆ ${u.old.name} → ${u.new.name}`);
+      console.log(`    ${u.old.name} -> ${u.new.name}`);
     }
     console.log();
   }
 
-  // Show external
   if (result.external.length > 0) {
-    console.log('  未安装但可用:');
+    console.log('  Available (not installed):');
     for (const e of result.external) {
-      const stars = e.capability.meta?.stars ? ` (⭐ ${e.capability.meta.stars})` : '';
+      const stars = e.capability.meta?.stars ? ` (${e.capability.meta.stars} stars)` : '';
       console.log(`    ${e.capability.name}${stars} — ${e.capability.description}`);
     }
     console.log();
   }
 }
+
+// ─── List ─────────────────────────────────────────────────────────────────
 
 function cmdList() {
   if (!existsSync(GRAPH_PATH)) {
@@ -179,9 +378,14 @@ function cmdList() {
   const graph = Graph.load(GRAPH_PATH);
   const nodes = graph.getAllNodes();
 
+  const filterCategory = args.indexOf('--category') !== -1
+    ? args[args.indexOf('--category') + 1]
+    : undefined;
+
   // Group by category
   const byCategory = new Map<string, typeof nodes>();
   for (const n of nodes) {
+    if (filterCategory && n.category !== filterCategory) continue;
     const cat = n.category || 'other';
     if (!byCategory.has(cat)) byCategory.set(cat, []);
     byCategory.get(cat)!.push(n);
@@ -196,6 +400,8 @@ function cmdList() {
   }
 }
 
+// ─── Stats ────────────────────────────────────────────────────────────────
+
 function cmdStats() {
   if (!existsSync(GRAPH_PATH)) {
     console.error('No graph found.');
@@ -207,28 +413,113 @@ function cmdStats() {
   console.log(`  Nodes: ${s.nodes}`);
   console.log(`  Links: ${s.links}`);
   console.log(`  Categories: ${s.categories}`);
-  console.log(`  By kind: ${JSON.stringify(s.byKind)}`);
-  console.log(`  By status: ${JSON.stringify(s.byStatus)}`);
+  console.log(`  By kind:`);
+  for (const [k, v] of Object.entries(s.byKind)) {
+    console.log(`    ${k}: ${v}`);
+  }
+  console.log(`  By status:`);
+  for (const [k, v] of Object.entries(s.byStatus)) {
+    console.log(`    ${k}: ${v}`);
+  }
 }
+
+// ─── Alias ────────────────────────────────────────────────────────────────
 
 function cmdAlias() {
-  console.log('TODO: Alias management pending (MiniMax task)');
+  const sub = args[1];
+  const config = loadConfig();
+
+  switch (sub) {
+    case 'set': {
+      const name = args[2];
+      const target = args[3];
+      if (!name || !target) {
+        console.error('Usage: lazybrain alias set <name> <target>');
+        process.exit(1);
+      }
+      config.aliases[name] = target;
+      saveConfig(config);
+      console.log(`Alias set: "${name}" -> "${target}"`);
+      break;
+    }
+    case 'list': {
+      const entries = Object.entries(config.aliases);
+      if (entries.length === 0) {
+        console.log('No aliases configured.');
+      } else {
+        console.log('\nAliases:');
+        for (const [k, v] of entries) {
+          console.log(`  "${k}" -> "${v}"`);
+        }
+      }
+      break;
+    }
+    case 'remove': {
+      const name = args[2];
+      if (!name) {
+        console.error('Usage: lazybrain alias remove <name>');
+        process.exit(1);
+      }
+      if (config.aliases[name]) {
+        delete config.aliases[name];
+        saveConfig(config);
+        console.log(`Alias removed: "${name}"`);
+      } else {
+        console.log(`Alias "${name}" not found.`);
+      }
+      break;
+    }
+    default:
+      console.error('Usage: lazybrain alias [set|list|remove]');
+      process.exit(1);
+  }
 }
+
+// ─── Config ───────────────────────────────────────────────────────────────
 
 function cmdConfig() {
-  console.log('TODO: Config management pending (MiniMax task)');
+  const sub = args[1];
+
+  switch (sub) {
+    case 'set': {
+      const key = args[2];
+      const value = args[3];
+      if (!key || value === undefined) {
+        console.error('Usage: lazybrain config set <key> <value>');
+        process.exit(1);
+      }
+      // Try to parse as JSON for booleans/numbers
+      let parsed: unknown = value;
+      try { parsed = JSON.parse(value); } catch { /* keep as string */ }
+      updateConfig(key, parsed);
+      console.log(`Config set: ${key} = ${JSON.stringify(parsed)}`);
+      break;
+    }
+    case 'show': {
+      const config = loadConfig();
+      console.log(JSON.stringify(config, null, 2));
+      break;
+    }
+    default:
+      console.error('Usage: lazybrain config [set|show]');
+      process.exit(1);
+  }
 }
 
-async function cmdWiki() {
-  console.log('TODO: Wiki generation pending (MiniMax task)');
+// ─── Wiki ─────────────────────────────────────────────────────────────────
+
+function cmdWiki() {
+  if (!existsSync(GRAPH_PATH)) {
+    console.error('No graph found. Run `lazybrain scan && lazybrain compile` first.');
+    process.exit(1);
+  }
+  const graph = Graph.load(GRAPH_PATH);
+  const result = generateWiki(graph);
+  console.log(`Wiki generated: ${result.articlesWritten} articles`);
+  console.log(`  Index: ${result.indexPath}`);
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────
-
-function loadConfig(): UserConfig {
-  // TODO: load from CONFIG_PATH, merge with defaults
-  return { ...DEFAULT_CONFIG };
-}
+// ─── Help ─────────────────────────────────────────────────────────────────
 
 function printHelp() {
   console.log(`
@@ -236,9 +527,9 @@ lazybrain — Semantic skill router for AI coding agents
 
 Usage:
   lazybrain scan                     Scan capability sources
-  lazybrain compile                  LLM-compile the knowledge graph
+  lazybrain compile [--offline]      Build knowledge graph (--offline: no LLM)
   lazybrain match "<query>"          Match input to capabilities
-  lazybrain list                     List all indexed capabilities
+  lazybrain list [--category <c>]    List indexed capabilities
   lazybrain stats                    Show graph statistics
   lazybrain alias set <n> <target>   Set an alias
   lazybrain alias list               List aliases
@@ -246,7 +537,6 @@ Usage:
   lazybrain config set <key> <val>   Set config value
   lazybrain config show              Show config
   lazybrain wiki                     Generate wiki articles
-  lazybrain hook install             Install Claude Code hook
   lazybrain --version                Show version
 `);
 }

@@ -7,6 +7,24 @@ import { parseFrontmatter } from '../../utils/yaml.js';
 import { inferPlatformFromPath } from '../../constants.js';
 
 /**
+ * Parse a trigger value that might be a JSON array string or a plain string.
+ */
+function parseTriggerValue(value: string): string[] {
+  const trimmed = value.trim();
+  if (trimmed.startsWith('[')) {
+    try {
+      const parsed: unknown = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        return parsed.filter((t): t is string => typeof t === 'string');
+      }
+    } catch {
+      // Not valid JSON, treat as plain string
+    }
+  }
+  return [trimmed];
+}
+
+/**
  * Extract first non-heading paragraph from body.
  */
 function extractFirstParagraph(body: string): string {
@@ -62,10 +80,10 @@ export function parseSkill(filePath: string, content: string): RawCapability | n
     if (Array.isArray(frontmatter.triggers)) {
       triggers = frontmatter.triggers.filter((t): t is string => typeof t === 'string');
     } else if (typeof frontmatter.triggers === 'string') {
-      triggers = [frontmatter.triggers];
+      triggers = parseTriggerValue(frontmatter.triggers);
     }
   } else if (typeof frontmatter.trigger === 'string' && frontmatter.trigger) {
-    triggers = [frontmatter.trigger];
+    triggers = parseTriggerValue(frontmatter.trigger);
   }
 
   return {
