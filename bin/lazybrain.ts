@@ -30,6 +30,7 @@ import { classifyCategory } from '../src/compiler/category-classifier.js';
 import { loadConfig, saveConfig, updateConfig } from '../src/config/config.js';
 import { generateWiki } from '../src/graph/wiki-generator.js';
 import { createEmbeddingProvider, type ApiEmbeddingConfig } from '../src/indexer/embeddings/provider.js';
+import { createProgressBar } from '../src/utils/progress.js';
 import type { Capability, RawCapability, UserConfig } from '../src/types.js';
 
 const args = process.argv.slice(2);
@@ -98,6 +99,7 @@ function cmdScan() {
 
   const result = scan({
     extraPaths: config.scanPaths,
+    platform: config.platform ?? 'claude-code',
     onProgress: (scanned, found) => {
       process.stdout.write(`\r  Scanned ${scanned} files, found ${found} capabilities`);
     },
@@ -122,6 +124,61 @@ function cmdScan() {
   console.log(`  Run 'lazybrain compile' to build the knowledge graph.`);
 }
 
+// ─── Interactive Platform Selection ──────────────────────────────────────
+
+async function interactiveSelect(
+  capabilities: RawCapability[],
+  currentPlatform: string,
+): Promise<RawCapability[]> {
+  // Group by platform
+  const platformCounts: Record<string, number> = {};
+  for (const cap of capabilities) {
+    for (const p of cap.compatibility) {
+      platformCounts[p] = (platformCounts[p] ?? 0) + 1;
+    }
+  }
+
+  // Default: current platform + universal selected
+  const selected = new Set<string>([currentPlatform, 'universal']);
+  const platforms = Object.keys(platformCounts).sort((a, b) => {
+    if (a === currentPlatform) return -1;
+    if (b === currentPlatform) return 1;
+    if (a === 'universal') return -1;
+    if (b === 'universal') return 1;
+    return platformCounts[b] - platformCounts[a];
+  });
+
+  const { createInterface } = await import('node:readline');
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+
+  const prompt = (q: string): Promise<string> =>
+    new Promise(resolve => rl.question(q, resolve));
+
+  console.log('\nWhich platforms to compile?');
+  for (const p of platforms) {
+    const check = selected.has(p) ? 'x' : ' ';
+    console.log(`  [${check}] ${p} (${platformCounts[p]})`);
+  }
+  console.log('\nType platform names to toggle, or press Enter to confirm:');
+
+  const answer = await prompt('> ');
+  rl.close();
+
+  if (answer.trim()) {
+    for (const token of answer.trim().split(/[\s,]+/)) {
+      if (selected.has(token)) {
+        selected.delete(token);
+      } else if (platformCounts[token] !== undefined) {
+        selected.add(token);
+      }
+    }
+  }
+
+  return capabilities.filter(cap =>
+    cap.compatibility.some(p => selected.has(p)),
+  );
+}
+
 // ─── Compile ──────────────────────────────────────────────────────────────
 
 async function cmdCompile() {
@@ -131,13 +188,84 @@ async function cmdCompile() {
     process.exit(1);
   }
 
-  const rawCapabilities: RawCapability[] = JSON.parse(
+  const allRawCapabilities: RawCapability[] = JSON.parse(
     readFileSync(scanCachePath, 'utf-8'),
   );
-  console.log(`Compiling ${rawCapabilities.length} capabilities...`);
 
   const isOffline = args.includes('--offline');
+  const isAll = args.includes('--all');
+  const isSelect = args.includes('--select');
   const config = loadConfig();
+  const platform = config.platform ?? 'claude-code';
+
+  // Assign tiers
+  for (const cap of allRawCapabilities) {
+    if (cap.compatibility.includes(platform)) {
+      cap.tier = 0;
+    } else if (cap.compatibility.includes('universal')) {
+      cap.tier = 1;
+    } else {
+      cap.tier = 2;
+    }
+  }
+
+  // Tier summary
+  const tier0 = allRawCapabilities.filter(c => c.tier === 0);
+  const tier1 = allRawCapabilities.filter(c => c.tier === 1);
+  const tier2 = allRawCapabilities.filter(c => c.tier === 2);
+
+  // Platform breakdown for tier 2
+  const tier2Platforms: Record<string, number> = {};
+  for (const cap of tier2) {
+    const p = cap.compatibility[0] ?? 'unknown';
+    tier2Platforms[p] = (tier2Platforms[p] ?? 0) + 1;
+  }
+  const tier2Summary = Object.entries(tier2Platforms)
+    .map(([p, n]) => `${p}: ${n}`)
+    .join(', ');
+
+  console.log(`Scanned ${allRawCapabilities.length} capabilities:`);
+  console.log(`  Tier 0 (${platform}): ${tier0.length}`);
+  console.log(`  Tier 1 (universal):   ${tier1.length}`);
+  console.log(`  Tier 2 (other):       ${tier2.length}${tier2Summary ? `  (${tier2Summary})` : ''}`);
+
+  // Determine which capabilities to compile
+  let rawCapabilities: RawCapability[];
+
+  // --tier N: compile specific tier only
+  const tierArgIdx = args.indexOf('--tier');
+  if (tierArgIdx !== -1) {
+    const tierVal = parseInt(args[tierArgIdx + 1], 10) as 0 | 1 | 2;
+    rawCapabilities = allRawCapabilities.filter(c => c.tier === tierVal);
+    console.log(`\nCompiling tier ${tierVal} only (${rawCapabilities.length} capabilities)...`);
+  }
+  // --platform <name>: compile specific platform
+  else if (args.includes('--platform')) {
+    const pIdx = args.indexOf('--platform');
+    const targetPlatform = args[pIdx + 1];
+    rawCapabilities = allRawCapabilities.filter(c =>
+      c.compatibility.includes(targetPlatform as any),
+    );
+    console.log(`\nCompiling platform '${targetPlatform}' (${rawCapabilities.length} capabilities)...`);
+  }
+  // --select: interactive platform selection
+  else if (isSelect) {
+    rawCapabilities = await interactiveSelect(allRawCapabilities, platform);
+    console.log(`\nCompiling ${rawCapabilities.length} selected capabilities...`);
+  }
+  // --all: compile everything
+  else if (isAll) {
+    rawCapabilities = allRawCapabilities;
+    console.log(`\nCompiling all ${rawCapabilities.length} capabilities...`);
+  }
+  // Default: tier 0 + tier 1
+  else {
+    rawCapabilities = allRawCapabilities.filter(c => c.tier !== 2);
+    console.log(`\nCompiling Tier 0 + Tier 1 (${rawCapabilities.length} capabilities)...`);
+    if (tier2.length > 0) {
+      console.log(`  Run 'lazybrain compile --all' to include other platforms.`);
+    }
+  }
 
   if (isOffline || !config.compileApiBase) {
     // Offline mode: use category-classifier + raw triggers, no LLM
@@ -160,31 +288,53 @@ async function cmdCompile() {
       apiKey: config.compileApiKey,
     });
 
-    // Load existing graph for incremental compilation
-    const existingGraph = existsSync(GRAPH_PATH) ? Graph.load(GRAPH_PATH) : undefined;
+    // Load existing graph for incremental compilation (skip with --force)
+    const liveGraph = (existsSync(GRAPH_PATH) && !args.includes('--force'))
+      ? Graph.load(GRAPH_PATH)
+      : new Graph();
+
+    const sigintHandler = () => {
+      liveGraph.save(GRAPH_PATH);
+      console.log(`\n\nInterrupted. Saved ${liveGraph.getAllNodes().length} nodes to ${GRAPH_PATH}`);
+      console.log('Run without --force to resume from checkpoint.');
+      process.exit(0);
+    };
+    process.on('SIGINT', sigintHandler);
+
+    const phase1Bar = createProgressBar({ label: 'Phase 1/2  Tags & Categories' });
+    phase1Bar.start(rawCapabilities.length);
+
+    const phase2Bar = createProgressBar({ label: 'Phase 2/2  Relation Inference' });
 
     const result = await compile(rawCapabilities, {
       llm,
       modelName: config.compileModel,
-      existingGraph,
+      existingGraph: liveGraph,
       onProgress: (current, total, name) => {
-        process.stdout.write(`\r  [${current}/${total}] ${name}`);
+        phase1Bar.update(current, name);
+      },
+      onRelationProgress: (current, total) => {
+        if (current === total) {
+          phase2Bar.complete();
+        } else {
+          if (current === 0) {
+            phase2Bar.start(total);
+          }
+          phase2Bar.update(current);
+        }
       },
     });
 
+    process.removeListener('SIGINT', sigintHandler);
     result.graph.save(GRAPH_PATH);
-    console.log(`\n\nCompile complete:`);
-    console.log(`  Compiled: ${result.compiled}`);
-    console.log(`  Skipped (cached): ${result.skipped}`);
-    console.log(`  Tokens: ${result.totalTokens.input} in / ${result.totalTokens.output} out`);
-    if (result.errors.length > 0) {
-      console.log(`  Errors: ${result.errors.length}`);
-      for (const err of result.errors.slice(0, 5)) {
-        console.log(`    - ${err}`);
-      }
-    }
+    console.log(`\nCompile complete:`);
+    const elapsed = (phase1Bar.getElapsedSeconds() + (phase2Bar.getElapsedSeconds?.() ?? 0)).toFixed(0);
+    const errors = result.errors.length;
+    console.log(`  ${errors === 0 ? '✓' : '⚠'} Compiled ${result.compiled} capabilities  (${errors} errors, ${result.skipped} skipped)`);
+    console.log(`  Tokens: ${(result.totalTokens.input / 1000).toFixed(1)}K input / ${(result.totalTokens.output / 1000).toFixed(1)}K output`);
+    console.log(`  Time: ${elapsed}s`);
     const s = result.graph.stats();
-    console.log(`  Nodes: ${s.nodes}, Links: ${s.links}, Categories: ${s.categories}`);
+    console.log(`  Nodes: ${s.nodes}, Links: ${s.links}`);
     console.log(`\n  Saved to ${GRAPH_PATH}`);
   }
 
@@ -215,7 +365,16 @@ async function cmdCompile() {
         const texts = batch.map(cap =>
           `${cap.name}: ${cap.description}. Tags: ${cap.tags.join(', ')}`
         );
-        const embeddings = await provider.embedBatch(texts);
+
+        let embeddings: number[][];
+        try {
+          embeddings = await provider.embedBatch(texts);
+        } catch (err) {
+          graphToEmbed.save(GRAPH_PATH);
+          console.error(`\nEmbedding API error at batch ${i}-${i + BATCH_SIZE}: ${err instanceof Error ? err.message : err}`);
+          console.error('Progress saved. Re-run to continue from checkpoint.');
+          process.exit(1);
+        }
 
         for (let j = 0; j < batch.length; j++) {
           const node = graphToEmbed.getNode(batch[j].id);
@@ -670,6 +829,10 @@ lazybrain — Semantic skill router for AI coding agents
 Usage:
   lazybrain scan                     Scan capability sources
   lazybrain compile [--offline]      Build knowledge graph (--offline: no LLM)
+  lazybrain compile --all            Compile all platforms
+  lazybrain compile --select         Interactive platform selection
+  lazybrain compile --platform <p>   Compile specific platform only
+  lazybrain compile --tier <n>       Compile specific tier (0/1/2)
   lazybrain match "<query>"          Match input to capabilities
   lazybrain list [--category <c>]    List indexed capabilities
   lazybrain stats                    Show graph statistics

@@ -29,7 +29,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
     }
     messages.push({ role: 'user', content: prompt });
 
-    const res = await fetch(`${this.apiBase}/v1/chat/completions`, {
+    const res = await fetch(`${this.apiBase}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -39,7 +39,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
         model: this.model,
         messages,
         temperature: 0.3,
-        max_tokens: 1024,
+        max_tokens: 2048,
       }),
     });
 

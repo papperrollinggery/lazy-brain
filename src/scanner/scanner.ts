@@ -7,7 +7,7 @@
 import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs';
 import { join, basename } from 'node:path';
 
-import type { RawCapability } from '../types.js';
+import type { RawCapability, Platform } from '../types.js';
 import { getDefaultScanPaths, inferPlatformFromPath } from '../constants.js';
 import { parseSkill } from './parsers/skill-parser.js';
 import { parseAgent } from './parsers/agent-parser.js';
@@ -17,6 +17,8 @@ import { dedup } from './dedup.js';
 export interface ScanOptions {
   extraPaths?: string[];
   onProgress?: (scanned: number, found: number) => void;
+  /** Current platform for tier assignment */
+  platform?: Platform;
 }
 
 export interface ScanResult {
@@ -143,10 +145,33 @@ export function scan(options?: ScanOptions): ScanResult {
 
   const deduplicated = dedup(capabilities);
 
+  // Assign tiers based on platform
+  if (options?.platform) {
+    assignTiers(deduplicated, options.platform);
+  }
+
   return {
     capabilities: deduplicated,
     scannedFiles,
     scannedPaths,
     errors,
   };
+}
+
+/**
+ * Assign compilation tiers to capabilities based on current platform.
+ *   tier 0: compatible with current platform
+ *   tier 1: universal
+ *   tier 2: other platform-specific
+ */
+function assignTiers(capabilities: RawCapability[], platform: Platform): void {
+  for (const cap of capabilities) {
+    if (cap.compatibility.includes(platform)) {
+      cap.tier = 0;
+    } else if (cap.compatibility.includes('universal')) {
+      cap.tier = 1;
+    } else {
+      cap.tier = 2;
+    }
+  }
 }

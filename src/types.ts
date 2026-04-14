@@ -65,6 +65,9 @@ export interface Capability {
   /** Original trigger keywords from SKILL.md frontmatter */
   triggers?: string[];
 
+  /** Compilation tier: 0=current platform, 1=universal, 2=other platforms */
+  tier?: 0 | 1 | 2;
+
   /** External metadata (stars, reviews, url) */
   meta?: CapabilityMeta;
 }
@@ -181,6 +184,8 @@ export interface UserConfig {
   platform: Platform;
   /** UI language */
   language: 'auto' | 'en' | 'zh';
+  /** Platforms to compile (default: auto-detect current) */
+  compilePlatforms?: Platform[];
 }
 
 // ─── History ────────────────────────────────────────────────────────────────
@@ -209,6 +214,8 @@ export interface RawCapability {
   triggers?: string[];
   compatibility: Platform[];
   meta?: CapabilityMeta;
+  /** Compilation tier assigned by scanner */
+  tier?: 0 | 1 | 2;
 }
 
 // ─── LLM Provider ───────────────────────────────────────────────────────────

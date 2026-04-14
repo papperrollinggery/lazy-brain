@@ -49,7 +49,22 @@ export async function match(
   }
 
   // ─── Layer 1: Tag + example query match ───────────────────────────────
-  let results = tagMatch(query, allNodes, platform, MAX_RESULTS);
+  // Prefer tier 0+1 (current platform + universal), fallback to tier 2
+  const primaryNodes = allNodes.filter(n => n.tier === undefined || n.tier <= 1);
+  let results = tagMatch(query, primaryNodes, platform, MAX_RESULTS);
+
+  // Fallback: if < 3 results, search tier 2 as well
+  if (results.length < 3) {
+    const tier2Nodes = allNodes.filter(n => n.tier === 2);
+    if (tier2Nodes.length > 0) {
+      const tier2Results = tagMatch(query, tier2Nodes, platform, MAX_RESULTS);
+      // Mark tier 2 results with lower confidence
+      for (const r of tier2Results) {
+        r.confidence = 'low';
+      }
+      results = [...results, ...tier2Results].slice(0, MAX_RESULTS);
+    }
+  }
 
   // ─── History boost ────────────────────────────────────────────────────
   if (history && history.length > 0) {
