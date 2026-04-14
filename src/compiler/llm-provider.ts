@@ -1,0 +1,69 @@
+/**
+ * LazyBrain — LLM Provider
+ *
+ * Unified interface for calling LLMs during wiki compilation.
+ * Supports any OpenAI-compatible API (MiniMax mirror, Ollama, Claude, OpenAI).
+ */
+
+import type { LLMProvider, LLMProviderConfig, LLMResponse } from '../types.js';
+
+/**
+ * Generic OpenAI-compatible LLM provider.
+ * Works with: MiniMax (via mirror), Ollama, OpenAI, Anthropic (via proxy), etc.
+ */
+export class OpenAICompatibleProvider implements LLMProvider {
+  private model: string;
+  private apiBase: string;
+  private apiKey: string;
+
+  constructor(config: LLMProviderConfig) {
+    this.model = config.model;
+    this.apiBase = config.apiBase.replace(/\/$/, '');
+    this.apiKey = config.apiKey ?? '';
+  }
+
+  async complete(prompt: string, systemPrompt?: string): Promise<LLMResponse> {
+    const messages: Array<{ role: string; content: string }> = [];
+    if (systemPrompt) {
+      messages.push({ role: 'system', content: systemPrompt });
+    }
+    messages.push({ role: 'user', content: prompt });
+
+    const res = await fetch(`${this.apiBase}/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}),
+      },
+      body: JSON.stringify({
+        model: this.model,
+        messages,
+        temperature: 0.3,
+        max_tokens: 1024,
+      }),
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`LLM API error ${res.status}: ${text}`);
+    }
+
+    const data = await res.json() as {
+      choices: Array<{ message: { content: string } }>;
+      usage?: { prompt_tokens?: number; completion_tokens?: number };
+    };
+
+    return {
+      content: data.choices[0]?.message?.content ?? '',
+      inputTokens: data.usage?.prompt_tokens ?? 0,
+      outputTokens: data.usage?.completion_tokens ?? 0,
+    };
+  }
+}
+
+/**
+ * Create an LLM provider from user config.
+ */
+export function createLLMProvider(config: LLMProviderConfig): LLMProvider {
+  return new OpenAICompatibleProvider(config);
+}

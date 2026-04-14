@@ -1,0 +1,133 @@
+/**
+ * LazyBrain — Constants
+ *
+ * Paths, thresholds, defaults, and model configuration.
+ */
+
+import { homedir } from 'node:os';
+import { join, normalize } from 'node:path';
+import type { Platform, UserConfig } from './types.js';
+
+// ─── Paths ──────────────────────────────────────────────────────────────────
+
+/** LazyBrain data directory */
+export const LAZYBRAIN_DIR = join(homedir(), '.lazybrain');
+export const GRAPH_PATH = join(LAZYBRAIN_DIR, 'graph.json');
+export const CONFIG_PATH = join(LAZYBRAIN_DIR, 'config.json');
+export const HISTORY_PATH = join(LAZYBRAIN_DIR, 'history.jsonl');
+export const WIKI_DIR = join(LAZYBRAIN_DIR, 'wiki');
+export const EXTERNAL_CATALOG_PATH = join(LAZYBRAIN_DIR, 'external-catalog.json');
+export const EMBEDDING_INDEX_PATH = join(LAZYBRAIN_DIR, 'index.bin');
+export const MODELS_DIR = join(LAZYBRAIN_DIR, 'models');
+
+/** Resolve Claude config dir (mirrors ~/.claude/hooks/lib/config-dir.mjs) */
+export function getClaudeConfigDir(): string {
+  const configured = process.env.CLAUDE_CONFIG_DIR?.trim();
+  if (!configured) return normalize(join(homedir(), '.claude'));
+  if (configured === '~') return normalize(homedir());
+  if (configured.startsWith('~/') || configured.startsWith('~\\')) {
+    return normalize(join(homedir(), configured.slice(2)));
+  }
+  return normalize(configured);
+}
+
+// ─── Default Scan Paths ─────────────────────────────────────────────────────
+
+/** Generate default scan paths based on Claude config dir */
+export function getDefaultScanPaths(): string[] {
+  const claude = getClaudeConfigDir();
+  return [
+    join(claude, 'skills'),
+    join(claude, 'skills-disabled'),
+    join(claude, '.agents', 'skills'),
+    join(claude, 'agents'),
+    join(claude, 'commands'),
+    join(claude, 'ecc', 'skills'),
+    join(claude, 'ecc', '.agents', 'skills'),
+    join(claude, 'ecc', '.claude', 'skills'),
+    join(claude, 'ecc', '.cursor', 'skills'),
+    join(claude, 'ecc', '.kiro', 'skills'),
+    join(claude, 'plugins'),
+  ];
+}
+
+/**
+ * Path patterns that indicate translation/localization variants.
+ * These should be skipped during deduplication.
+ */
+export const TRANSLATION_PATH_PATTERNS = [
+  /\/docs\/zh-CN\//,
+  /\/docs\/zh-TW\//,
+  /\/docs\/ja-JP\//,
+  /\/docs\/ko-KR\//,
+  /\/docs\/tr\//,
+  /\/docs\/pt-BR\//,
+];
+
+// ─── Platform Detection ─────────────────────────────────────────────────────
+
+/** Infer platform compatibility from file path */
+export function inferPlatformFromPath(filePath: string): Platform[] {
+  const p = filePath.toLowerCase();
+  if (p.includes('/.claw/') || p.includes('/claw/')) return ['openclaw'];
+  if (p.includes('/.cursor/')) return ['cursor'];
+  if (p.includes('/.kiro/')) return ['kiro'];
+  if (p.includes('/.factory/')) return ['droid'];
+  if (p.includes('/.config/opencode/')) return ['opencode'];
+  if (p.includes('/.agents/skills/')) return ['claude-code', 'codex', 'universal'];
+  if (p.includes('/.claude/')) return ['claude-code'];
+  return ['universal'];
+}
+
+// ─── Thresholds ─────────────────────────────────────────────────────────────
+
+/** Minimum score to include in results */
+export const MIN_MATCH_SCORE = 0.3;
+/** Default auto-trigger threshold */
+export const DEFAULT_AUTO_THRESHOLD = 0.85;
+/** Maximum results to return */
+export const MAX_RESULTS = 5;
+/** History boost cap (additive, not multiplicative) */
+export const HISTORY_BOOST_CAP = 0.15;
+/** External catalog refresh interval (ms) */
+export const EXTERNAL_CATALOG_TTL = 24 * 60 * 60 * 1000; // 24h
+
+// ─── Functional Categories ──────────────────────────────────────────────────
+
+export const CATEGORIES = [
+  'code-quality',       // review, lint, refactor, clean
+  'testing',            // tdd, e2e, unit, coverage
+  'development',        // patterns, frameworks, languages
+  'deployment',         // ci-cd, pr, git, release
+  'design',             // frontend, ui, ux, slides
+  'planning',           // plan, blueprint, prd, architecture
+  'research',           // search, docs, analysis
+  'operations',         // devops, monitoring, infra
+  'security',           // scan, audit, compliance
+  'content',            // writing, docs, video, media
+  'data',               // database, migration, analytics
+  'orchestration',      // agent, team, workflow, mode
+  'learning',           // continuous-learning, instinct, evolve
+  'communication',      // email, slack, notifications
+  'other',
+] as const;
+
+export type Category = typeof CATEGORIES[number];
+
+// ─── Default Config ─────────────────────────────────────────────────────────
+
+export const DEFAULT_CONFIG: UserConfig = {
+  aliases: {},
+  scanPaths: [],
+  mode: 'select',
+  autoThreshold: DEFAULT_AUTO_THRESHOLD,
+  engine: 'tag',
+  compileModel: 'claude-sonnet-4-6',
+  externalDiscovery: false,
+  platform: 'claude-code',
+  language: 'auto',
+};
+
+// ─── Graph Version ──────────────────────────────────────────────────────────
+
+export const GRAPH_VERSION = '1.0.0';
