@@ -123,6 +123,8 @@ export const DEFAULT_CONFIG: UserConfig = {
   autoThreshold: DEFAULT_AUTO_THRESHOLD,
   engine: 'tag',
   compileModel: 'claude-sonnet-4-6',
+  embeddingApiBase: 'https://api.siliconflow.cn/v1',
+  embeddingModel: 'BAAI/bge-m3',
   externalDiscovery: false,
   platform: 'claude-code',
   language: 'auto',

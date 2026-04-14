@@ -169,6 +169,12 @@ export interface UserConfig {
   compileApiBase?: string;
   /** LLM API key */
   compileApiKey?: string;
+  /** Embedding API base URL */
+  embeddingApiBase?: string;
+  /** Embedding API key */
+  embeddingApiKey?: string;
+  /** Embedding model name */
+  embeddingModel?: string;
   /** Enable external capability discovery */
   externalDiscovery: boolean;
   /** Current platform (auto-detected or manual) */

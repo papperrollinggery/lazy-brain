@@ -17,22 +17,28 @@ import type {
   UserConfig,
   Platform,
   HistoryEntry,
+  EmbeddingProvider,
 } from '../types.js';
 import { MAX_RESULTS, HISTORY_BOOST_CAP } from '../constants.js';
 import { Graph } from '../graph/graph.js';
 import { tagMatch } from './tag-layer.js';
+import { semanticMatch, mergeTagAndSemantic } from './semantic-layer.js';
 
 export interface MatchOptions {
   graph: Graph;
   config: UserConfig;
   history?: HistoryEntry[];
+  embeddingProvider?: EmbeddingProvider;
 }
 
 /**
  * Full matching pipeline: alias → tag → (embedding) → graph enrichment.
  */
-export function match(query: string, options: MatchOptions): Recommendation {
-  const { graph, config, history } = options;
+export async function match(
+  query: string,
+  options: MatchOptions,
+): Promise<Recommendation> {
+  const { graph, config, history, embeddingProvider } = options;
   const allNodes = graph.getAllNodes();
   const platform = config.platform;
 
@@ -51,13 +57,23 @@ export function match(query: string, options: MatchOptions): Recommendation {
   }
 
   // ─── Layer 2: Embedding fallback (if enabled and tag results weak) ────
-  // TODO: implement when embedding module is added
-  // if (config.engine === 'embedding' || config.engine === 'hybrid') {
-  //   if (results.length === 0 || results[0].score < 0.5) {
-  //     const embeddingResults = semanticMatch(query, allNodes, platform);
-  //     results = mergeResults(results, embeddingResults);
-  //   }
-  // }
+  if (
+    (config.engine === 'embedding' || config.engine === 'hybrid') &&
+    embeddingProvider
+  ) {
+    if (results.length === 0 || results[0].score < 0.5) {
+      const semanticResults = await semanticMatch(query, allNodes, {
+        provider: embeddingProvider,
+        topK: MAX_RESULTS,
+      });
+
+      if (config.engine === 'hybrid') {
+        results = mergeTagAndSemantic(results, semanticResults);
+      } else {
+        results = semanticResults;
+      }
+    }
+  }
 
   // ─── Build enriched recommendation via graph traversal ────────────────
   return buildRecommendation(results, graph, platform);

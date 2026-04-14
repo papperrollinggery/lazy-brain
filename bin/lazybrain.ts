@@ -29,6 +29,7 @@ import { createLLMProvider } from '../src/compiler/llm-provider.js';
 import { classifyCategory } from '../src/compiler/category-classifier.js';
 import { loadConfig, saveConfig, updateConfig } from '../src/config/config.js';
 import { generateWiki } from '../src/graph/wiki-generator.js';
+import { createEmbeddingProvider, type ApiEmbeddingConfig } from '../src/indexer/embeddings/provider.js';
 import type { Capability, RawCapability, UserConfig } from '../src/types.js';
 
 const args = process.argv.slice(2);
@@ -186,6 +187,52 @@ async function cmdCompile() {
     console.log(`  Nodes: ${s.nodes}, Links: ${s.links}, Categories: ${s.categories}`);
     console.log(`\n  Saved to ${GRAPH_PATH}`);
   }
+
+  // ─── Embedding generation ──────────────────────────────────────────────
+  const shouldEmbed = args.includes('--with-embeddings') || config.engine === 'embedding' || config.engine === 'hybrid';
+
+  if (shouldEmbed) {
+    const graphToEmbed = Graph.load(GRAPH_PATH);
+    const allNodes = graphToEmbed.getAllNodes();
+    const needsEmbedding = allNodes.filter(n => !n.embedding || n.embedding.length === 0);
+
+    if (needsEmbedding.length > 0) {
+      if (!config.embeddingApiKey) {
+        console.error('  Embedding API key not set. Run: lazybrain config set embeddingApiKey <key>');
+        process.exit(1);
+      }
+      console.log(`\nGenerating embeddings for ${needsEmbedding.length} capabilities...`);
+      const embeddingConfig: ApiEmbeddingConfig = {
+        apiBase: config.embeddingApiBase ?? 'https://api.siliconflow.cn/v1',
+        apiKey: config.embeddingApiKey,
+        model: config.embeddingModel ?? 'BAAI/bge-m3',
+      };
+      const provider = createEmbeddingProvider(embeddingConfig);
+      const BATCH_SIZE = 32;
+
+      for (let i = 0; i < needsEmbedding.length; i += BATCH_SIZE) {
+        const batch = needsEmbedding.slice(i, i + BATCH_SIZE);
+        const texts = batch.map(cap =>
+          `${cap.name}: ${cap.description}. Tags: ${cap.tags.join(', ')}`
+        );
+        const embeddings = await provider.embedBatch(texts);
+
+        for (let j = 0; j < batch.length; j++) {
+          const node = graphToEmbed.getNode(batch[j].id);
+          if (node) {
+            node.embedding = embeddings[j];
+          }
+        }
+
+        process.stdout.write(`\r  [${Math.min(i + BATCH_SIZE, needsEmbedding.length)}/${needsEmbedding.length}]`);
+      }
+
+      graphToEmbed.save(GRAPH_PATH);
+      console.log(`\n  Embeddings saved to ${GRAPH_PATH}`);
+    } else {
+      console.log('\nAll capabilities already have embeddings.');
+    }
+  }
 }
 
 /**
@@ -301,7 +348,7 @@ function generateOfflineQueries(raw: RawCapability): string[] {
 
 // ─── Match ────────────────────────────────────────────────────────────────
 
-function cmdMatch(implicitQuery?: string) {
+async function cmdMatch(implicitQuery?: string) {
   const query = implicitQuery ?? args[1];
   if (!query) {
     console.error('Usage: lazybrain match "<query>"');
@@ -316,7 +363,15 @@ function cmdMatch(implicitQuery?: string) {
   const graph = Graph.load(GRAPH_PATH);
   const config = loadConfig();
 
-  const result = match(query, { graph, config });
+  const embeddingProvider = (config.engine === 'embedding' || config.engine === 'hybrid') && config.embeddingApiKey
+    ? createEmbeddingProvider({
+        apiBase: config.embeddingApiBase ?? 'https://api.siliconflow.cn/v1',
+        apiKey: config.embeddingApiKey,
+        model: config.embeddingModel ?? 'BAAI/bge-m3',
+      })
+    : undefined;
+
+  const result = await match(query, { graph, config, embeddingProvider });
 
   if (result.matches.length === 0) {
     console.log(`No matches for "${query}".`);

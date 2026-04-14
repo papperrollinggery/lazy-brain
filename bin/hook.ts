@@ -16,6 +16,13 @@ import { GRAPH_PATH } from '../src/constants.js';
 import { Graph } from '../src/graph/graph.js';
 import { match } from '../src/matcher/matcher.js';
 import { loadConfig } from '../src/config/config.js';
+import { createEmbeddingProvider } from '../src/indexer/embeddings/provider.js';
+
+interface EmbeddingConfig {
+  apiBase: string;
+  apiKey: string;
+  model: string;
+}
 
 interface HookInput {
   session_id?: string;
@@ -29,7 +36,7 @@ interface HookOutput {
   additionalSystemPrompt?: string;
 }
 
-function main() {
+async function main() {
   let input: HookInput = {};
   try {
     const raw = readFileSync('/dev/stdin', 'utf-8').trim();
@@ -55,7 +62,16 @@ function main() {
   try {
     const graph = Graph.load(GRAPH_PATH);
     const config = loadConfig();
-    const result = match(prompt, { graph, config });
+
+    const embeddingProvider = (config.engine === 'embedding' || config.engine === 'hybrid') && config.embeddingApiKey
+      ? createEmbeddingProvider({
+          apiBase: config.embeddingApiBase ?? 'https://api.siliconflow.cn/v1',
+          apiKey: config.embeddingApiKey,
+          model: config.embeddingModel ?? 'BAAI/bge-m3',
+        })
+      : undefined;
+
+    const result = await match(prompt, { graph, config, embeddingProvider });
 
     if (result.matches.length === 0) {
       output({ continue: true });
