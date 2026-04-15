@@ -11,8 +11,9 @@
  *   stdout: { continue: true, additionalSystemPrompt?: string }
  */
 
-import { readFileSync, existsSync } from 'node:fs';
-import { GRAPH_PATH, CAPABILITY_MODEL_HINTS } from '../src/constants.js';
+import { readFileSync, existsSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { GRAPH_PATH, CAPABILITY_MODEL_HINTS, LAZYBRAIN_DIR } from '../src/constants.js';
 import { Graph } from '../src/graph/graph.js';
 import { match } from '../src/matcher/matcher.js';
 import { loadConfig } from '../src/config/config.js';
@@ -248,6 +249,7 @@ async function main() {
       renderParchment({ type: 'no_graph' });
     }
     process.stderr.write('[LazyBrain] No graph found. Run `lazybrain scan && lazybrain compile` first.\n');
+    writeLastMatch(null, 0);
     output({ continue: true });
     return;
   }
@@ -269,6 +271,7 @@ async function main() {
 
     if (result.matches.length === 0) {
       if (config.mode === 'ask') renderParchment({ type: 'no_match' });
+      writeLastMatch(null, 0);
       output({ continue: true });
       return;
     }
@@ -304,6 +307,7 @@ async function main() {
         layer: 'tag',
       });
 
+      writeLastMatch(top.capability.name, top.score, top.historyBoost);
       output({ continue: true, additionalSystemPrompt: text });
       return;
     }
@@ -311,6 +315,7 @@ async function main() {
     // ─── Low confidence (< 0.4) and no API — skip injection ───
     if (top.score < 0.4 && !config.compileApiBase) {
       if (config.mode === 'ask') renderParchment({ type: 'sleeping' });
+      writeLastMatch(top.capability.name, top.score, top.historyBoost);
       output({ continue: true });
       return;
     }
@@ -359,6 +364,7 @@ async function main() {
             layer: 'llm',
           });
 
+          writeLastMatch(secretaryResult.primary, secretaryResult.confidence);
           output({ continue: true, additionalSystemPrompt: text });
           return;
         }
@@ -390,11 +396,13 @@ async function main() {
         layer: 'tag',
       });
 
+      writeLastMatch(top.capability.name, top.score, top.historyBoost);
       output({ continue: true, additionalSystemPrompt: text });
       return;
     }
 
     if (config.mode === 'ask') renderParchment({ type: 'sleeping' });
+    writeLastMatch(null, 0);
     output({ continue: true });
   } catch (err: unknown) {
     const code = (err as { status?: number })?.status ?? 'ERR';
@@ -402,12 +410,24 @@ async function main() {
     if (config.mode === 'ask') {
       renderParchment({ type: 'secretary_dead', code: String(code) });
     }
+    writeLastMatch(null, 0);
     output({ continue: true });
   }
 }
 
 function output(data: HookOutput) {
   process.stdout.write(JSON.stringify(data) + '\n');
+}
+
+function writeLastMatch(tool: string | null, score: number, historyBoost?: number): void {
+  try {
+    writeFileSync(join(LAZYBRAIN_DIR, 'last-match.json'), JSON.stringify({
+      tool,
+      score,
+      historyBoost: historyBoost ?? 0,
+      updatedAt: Date.now(),
+    }));
+  } catch {}
 }
 
 function formatFallback(
