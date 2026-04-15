@@ -50,6 +50,10 @@ export class ApiEmbeddingProvider implements EmbeddingProvider {
       data: Array<{ embedding: number[]; index: number }>;
     };
 
+    if (data.data.length !== texts.length) {
+      throw new Error(`Embedding API returned ${data.data.length} results for ${texts.length} inputs`);
+    }
+
     return data.data
       .sort((a, b) => a.index - b.index)
       .map(d => d.embedding);

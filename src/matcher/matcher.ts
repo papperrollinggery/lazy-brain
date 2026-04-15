@@ -42,6 +42,18 @@ export async function match(
   const allNodes = graph.getAllNodes();
   const platform = config.platform;
 
+  // Empty graph check
+  if (allNodes.length === 0) {
+    return {
+      matches: [],
+      comparisons: [],
+      compositions: [],
+      upgrades: [],
+      external: [],
+      warnings: ['Graph is empty. Run `lazybrain scan && lazybrain compile` first.'],
+    };
+  }
+
   // ─── Layer 0: Alias exact match ───────────────────────────────────────
   const aliasResult = matchAlias(query, config.aliases, allNodes);
   if (aliasResult) {
@@ -120,24 +132,30 @@ function applyHistoryBoost(
   results: MatchResult[],
   history: HistoryEntry[],
 ): MatchResult[] {
-  // Count accepted matches per capability
+  // Count accepted matches per capability (prefer id over name for stability)
   const freq: Record<string, number> = {};
   for (const entry of history) {
     if (entry.accepted) {
-      freq[entry.matched] = (freq[entry.matched] ?? 0) + 1;
+      // Use id if available, fall back to matched (name)
+      const key = entry.id ?? entry.matched;
+      freq[key] = (freq[key] ?? 0) + 1;
     }
   }
 
   const maxFreq = Math.max(1, ...Object.values(freq));
 
-  return results.map(r => {
-    const f = freq[r.capability.name] ?? 0;
-    const boost = (f / maxFreq) * HISTORY_BOOST_CAP;
+  const boosted = results.map(r => {
+    const f = freq[r.capability.id] ?? freq[r.capability.name] ?? 0;
+    if (f === 0) return r;
+
+    const boost = HISTORY_BOOST_CAP * (f / maxFreq);
     return {
       ...r,
       score: Math.min(1, r.score + boost),
     };
-  }).sort((a, b) => b.score - a.score);
+  });
+
+  return boosted.sort((a, b) => b.score - a.score);
 }
 
 // ─── Graph Enrichment ─────────────────────────────────────────────────────

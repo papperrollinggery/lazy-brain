@@ -49,6 +49,31 @@ Respond with JSON:
 }`;
 }
 
+function makeBatchTagPrompt(caps: RawCapability[]): string {
+  const items = caps.map((cap, i) =>
+    `[${i + 1}] Name: ${cap.name}
+Kind: ${cap.kind}
+Description: ${cap.description}
+${cap.triggers?.length ? `Triggers: ${cap.triggers.join(', ')}` : ''}`
+  ).join('\n\n');
+
+  return `Analyze these ${caps.length} AI coding agent capabilities and generate metadata for EACH.
+
+${items}
+
+Respond with a JSON array (one object per capability, in order):
+[
+  {
+    "name": "capability-name",
+    "tags": ["keyword1", "keyword2", ...],
+    "exampleQueries": ["query1", "query2", ...],
+    "category": "one-of: ${CATEGORIES.join(', ')}",
+    "scenario": "one sentence: when to use this"
+  },
+  ...
+]`;
+}
+
 function makeRelationPrompt(
   cap: RawCapability,
   neighbors: Array<{ name: string; description: string }>,
@@ -101,6 +126,8 @@ export interface CompileOptions {
   relationBatchSize?: number;
   /** Concurrency for LLM calls in Phase 1 */
   concurrency?: number;
+  /** Force full relation inference (not just new nodes) */
+  forceRelations?: boolean;
   /** Progress callback */
   onProgress?: (current: number, total: number, name: string) => void;
   /** Relation inference progress callback */
@@ -111,7 +138,7 @@ export async function compile(
   rawCapabilities: RawCapability[],
   options: CompileOptions,
 ): Promise<CompileResult> {
-  const { llm, modelName, existingGraph, onProgress, onRelationProgress } = options;
+  const { llm, modelName, existingGraph, onProgress, onRelationProgress, forceRelations = false } = options;
   const batchSize = options.relationBatchSize ?? 10;
   const concurrency = options.concurrency ?? 5;
 
@@ -121,6 +148,7 @@ export async function compile(
   let skipped = 0;
   const errors: string[] = [];
   let progressCount = 0;
+  const newlyCompiledIds: string[] = [];
 
   // Phase 1: Enrich each capability with tags, example queries, category
   // Filter out already-compiled nodes first
@@ -135,59 +163,97 @@ export async function compile(
     }
   }
 
-  // Process in concurrent batches
-  for (let i = 0; i < toCompile.length; i += concurrency) {
-    const batch = toCompile.slice(i, i + concurrency);
-    const results = await Promise.allSettled(
-      batch.map(async ({ raw }) => {
-        const prompt = makeTagPrompt(raw);
-        const response = await llm.complete(prompt, SYSTEM_PROMPT);
-        return { raw, response };
-      }),
-    );
+  // Process in concurrent batches (batch of capabilities per LLM call)
+  const BATCH_SIZE = 5;
+  for (let i = 0; i < toCompile.length; i += BATCH_SIZE) {
+    const batch = toCompile.slice(i, i + BATCH_SIZE);
+    const batchRaws = batch.map(b => b.raw);
 
-    for (const result of results) {
-      if (result.status === 'rejected') {
-        const batchItem = batch[results.indexOf(result)];
-        const raw = batchItem.raw;
+    // Try batch prompt first
+    const batchPrompt = makeBatchTagPrompt(batchRaws);
+    const batchResponse = await llm.complete(batchPrompt, SYSTEM_PROMPT);
+    totalTokens.input += batchResponse.inputTokens;
+    totalTokens.output += batchResponse.outputTokens;
+
+    const enrichments = parseJsonResponse<Array<{
+      tags: string[];
+      exampleQueries: string[];
+      category: string;
+      scenario: string;
+    }>>(batchResponse.content);
+
+    // If batch failed, fallback to individual prompts
+    if (!enrichments || enrichments.length !== batchRaws.length) {
+      process.stderr.write(`\n[BATCH PARSE FAIL] Expected ${batchRaws.length}, got ${enrichments?.length ?? 0}. Falling back to individual prompts.\n`);
+      for (let j = 0; j < batch.length; j++) {
+        const { raw } = batch[j];
         const id = makeCapabilityId(raw.kind, raw.name, raw.origin);
-        const errMsg = result.reason instanceof Error ? result.reason.message : String(result.reason);
-        errors.push(`${raw.name}: ${errMsg}`);
-        graph.addNode({
-          id,
-          kind: raw.kind,
-          name: raw.name,
-          description: raw.description,
-          origin: raw.origin,
-          status: 'installed',
-          compatibility: raw.compatibility,
-          filePath: raw.filePath,
-          tags: raw.triggers ?? [],
-          exampleQueries: [],
-          category: 'other',
-          meta: raw.meta,
-        });
+
+        try {
+          const prompt = makeTagPrompt(raw);
+          const response = await llm.complete(prompt, SYSTEM_PROMPT);
+          totalTokens.input += response.inputTokens;
+          totalTokens.output += response.outputTokens;
+
+          const enrichment = parseJsonResponse<{
+            tags: string[];
+            exampleQueries: string[];
+            category: string;
+            scenario: string;
+          }>(response.content);
+
+          if (!enrichment) {
+            process.stderr.write(`[PARSE FAIL] ${raw.name}\n`);
+          }
+
+          graph.addNode({
+            id,
+            kind: raw.kind,
+            name: raw.name,
+            description: raw.description,
+            origin: raw.origin,
+            status: 'installed',
+            compatibility: raw.compatibility,
+            filePath: raw.filePath,
+            tags: enrichment?.tags ?? [],
+            exampleQueries: enrichment?.exampleQueries ?? [],
+            category: enrichment?.category ?? 'other',
+            scenario: enrichment?.scenario,
+            triggers: raw.triggers,
+            meta: raw.meta,
+            tier: raw.tier,
+          });
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          errors.push(`${raw.name}: ${errMsg}`);
+          graph.addNode({
+            id,
+            kind: raw.kind,
+            name: raw.name,
+            description: raw.description,
+            origin: raw.origin,
+            status: 'installed',
+            compatibility: raw.compatibility,
+            filePath: raw.filePath,
+            tags: raw.triggers ?? [],
+            exampleQueries: [],
+            category: 'other',
+            meta: raw.meta,
+          });
+        }
+        newlyCompiledIds.push(id);
         compiled++;
         progressCount++;
         onProgress?.(progressCount + skipped, rawCapabilities.length, raw.name);
-        continue;
       }
+      continue;
+    }
 
-      const { raw, response } = result.value;
+    // Process successful batch results
+    for (let j = 0; j < batch.length; j++) {
+      const raw = batch[j].raw;
+      const enrichment = enrichments[j];
       const id = makeCapabilityId(raw.kind, raw.name, raw.origin);
-      totalTokens.input += response.inputTokens;
-      totalTokens.output += response.outputTokens;
-
-      const enrichment = parseJsonResponse<{
-        tags: string[];
-        exampleQueries: string[];
-        category: string;
-        scenario: string;
-      }>(response.content);
-
-      if (!enrichment) {
-        process.stderr.write(`\n[PARSE FAIL] ${raw.name}: ${JSON.stringify(response.content.slice(0, 200))}\n`);
-      }
 
       graph.addNode({
         id,
@@ -206,6 +272,7 @@ export async function compile(
         meta: raw.meta,
         tier: raw.tier,
       });
+      newlyCompiledIds.push(id);
       compiled++;
       progressCount++;
       onProgress?.(progressCount + skipped, rawCapabilities.length, raw.name);
@@ -213,19 +280,32 @@ export async function compile(
 
     // Check for total batch failure (first batch only) - likely API key issue
     if (i === 0) {
-      const failedCount = results.filter(r => r.status === 'rejected').length;
+      const failedCount = batch.length - (enrichments?.length ?? 0);
       if (failedCount === batch.length && batch.length > 0) {
-        const firstError = (results.find(r => r.status === 'rejected') as PromiseRejectedResult).reason;
-        const errMsg = firstError instanceof Error ? firstError.message : String(firstError);
-        throw new Error(`LLM API error (all ${batch.length} requests failed): ${errMsg}`);
+        throw new Error(`LLM API error: batch parse failed completely`);
       }
     }
   }
 
   // Phase 2: Infer relationships between capabilities (concurrent)
   // Only process tier 0+1 nodes for relations; tier 2 is skipped for speed
+  // If forceRelations is false, only process newly compiled nodes (incremental mode)
   const allNodes = graph.getAllNodes();
-  const relationNodes = allNodes.filter(n => n.tier === undefined || n.tier <= 1);
+  const relationNodes = forceRelations
+    ? allNodes.filter(n => n.tier === undefined || n.tier <= 1)
+    : allNodes.filter(n => newlyCompiledIds.includes(n.id));
+
+  // Skip Phase 2 if no new nodes to process
+  if (relationNodes.length === 0) {
+    return {
+      graph,
+      compiled,
+      skipped,
+      totalTokens,
+      errors,
+    };
+  }
+
   for (let i = 0; i < relationNodes.length; i += concurrency) {
     const batch = relationNodes.slice(i, i + concurrency);
     const results = await Promise.allSettled(
@@ -256,6 +336,11 @@ export async function compile(
           confidence: number;
         }>>(response.content);
 
+        if (!relations) {
+          errors.push(`relation:${node.id}: failed to parse LLM response`);
+          return { nodeId: node.id, relations: [] };
+        }
+
         return { nodeId: node.id, relations: Array.isArray(relations) ? relations : [] };
       }),
     );
@@ -268,11 +353,16 @@ export async function compile(
         errors.push(`relation:${failedNode?.name ?? '?'}: ${errMsg}`);
         continue;
       }
-      if (!result.value || Array.isArray(result.value)) continue;
-      const { nodeId, relations } = result.value as { nodeId: string; relations: Array<{ target: string; type: string; description?: string; diff?: string; confidence: number }> };
-      for (const rel of relations) {
+      if (result.status !== 'fulfilled') continue;
+      const val = result.value;
+      if (!val || Array.isArray(val)) continue;
+      const { nodeId, relations } = val as { nodeId: string; relations: Array<{ target: string; type: string; description?: string; diff?: string; confidence: number }> };
+      for (const rel of relations.filter(r => r.target && r.type && typeof r.confidence === 'number')) {
         const targetNode = graph.findByName(rel.target);
-        if (!targetNode) continue;
+        if (!targetNode) {
+          process.stderr.write(`[DEBUG] relation:${nodeId}->${rel.target}: target not found\n`);
+          continue;
+        }
         if (rel.confidence < 0.6) continue;
         graph.addLink({
           source: nodeId,

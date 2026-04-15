@@ -55,12 +55,14 @@ async function main() {
 
   // Skip if graph doesn't exist yet
   if (!existsSync(GRAPH_PATH)) {
+    // Output hint to stderr so user knows what's happening
+    process.stderr.write('[LazyBrain] No graph found. Run `lazybrain scan && lazybrain compile` first.\n');
     output({ continue: true });
     return;
   }
 
   try {
-    const graph = Graph.load(GRAPH_PATH);
+    const graph = Graph.loadMetaOnly(GRAPH_PATH);
     const config = loadConfig();
 
     const embeddingProvider = (config.engine === 'embedding' || config.engine === 'hybrid') && config.embeddingApiKey

@@ -26,8 +26,8 @@ export function tokenize(text: string): string[] {
     }
   }
 
-  // Extract Latin words (2+ chars)
-  const words = lower.match(/[a-z][a-z0-9-]{1,}/g);
+  // Extract Latin words (including single-char like "ai", "v2", "3d"):
+  const words = lower.match(/[a-z0-9][a-z0-9-]*/g);
   if (words) tokens.push(...words);
 
   return [...new Set(tokens)];

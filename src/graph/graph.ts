@@ -5,8 +5,35 @@
  * Serializes to/from graph.json.
  */
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync } from 'node:fs';
 import { dirname } from 'node:path';
+
+function withFileLock<T>(lockPath: string, fn: () => T, timeoutMs = 3000): T {
+  const lockFile = lockPath + '.lock';
+  const start = Date.now();
+
+  while (existsSync(lockFile)) {
+    if (Date.now() - start > timeoutMs) {
+      try { unlinkSync(lockFile); } catch {}
+      break;
+    }
+    const end = Date.now() + 20;
+    while (Date.now() < end) {}
+  }
+
+  try {
+    writeFileSync(lockFile, String(process.pid), { flag: 'wx' });
+  } catch {
+    // Lock file exists, will be handled by while loop above on retry
+  }
+
+  try {
+    return fn();
+  } finally {
+    try { unlinkSync(lockFile); } catch {}
+  }
+}
+
 import type {
   Capability,
   CapabilityGraph,
@@ -25,14 +52,32 @@ export class Graph {
 
   // ─── Load / Save ────────────────────────────────────────────────────────
 
-  static load(path: string = GRAPH_PATH): Graph {
+  /** Load graph without embeddings — fast path for hook */
+  static loadMetaOnly(path: string = GRAPH_PATH): Graph {
     const g = new Graph();
     if (!existsSync(path)) return g;
     const raw: CapabilityGraph = JSON.parse(readFileSync(path, 'utf-8'));
     for (const node of raw.nodes) {
-      g.nodes.set(node.id, node);
+      const validNode: Capability = {
+        id: node.id ?? `unknown-${g.nodes.size}`,
+        kind: node.kind ?? 'skill',
+        name: node.name ?? 'Unnamed',
+        description: node.description ?? '',
+        origin: node.origin ?? 'unknown',
+        status: node.status ?? 'installed',
+        compatibility: Array.isArray(node.compatibility) ? node.compatibility : ['universal'],
+        filePath: node.filePath,
+        tags: Array.isArray(node.tags) ? node.tags : [],
+        exampleQueries: Array.isArray(node.exampleQueries) ? node.exampleQueries : [],
+        category: node.category ?? 'other',
+        scenario: node.scenario,
+        meta: node.meta,
+        embedding: undefined,
+        triggers: Array.isArray(node.triggers) ? node.triggers : undefined,
+      };
+      g.nodes.set(validNode.id, validNode);
     }
-    for (const link of raw.links) {
+    for (const link of raw.links ?? []) {
       g.addLinkInternal(link);
     }
     g.compileModel = raw.compileModel;
@@ -40,18 +85,106 @@ export class Graph {
     return g;
   }
 
+  static load(path: string = GRAPH_PATH): Graph {
+    const g = new Graph();
+    if (!existsSync(path)) return g;
+
+    return withFileLock(path, () => {
+      const embPath = path.replace('.json', '.embeddings.bin');
+      const indexPath = path.replace('.json', '.embeddings.index.json');
+      let embMap = new Map<string, number[]>();
+
+      if (existsSync(embPath) && existsSync(indexPath)) {
+        try {
+          const nodeIds: string[] = JSON.parse(readFileSync(indexPath, 'utf-8'));
+          const buffer = readFileSync(embPath);
+          const floats = new Float32Array(buffer.buffer, buffer.byteOffset, buffer.byteLength / 4);
+          const dim = floats.length / nodeIds.length;
+
+          for (let i = 0; i < nodeIds.length; i++) {
+            embMap.set(nodeIds[i], Array.from(floats.slice(i * dim, (i + 1) * dim)));
+          }
+        } catch {}
+      }
+
+      const raw: CapabilityGraph = JSON.parse(readFileSync(path, 'utf-8'));
+      for (const node of raw.nodes) {
+        const validNode: Capability = {
+          id: node.id ?? `unknown-${g.nodes.size}`,
+          kind: node.kind ?? 'skill',
+          name: node.name ?? 'Unnamed',
+          description: node.description ?? '',
+          origin: node.origin ?? 'unknown',
+          status: node.status ?? 'installed',
+          compatibility: Array.isArray(node.compatibility) ? node.compatibility : ['universal'],
+          filePath: node.filePath,
+          tags: Array.isArray(node.tags) ? node.tags : [],
+          exampleQueries: Array.isArray(node.exampleQueries) ? node.exampleQueries : [],
+          category: node.category ?? 'other',
+          scenario: node.scenario,
+          meta: node.meta,
+          embedding: embMap.get(node.id ?? '') ?? (Array.isArray(node.embedding) ? node.embedding : undefined),
+          triggers: Array.isArray(node.triggers) ? node.triggers : undefined,
+        };
+        g.nodes.set(validNode.id, validNode);
+      }
+      for (const link of raw.links ?? []) {
+        g.addLinkInternal(link);
+      }
+      g.compileModel = raw.compileModel;
+      g.compiledAt = raw.compiledAt;
+      return g;
+    });
+  }
+
   save(path: string = GRAPH_PATH): void {
     const dir = dirname(path);
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    const data: CapabilityGraph = {
-      version: GRAPH_VERSION,
-      compiledAt: this.compiledAt ?? new Date().toISOString(),
-      compileModel: this.compileModel,
-      nodes: [...this.nodes.values()],
-      links: this.getAllLinks(),
-      categories: [...new Set([...this.nodes.values()].map(n => n.category))].sort(),
-    };
-    writeFileSync(path, JSON.stringify(data, null, 2));
+
+    withFileLock(path, () => {
+      const embPath = path.replace('.json', '.embeddings.bin');
+      const indexPath = path.replace('.json', '.embeddings.index.json');
+
+      const embNodeIds: string[] = [];
+      const vectors: number[][] = [];
+      const metaNodes: Capability[] = [];
+
+      for (const node of this.nodes.values()) {
+        if (node.embedding && node.embedding.length > 0) {
+          embNodeIds.push(node.id);
+          vectors.push(node.embedding);
+        }
+        const { embedding, ...rest } = node;
+        metaNodes.push(rest as Capability);
+      }
+
+      const data: CapabilityGraph = {
+        version: GRAPH_VERSION,
+        compiledAt: this.compiledAt ?? new Date().toISOString(),
+        compileModel: this.compileModel,
+        nodes: metaNodes,
+        links: this.getAllLinks(),
+        categories: [...new Set(metaNodes.map(n => n.category))].sort(),
+      };
+      writeFileSync(path, JSON.stringify(data));
+
+      if (vectors.length > 0) {
+        const dim = vectors[0].length;
+        const buffer = new Float32Array(vectors.length * dim);
+        for (let i = 0; i < vectors.length; i++) {
+          buffer.set(vectors[i], i * dim);
+        }
+        writeFileSync(embPath, Buffer.from(buffer.buffer));
+        writeFileSync(indexPath, JSON.stringify(embNodeIds));
+      } else {
+        if (existsSync(embPath)) {
+          try { require('node:fs').unlinkSync(embPath); } catch {}
+        }
+        if (existsSync(indexPath)) {
+          try { require('node:fs').unlinkSync(indexPath); } catch {}
+        }
+      }
+    });
   }
 
   // ─── Node CRUD ──────────────────────────────────────────────────────────
@@ -78,7 +211,6 @@ export class Graph {
     if (!this.nodes.has(id)) return false;
     this.nodes.delete(id);
     this.adjacency.delete(id);
-    // Remove all links referencing this node
     for (const [nodeId, links] of this.adjacency) {
       this.adjacency.set(
         nodeId,
@@ -99,24 +231,20 @@ export class Graph {
   // ─── Link CRUD ──────────────────────────────────────────────────────────
 
   addLink(link: Link): void {
-    // Ensure both nodes exist
     if (!this.nodes.has(link.source) || !this.nodes.has(link.target)) return;
     this.addLinkInternal(link);
   }
 
   private addLinkInternal(link: Link): void {
-    // Bidirectional: add to both adjacency lists
     if (!this.adjacency.has(link.source)) this.adjacency.set(link.source, []);
     if (!this.adjacency.has(link.target)) this.adjacency.set(link.target, []);
 
-    // Avoid duplicate links
     const existing = this.adjacency.get(link.source)!;
     const isDup = existing.some(
       l => l.target === link.target && l.type === link.type,
     );
     if (!isDup) {
       this.adjacency.get(link.source)!.push(link);
-      // Reverse link for bidirectional traversal
       this.adjacency.get(link.target)!.push({
         ...link,
         source: link.target,
@@ -138,7 +266,6 @@ export class Graph {
     const links: Link[] = [];
     for (const nodeLinks of this.adjacency.values()) {
       for (const link of nodeLinks) {
-        // Deduplicate bidirectional pairs
         const key = [link.source, link.target, link.type].sort().join('::');
         if (!seen.has(key)) {
           seen.add(key);
@@ -149,12 +276,8 @@ export class Graph {
     return links;
   }
 
-  // ─── Traversal ──────────────────────────────────────────────────────────
+  // ─── Traversal ─────────────────────────────────────────────────────────
 
-  /**
-   * BFS from start nodes, collecting neighbors up to `depth` hops.
-   * Returns visited node IDs and traversed links.
-   */
   bfs(
     startIds: string[],
     depth: number = 2,
@@ -185,9 +308,6 @@ export class Graph {
     return { nodeIds: [...visited], links: collectedLinks };
   }
 
-  /**
-   * Find neighbors of a specific link type, 1 hop.
-   */
   neighbors(nodeId: string, type?: LinkType): Capability[] {
     const links = type ? this.getLinksByType(nodeId, type) : this.getLinks(nodeId);
     return links
@@ -197,29 +317,25 @@ export class Graph {
 
   // ─── Query Helpers ────────────────────────────────────────────────────
 
-  /** Get all nodes in a category */
   getByCategory(category: string): Capability[] {
     return [...this.nodes.values()].filter(n => n.category === category);
   }
 
-  /** Get all nodes by kind */
   getByKind(kind: Capability['kind']): Capability[] {
     return [...this.nodes.values()].filter(n => n.kind === kind);
   }
 
-  /** Get all nodes by status */
   getByStatus(status: Capability['status']): Capability[] {
     return [...this.nodes.values()].filter(n => n.status === status);
   }
 
-  /** Get all nodes compatible with a platform */
   getByPlatform(platform: Capability['compatibility'][number]): Capability[] {
     return [...this.nodes.values()].filter(
       n => n.compatibility.includes(platform) || n.compatibility.includes('universal'),
     );
   }
 
-  // ─── Stats ────────────────────────────────────────────────────────────
+  // ─── Stats ───────────────────────────────────────────────────────────
 
   stats(): {
     nodes: number;

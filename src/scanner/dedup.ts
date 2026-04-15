@@ -30,10 +30,10 @@ export function dedup(capabilities: RawCapability[]): RawCapability[] {
   // Phase 1: Filter out translations
   const nonTranslation = capabilities.filter(c => !isTranslationPath(c.filePath));
 
-  // Phase 2: Group by origin:name
+  // Phase 2: Group by origin:platform:name (different platforms are different capabilities)
   const groups = new Map<string, RawCapability[]>();
   for (const cap of nonTranslation) {
-    const key = `${cap.origin}:${cap.name}`;
+    const key = `${cap.origin}:${[...cap.compatibility].sort().join(',')}:${cap.name}`;
     const group = groups.get(key);
     if (group) {
       group.push(cap);
@@ -43,19 +43,22 @@ export function dedup(capabilities: RawCapability[]): RawCapability[] {
   }
 
   // Phase 3: Merge each group into one canonical entry
+  // Prefer the one with more platforms in compatibility
   const result: RawCapability[] = [];
   for (const group of groups.values()) {
-    const canonical = group[0]; // First found = canonical
+    const canonical = group.reduce((best, cap) => {
+      return cap.compatibility.length > best.compatibility.length ? cap : best;
+    });
 
     // Merge triggers from all duplicates
     if (group.length > 1) {
-      const allTriggers = new Set(canonical.triggers ?? []);
-      for (let i = 1; i < group.length; i++) {
-        for (const t of group[i].triggers ?? []) {
+      const allTriggers = new Set<string>();
+      for (const cap of group) {
+        for (const t of cap.triggers ?? []) {
           allTriggers.add(t);
         }
       }
-      canonical.triggers = [...allTriggers];
+      canonical.triggers = [...allTriggers].sort((a, b) => a.localeCompare(b));
     }
 
     result.push(canonical);

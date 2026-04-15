@@ -148,6 +148,8 @@ export interface Recommendation {
   }>;
   /** Available but not installed */
   external: MatchResult[];
+  /** Warnings or info messages */
+  warnings?: string[];
 }
 
 // ─── User Config ────────────────────────────────────────────────────────────
@@ -193,10 +195,10 @@ export interface UserConfig {
 export interface HistoryEntry {
   timestamp: string;
   query: string;
-  matched: string;    // Capability name
+  matched: string;    // Capability name (deprecated, use id)
+  id?: string;        // Capability id (stable)
   accepted: boolean;
   layer: MatchLayer;
-  score: number;
 }
 
 // ─── Scanner ────────────────────────────────────────────────────────────────

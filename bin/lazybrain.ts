@@ -310,6 +310,7 @@ async function cmdCompile() {
       llm,
       modelName: config.compileModel,
       existingGraph: liveGraph,
+      forceRelations: args.includes('--force'),
       onProgress: (current, total, name) => {
         phase1Bar.update(current, name);
       },
