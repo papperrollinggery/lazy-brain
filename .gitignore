@@ -2,3 +2,5 @@ node_modules/
 dist/
 .lazybrain/
 *.tsbuildinfo
+.env
+*.env

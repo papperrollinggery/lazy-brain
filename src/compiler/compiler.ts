@@ -173,7 +173,29 @@ export async function compile(
 
     // Try batch prompt first
     const batchPrompt = makeBatchTagPrompt(batchRaws);
-    const batchResponse = await llm.complete(batchPrompt, SYSTEM_PROMPT);
+    let batchResponse: LLMResponse;
+    try {
+      batchResponse = await llm.complete(batchPrompt, SYSTEM_PROMPT);
+    } catch (err) {
+      // First batch failure likely means API key/config issue — abort early
+      if (i === 0) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        console.error(`\nLLM API error (first batch failed): ${errMsg}`);
+        console.error('Check: compileApiBase, compileApiKey, compileModel in ~/.lazybrain/config.json');
+        process.exit(1);
+      }
+      // Subsequent batch failures: record errors and skip
+      for (const { raw } of batch) {
+        const id = makeCapabilityId(raw.kind, raw.name, raw.origin);
+        errors.push(`${raw.name}: LLM request failed`);
+        graph.addNode({ id, kind: raw.kind, name: raw.name, description: raw.description, origin: raw.origin, status: 'installed', compatibility: raw.compatibility, filePath: raw.filePath, tags: raw.triggers ?? [], exampleQueries: [], category: 'other', meta: raw.meta });
+        newlyCompiledIds.push(id);
+        compiled++;
+        progressCount++;
+        onProgress?.(progressCount + skipped, rawCapabilities.length, raw.name);
+      }
+      continue;
+    }
     totalTokens.input += batchResponse.inputTokens;
     totalTokens.output += batchResponse.outputTokens;
 
@@ -282,13 +304,6 @@ export async function compile(
       if (checkpointPath) graph.save(checkpointPath);
     }
 
-    // Check for total batch failure (first batch only) - likely API key issue
-    if (i === 0) {
-      const failedCount = batch.length - (enrichments?.length ?? 0);
-      if (failedCount === batch.length && batch.length > 0) {
-        throw new Error(`LLM API error: batch parse failed completely`);
-      }
-    }
   }
 
   // Phase 2: Infer relationships between capabilities (concurrent)
