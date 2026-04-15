@@ -133,3 +133,14 @@ export const DEFAULT_CONFIG: UserConfig = {
 // ─── Graph Version ──────────────────────────────────────────────────────────
 
 export const GRAPH_VERSION = '1.0.0';
+
+// ─── Secretary Layer ─────────────────────────────────────────────────────────
+
+export const SECRETARY_THRESHOLD = 0.85;
+export const SECRETARY_LOW_THRESHOLD = 0.5;
+export const SECRETARY_TIMEOUT_MS = 2000;
+export const SECRETARY_RATE_LIMIT_MS = 30000;
+export const SECRETARY_CONTEXT_SIZE = 20;
+export const SECRETARY_CONTEXT_TOKENS = 1200;
+export const SECRETARY_CIRCUIT_BREAKER_THRESHOLD = 3;
+export const SECRETARY_CIRCUIT_BREAKER_PAUSE_MS = 600000;

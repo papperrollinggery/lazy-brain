@@ -70,6 +70,9 @@ async function main() {
     case 'hook':
       cmdHook();
       break;
+    case 'migrate':
+      await cmdMigrate();
+      break;
     case '--version':
     case '-v':
       console.log('lazybrain 0.1.0');
@@ -821,6 +824,32 @@ function cmdHook() {
   }
 }
 
+// ─── Migrate ──────────────────────────────────────────────────────────────
+
+async function cmdMigrate() {
+  const { statSync } = await import('node:fs');
+  if (!existsSync(GRAPH_PATH)) {
+    console.error('No graph found. Run lazybrain compile first.');
+    process.exit(1);
+  }
+  const before = statSync(GRAPH_PATH).size;
+  console.log(`Loading graph (${(before / 1024 / 1024).toFixed(1)} MB)...`);
+  const graph = Graph.load(GRAPH_PATH);
+  const nodes = graph.getAllNodes();
+  const withEmb = nodes.filter(n => n.embedding && n.embedding.length > 0).length;
+  console.log(`Nodes: ${nodes.length}, with embedding: ${withEmb}`);
+  console.log('Saving in split format (meta + embeddings.bin)...');
+  graph.save(GRAPH_PATH);
+  const after = statSync(GRAPH_PATH).size;
+  const embPath = GRAPH_PATH.replace('.json', '.embeddings.bin');
+  const embSize = existsSync(embPath) ? statSync(embPath).size : 0;
+  console.log(`Done:`);
+  console.log(`  graph.json: ${(after / 1024 / 1024).toFixed(1)} MB (was ${(before / 1024 / 1024).toFixed(1)} MB)`);
+  if (embSize > 0) {
+    console.log(`  graph.embeddings.bin: ${(embSize / 1024 / 1024).toFixed(1)} MB`);
+  }
+}
+
 // ─── Help ─────────────────────────────────────────────────────────────────
 
 function printHelp() {
@@ -843,6 +872,7 @@ Usage:
   lazybrain config set <key> <val>   Set config value
   lazybrain config show              Show config
   lazybrain wiki                     Generate wiki articles
+  lazybrain migrate                  Migrate graph.json to split format (meta + embeddings.bin)
   lazybrain --version                Show version
 `);
 }

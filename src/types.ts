@@ -152,6 +152,53 @@ export interface Recommendation {
   warnings?: string[];
 }
 
+// ─── Wiki Card ────────────────────────────────────────────────────────────────
+
+export interface WikiCard {
+  capability: Capability;
+  primaryUse?: string;
+  composesWith: Array<{
+    capability: Capability;
+    reason: string;
+  }>;
+  similarTo: Array<{
+    capability: Capability;
+    diff: string;
+  }>;
+  dependsOn: Array<{
+    capability: Capability;
+  }>;
+  tags: string[];
+  topExampleQueries: string[];
+}
+
+// ─── Secretary ────────────────────────────────────────────────────────────────
+
+export interface SecretaryConfig {
+  /** Enable secretary layer */
+  enabled: boolean;
+  /** Timeout for secretary LLM call in ms */
+  timeoutMs: number;
+  /** Rate limit: same session cooldown in ms */
+  rateLimitMs: number;
+  /** Confidence threshold to skip secretary */
+  confidenceThreshold: number;
+  /** Confidence threshold to call secretary */
+  lowConfidenceThreshold: number;
+  /** Circuit breaker: pause after N consecutive failures */
+  circuitBreakerThreshold: number;
+  /** Circuit breaker: pause duration in ms */
+  circuitBreakerPauseMs: number;
+}
+
+export interface SecretaryResponse {
+  primary: string;
+  secondary: string[];
+  plan: string;
+  confidence: number;
+  reasoning: string;
+}
+
 // ─── User Config ────────────────────────────────────────────────────────────
 
 export type MatchMode = 'auto' | 'select';

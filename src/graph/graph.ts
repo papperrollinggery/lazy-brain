@@ -39,8 +39,7 @@ import type {
   CapabilityGraph,
   Link,
   LinkType,
-  Recommendation,
-  MatchResult,
+  WikiCard,
 } from '../types.js';
 import { GRAPH_PATH, GRAPH_VERSION } from '../constants.js';
 
@@ -356,6 +355,50 @@ export class Graph {
       categories: new Set([...this.nodes.values()].map(n => n.category)).size,
       byKind,
       byStatus,
+    };
+  }
+
+  // ─── Wiki Card ─────────────────────────────────────────────────────────
+
+  getWikiCard(nodeId: string): WikiCard | null {
+    const node = this.nodes.get(nodeId);
+    if (!node) return null;
+
+    const composesWith: WikiCard['composesWith'] = [];
+    const similarTo: WikiCard['similarTo'] = [];
+    const dependsOn: WikiCard['dependsOn'] = [];
+
+    for (const link of this.getLinks(nodeId)) {
+      const neighbor = this.nodes.get(link.target);
+      if (!neighbor) continue;
+
+      switch (link.type) {
+        case 'composes_with':
+          composesWith.push({
+            capability: neighbor,
+            reason: link.description ?? '',
+          });
+          break;
+        case 'similar_to':
+          similarTo.push({
+            capability: neighbor,
+            diff: link.diff ?? link.description ?? '',
+          });
+          break;
+        case 'depends_on':
+          dependsOn.push({ capability: neighbor });
+          break;
+      }
+    }
+
+    return {
+      capability: node,
+      primaryUse: node.scenario,
+      composesWith,
+      similarTo,
+      dependsOn,
+      tags: node.tags.slice(0, 5),
+      topExampleQueries: node.exampleQueries.slice(0, 3),
     };
   }
 
