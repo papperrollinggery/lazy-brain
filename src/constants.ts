@@ -17,6 +17,8 @@ export const CONFIG_PATH = join(LAZYBRAIN_DIR, 'config.json');
 export const HISTORY_PATH = join(LAZYBRAIN_DIR, 'history.jsonl');
 export const WIKI_DIR = join(LAZYBRAIN_DIR, 'wiki');
 export const EXTERNAL_CATALOG_PATH = join(LAZYBRAIN_DIR, 'external-catalog.json');
+export const PROFILE_PATH = join(LAZYBRAIN_DIR, 'profile.json');
+export const STATUS_PATH = join(LAZYBRAIN_DIR, 'status.json');
 export const EMBEDDING_INDEX_PATH = join(LAZYBRAIN_DIR, 'index.bin');
 export const MODELS_DIR = join(LAZYBRAIN_DIR, 'models');
 

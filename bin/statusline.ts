@@ -1,26 +1,56 @@
 #!/usr/bin/env node
 /**
- * LazyBrain statusline — reads last-match.json and renders one line
+ * LazyBrain statusline — reads last-match.json and status.json
  * Registered in ~/.claude/settings.json as statusline command
  */
 
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { LAZYBRAIN_DIR } from '../src/constants.js';
+import { LAZYBRAIN_DIR, STATUS_PATH } from '../src/constants.js';
 
 const lastMatchPath = join(LAZYBRAIN_DIR, 'last-match.json');
 
+function getModel(): string {
+  try {
+    if (existsSync(lastMatchPath)) {
+      const data = JSON.parse(readFileSync(lastMatchPath, 'utf-8'));
+      return data.model ?? '';
+    }
+  } catch {}
+  return '';
+}
+
+function getCompileStatus(): string | null {
+  try {
+    if (existsSync(STATUS_PATH)) {
+      const data = JSON.parse(readFileSync(STATUS_PATH, 'utf-8'));
+      const fiveMin = 5 * 60 * 1000;
+      if (Date.now() - data.updatedAt > fiveMin) return null;
+      if (data.state === 'compiling') return `编译中 ${data.progress}`;
+      if (data.state === 'scanning') return '扫描中...';
+    }
+  } catch {}
+  return null;
+}
+
 function getLabel(): string {
-  if (!existsSync(lastMatchPath)) return '🧠 待机中';
+  const model = getModel();
+  const suffix = model ? ` · ${model}` : '';
+
+  // 编译/扫描状态优先
+  const compileStatus = getCompileStatus();
+  if (compileStatus) return `🧠 ${compileStatus}${suffix}`;
+
+  if (!existsSync(lastMatchPath)) return `🧠 待机中${suffix}`;
   try {
     const data = JSON.parse(readFileSync(lastMatchPath, 'utf-8'));
-    if (Date.now() - data.updatedAt > 30_000) return '🧠 待机中';
-    if (!data.tool) return '🧠 无匹配';
+    if (Date.now() - data.updatedAt > 30_000) return `🧠 待机中${suffix}`;
+    if (!data.tool) return `🧠 无匹配${suffix}`;
     const score = Math.round(data.score * 100);
     const boost = data.historyBoost > 0.01 ? ` ↑${Math.round(data.historyBoost * 100)}%` : '';
-    return `🧠 /${data.tool} [${score}%]${boost}`;
+    return `🧠 /${data.tool} [${score}%]${boost}${suffix}`;
   } catch {
-    return '🧠 LazyBrain';
+    return `🧠 LazyBrain${suffix}`;
   }
 }
 

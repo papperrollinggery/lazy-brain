@@ -18,9 +18,10 @@ import { Graph } from '../src/graph/graph.js';
 import { match } from '../src/matcher/matcher.js';
 import { loadConfig } from '../src/config/config.js';
 import { createEmbeddingProvider } from '../src/indexer/embeddings/provider.js';
-import { askSecretary } from '../src/secretary/secretary.js';
+import { askSecretary, buildHistoryHints } from '../src/secretary/secretary.js';
 import { loadRecentHistory, appendHistory } from '../src/history/history.js';
-import type { WikiCard } from '../src/types.js';
+import { loadProfile, isProfileStale, distillAndSave } from '../src/history/profile.js';
+import type { WikiCard, SecretaryResponse } from '../src/types.js';
 
 interface EmbeddingConfig {
   apiBase: string;
@@ -294,8 +295,9 @@ async function main() {
       }
 
       const card = graph.getWikiCard(top.capability.id);
+      const histStats = getHistoryStats(history ?? [], top.capability.name, top.capability.id);
       const text = card
-        ? formatWikiCard(card, top.score, secondary)
+        ? formatWikiCard(card, top.score, secondary, { historyCount: histStats.count || undefined, historyAcceptRate: histStats.count > 0 ? histStats.acceptRate : undefined })
         : formatFallback(top, secondary);
 
       appendHistory({
@@ -304,7 +306,7 @@ async function main() {
         matched: top.capability.name,
         id: top.capability.id,
         accepted: true,
-        layer: 'tag',
+        layer: top.layer,
       });
 
       writeLastMatch(top.capability.name, top.score, top.historyBoost);
@@ -313,7 +315,7 @@ async function main() {
     }
 
     // ─── Low confidence (< 0.4) and no API — skip injection ───
-    if (top.score < 0.4 && !config.compileApiBase) {
+    if (top.score < 0.4 && !(config.compileApiBase && config.compileApiKey)) {
       if (config.mode === 'ask') renderParchment({ type: 'sleeping' });
       writeLastMatch(top.capability.name, top.score, top.historyBoost);
       output({ continue: true });
@@ -327,44 +329,58 @@ async function main() {
       }
 
       const localMatches = result.matches.map(m => m.capability);
+      const matchIds = new Set(localMatches.map(m => m.id));
       const remaining = allNodes
-        .filter(n => !localMatches.find(m => m.id === n.id))
+        .filter(n => !matchIds.has(n.id))
         .filter(n => n.tier === undefined || n.tier <= 1);
       const candidates = [...localMatches, ...remaining];
+
+      const historyHints = buildHistoryHints(history ?? []);
+
+      // 加载用户画像（过期时自动蒸馏）
+      let profile = loadProfile();
+      if (isProfileStale() && history && history.length > 0) {
+        try { profile = distillAndSave(history); } catch {}
+      }
 
       const secretaryResult = await askSecretary(prompt, candidates, {
         apiBase: config.compileApiBase,
         apiKey: config.compileApiKey ?? '',
         model: config.compileModel,
+        historyHints,
+        profile,
       });
 
       if (secretaryResult) {
-        if (config.mode === 'ask') {
-          renderParchment({ type: 'secretary_done', tool: secretaryResult.primary, score: secretaryResult.confidence, plan: secretaryResult.plan });
+        // Secretary 判断不需要工具 → 不注入
+        if (!secretaryResult.needsTool) {
+          if (config.mode === 'ask') {
+            renderParchment({ type: 'sleeping' });
+          }
+          writeLastMatch(null, 0);
+          output({ continue: true });
+          return;
         }
 
-        const primaryNode = graph.findByName(secretaryResult.primary);
-        if (primaryNode) {
-          const card = graph.getWikiCard(primaryNode.id);
-          const secondary = secretaryResult.secondary
-            .map(name => graph.findByName(name))
-            .filter((n): n is NonNullable<typeof n> => n !== null)
-            .map(n => ({ name: n.name, score: secretaryResult.confidence * 0.9 }));
+        const primaryAction = secretaryResult.tasks[0]?.action;
+        if (config.mode === 'ask' && primaryAction) {
+          renderParchment({ type: 'secretary_done', tool: primaryAction, score: secretaryResult.confidence, plan: secretaryResult.plan });
+        }
 
-          const text = card
-            ? formatWikiCard(card, secretaryResult.confidence, secondary) + `\n\n秘书分析: ${secretaryResult.plan}`
-            : `[LazyBrain] 秘书推荐: /${secretaryResult.primary}\n${secretaryResult.plan}`;
+        const primaryNode = primaryAction ? graph.findByName(primaryAction) : null;
+        if (primaryNode) {
+          const text = formatSecretaryInjection(secretaryResult, graph, history ?? []);
 
           appendHistory({
             timestamp: new Date().toISOString(),
             query: prompt,
-            matched: secretaryResult.primary,
+            matched: primaryAction!,
             id: primaryNode.id,
             accepted: true,
             layer: 'llm',
           });
 
-          writeLastMatch(secretaryResult.primary, secretaryResult.confidence);
+          writeLastMatch(primaryAction!, secretaryResult.confidence);
           output({ continue: true, additionalSystemPrompt: text });
           return;
         }
@@ -383,8 +399,9 @@ async function main() {
         .map(m => ({ name: m.capability.name, score: m.score }));
 
       const card = graph.getWikiCard(top.capability.id);
+      const histStats2 = getHistoryStats(history ?? [], top.capability.name, top.capability.id);
       const text = card
-        ? formatWikiCard(card, top.score, secondary)
+        ? formatWikiCard(card, top.score, secondary, histStats2.count > 0 ? { historyCount: histStats2.count, historyAcceptRate: histStats2.acceptRate } : undefined)
         : formatFallback(top, secondary);
 
       appendHistory({
@@ -393,7 +410,7 @@ async function main() {
         matched: top.capability.name,
         id: top.capability.id,
         accepted: true,
-        layer: 'tag',
+        layer: top.layer,
       });
 
       writeLastMatch(top.capability.name, top.score, top.historyBoost);
@@ -419,15 +436,66 @@ function output(data: HookOutput) {
   process.stdout.write(JSON.stringify(data) + '\n');
 }
 
+function getHistoryStats(history: import('../src/types.js').HistoryEntry[], capName: string, capId?: string): { count: number; acceptRate: number } {
+  const entries = history.filter(h => h.id === capId || h.matched === capName);
+  if (entries.length === 0) return { count: 0, acceptRate: 0 };
+  const accepted = entries.filter(h => h.accepted).length;
+  return { count: entries.length, acceptRate: accepted / entries.length };
+}
+
 function writeLastMatch(tool: string | null, score: number, historyBoost?: number): void {
+  const config = loadConfig();
   try {
     writeFileSync(join(LAZYBRAIN_DIR, 'last-match.json'), JSON.stringify({
       tool,
       score,
       historyBoost: historyBoost ?? 0,
+      model: config.compileModel ?? 'unknown',
       updatedAt: Date.now(),
     }));
   } catch {}
+}
+
+function formatSecretaryInjection(
+  resp: SecretaryResponse,
+  graph: import('../src/graph/graph.js').Graph,
+  history: import('../src/types.js').HistoryEntry[],
+): string {
+  const lines: string[] = [];
+  lines.push('<lazybrain-recommendation>');
+
+  lines.push(`<intent>${resp.intent}</intent>`);
+
+  if (resp.tasks.length > 0) {
+    lines.push('<tasks>');
+    for (let i = 0; i < resp.tasks.length; i++) {
+      const t = resp.tasks[i];
+      const modelHint = t.model ? ` (${t.model})` : '';
+      const dep = t.after ? ` [after: ${t.after}]` : '';
+      lines.push(`  ${i + 1}. 调用 Skill tool skill="${t.action}"${modelHint}${dep} — ${t.reason}`);
+    }
+    lines.push('</tasks>');
+  }
+
+  // Context: history + reasoning
+  const ctxLines: string[] = [];
+  if (resp.tasks.length > 0) {
+    const primaryStats = getHistoryStats(history, resp.tasks[0].action);
+    if (primaryStats.count > 0) {
+      ctxLines.push(`用户历史: ${resp.tasks[0].action} 使用 ${primaryStats.count} 次，接受率 ${Math.round(primaryStats.acceptRate * 100)}%`);
+    }
+  }
+  if (resp.reasoning) ctxLines.push(`分析: ${resp.reasoning}`);
+  if (resp.plan) ctxLines.push(`方案: ${resp.plan}`);
+
+  if (ctxLines.length > 0) {
+    lines.push('<context>');
+    for (const l of ctxLines) lines.push(`  ${l}`);
+    lines.push('</context>');
+  }
+
+  lines.push('</lazybrain-recommendation>');
+  return lines.join('\n');
 }
 
 function formatFallback(
@@ -444,55 +512,75 @@ function formatFallback(
   return lines.join('\n');
 }
 
-function formatWikiCard(card: WikiCard, score: number, secondaryMatches: Array<{ name: string; score: number }>): string {
+function formatWikiCard(
+  card: WikiCard,
+  score: number,
+  secondaryMatches: Array<{ name: string; score: number }>,
+  opts?: { reasoning?: string; historyCount?: number; historyAcceptRate?: number; secretaryPlan?: string },
+): string {
   const cap = card.capability;
   const pct = Math.round(score * 100);
   const lines: string[] = [];
 
-  lines.push(`[LazyBrain] 推荐方案 (${pct}% 置信度)`);
-  lines.push('');
-  lines.push(`主力工具: /${cap.name}`);
-  if (cap.scenario) {
-    lines.push(`  适用场景: ${cap.scenario}`);
-  }
-  lines.push(`  调用方式: Skill tool "${cap.name}" 或 /${cap.name}`);
+  // ─── Intent analysis ───
+  lines.push('<lazybrain-recommendation>');
 
+  // Intent block: what LazyBrain understood
+  const intentParts: string[] = [];
+  if (cap.scenario) intentParts.push(cap.scenario);
+  if (opts?.reasoning) intentParts.push(opts.reasoning);
+  if (intentParts.length > 0) {
+    lines.push('<intent>');
+    for (const p of intentParts) lines.push(`  ${p}`);
+    lines.push('</intent>');
+  }
+
+  // Action block: direct instruction to Claude
+  lines.push('<action>');
+  lines.push(`  调用 Skill tool，参数 skill="${cap.name}"。`);
+  lines.push(`  置信度 ${pct}%${opts?.historyCount ? `，用户历史使用 ${opts.historyCount} 次` : ''}${opts?.historyAcceptRate !== undefined ? `，接受率 ${Math.round(opts.historyAcceptRate * 100)}%` : ''}.`);
+  lines.push('</action>');
+
+  // Context block: why this tool
+  const ctxLines: string[] = [];
   if (card.composesWith.length > 0) {
-    lines.push('');
-    lines.push('推荐组合:');
-    for (const c of card.composesWith.slice(0, 3)) {
-      lines.push(`  /${cap.name} + /${c.capability.name} — ${c.reason}`);
+    const combos = card.composesWith.slice(0, 2).map(c => `/${cap.name} + /${c.capability.name} (${c.reason})`).join('; ');
+    ctxLines.push(`推荐组合: ${combos}`);
+  }
+  if (card.dependsOn.length > 0) {
+    const deps = card.dependsOn.slice(0, 2).map(d => `/${d.capability.name}`).join(', ');
+    ctxLines.push(`前置条件: ${deps}`);
+  }
+  if (opts?.secretaryPlan) {
+    ctxLines.push(`分析: ${opts.secretaryPlan}`);
+  }
+  if (ctxLines.length > 0) {
+    lines.push('<context>');
+    for (const l of ctxLines) lines.push(`  ${l}`);
+    lines.push('</context>');
+  }
+
+  // Alternatives block
+  const altParts: string[] = [];
+  if (card.similarTo.length > 0) {
+    for (const c of card.similarTo.slice(0, 2)) {
+      if (c.diff) altParts.push(`/${c.capability.name} — ${c.diff}`);
     }
   }
-
-  if (card.similarTo.length > 0) {
-    lines.push('');
-    lines.push('相似工具对比:');
-    for (const c of card.similarTo.slice(0, 3)) {
-      if (c.diff) {
-        lines.push(`  vs /${c.capability.name}: ${c.diff}`);
+  if (secondaryMatches.length > 0) {
+    for (const m of secondaryMatches) {
+      if (!altParts.find(a => a.startsWith(`/${m.name}`))) {
+        altParts.push(`/${m.name} (${Math.round(m.score * 100)}%)`);
       }
     }
   }
-
-  if (card.dependsOn.length > 0) {
-    lines.push('');
-    lines.push('前置条件:');
-    for (const d of card.dependsOn.slice(0, 3)) {
-      const desc = d.capability.description?.slice(0, 50) ?? '';
-      lines.push(`  /${d.capability.name}${desc ? ` — ${desc}` : ''}`);
-    }
+  if (altParts.length > 0) {
+    lines.push('<alternatives>');
+    for (const a of altParts) lines.push(`  ${a}`);
+    lines.push('</alternatives>');
   }
 
-  if (secondaryMatches.length > 0) {
-    lines.push('');
-    const altList = secondaryMatches.map(m => `/${m.name} (${Math.round(m.score * 100)}%)`).join(', ');
-    lines.push(`备选: ${altList}`);
-  }
-
-  lines.push('');
-  lines.push('如果用户意图与上述工具匹配，请直接调用推荐的 skill。');
-
+  lines.push('</lazybrain-recommendation>');
   return lines.join('\n');
 }
 

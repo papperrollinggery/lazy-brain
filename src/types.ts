@@ -193,11 +193,29 @@ export interface SecretaryConfig {
   circuitBreakerPauseMs: number;
 }
 
+export interface SecretaryTask {
+  /** skill/agent/command name */
+  action: string;
+  /** 建议模型: sonnet | opus | haiku */
+  model?: string;
+  /** 为什么推荐这个 */
+  reason: string;
+  /** 依赖哪个前置任务（编排顺序） */
+  after?: string;
+}
+
 export interface SecretaryResponse {
-  primary: string;
-  secondary: string[];
-  plan: string;
+  /** 是否需要工具（模糊讨论/闲聊 = false） */
+  needsTool: boolean;
+  /** 一句话意图摘要 */
+  intent: string;
+  /** 编排后的任务列表 */
+  tasks: SecretaryTask[];
+  /** 推荐置信度 0-1 */
   confidence: number;
+  /** 执行方案摘要 */
+  plan: string;
+  /** 推理过程 */
   reasoning: string;
 }
 
@@ -250,6 +268,41 @@ export interface HistoryEntry {
   layer: MatchLayer;
 }
 
+// ─── User Profile (distilled from history) ─────────────────────────────────
+
+export interface ToolAffinity {
+  name: string;
+  id?: string;
+  totalUses: number;
+  acceptRate: number;
+  /** 最近一次使用 */
+  lastUsed: string;
+  /** 拒绝次数 */
+  rejectCount: number;
+}
+
+export interface TaskChain {
+  /** 工具序列 e.g. ["code-review", "simplify", "commit"] */
+  sequence: string[];
+  /** 出现次数 */
+  count: number;
+}
+
+export interface UserProfile {
+  /** 蒸馏时间 */
+  distilledAt: string;
+  /** 事件总数（蒸馏时的 history 行数） */
+  eventCount: number;
+  /** 工具亲和度（按使用频次降序） */
+  toolAffinities: ToolAffinity[];
+  /** 常见任务链（连续 session 内的工具序列） */
+  taskChains: TaskChain[];
+  /** 偏好模型（从 history 中推断） */
+  preferredLayer: MatchLayer;
+  /** 能力信号：高级工具占比 */
+  advancedToolRatio: number;
+}
+
 // ─── Scanner ────────────────────────────────────────────────────────────────
 
 /**
@@ -267,6 +320,8 @@ export interface RawCapability {
   meta?: CapabilityMeta;
   /** Compilation tier assigned by scanner */
   tier?: 0 | 1 | 2;
+  /** True if scanned from skills-disabled path */
+  disabled?: boolean;
 }
 
 // ─── LLM Provider ───────────────────────────────────────────────────────────

@@ -188,7 +188,7 @@ export async function compile(
       for (const { raw } of batch) {
         const id = makeCapabilityId(raw.kind, raw.name, raw.origin);
         errors.push(`${raw.name}: LLM request failed`);
-        graph.addNode({ id, kind: raw.kind, name: raw.name, description: raw.description, origin: raw.origin, status: 'installed', compatibility: raw.compatibility, filePath: raw.filePath, tags: raw.triggers ?? [], exampleQueries: [], category: 'other', meta: raw.meta });
+        graph.addNode({ id, kind: raw.kind, name: raw.name, description: raw.description, origin: raw.origin, status: raw.disabled ? 'disabled' : 'installed', compatibility: raw.compatibility, filePath: raw.filePath, tags: raw.triggers ?? [], exampleQueries: [], category: 'other', meta: raw.meta });
         newlyCompiledIds.push(id);
         compiled++;
         progressCount++;
@@ -236,7 +236,7 @@ export async function compile(
             name: raw.name,
             description: raw.description,
             origin: raw.origin,
-            status: 'installed',
+            status: raw.disabled ? 'disabled' : 'installed',
             compatibility: raw.compatibility,
             filePath: raw.filePath,
             tags: enrichment?.tags ?? [],
@@ -256,7 +256,7 @@ export async function compile(
             name: raw.name,
             description: raw.description,
             origin: raw.origin,
-            status: 'installed',
+            status: raw.disabled ? 'disabled' : 'installed',
             compatibility: raw.compatibility,
             filePath: raw.filePath,
             tags: raw.triggers ?? [],
@@ -286,7 +286,7 @@ export async function compile(
         name: raw.name,
         description: raw.description,
         origin: raw.origin,
-        status: 'installed',
+        status: raw.disabled ? 'disabled' : 'installed',
         compatibility: raw.compatibility,
         filePath: raw.filePath,
         tags: enrichment?.tags ?? [],

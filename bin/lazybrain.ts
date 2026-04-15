@@ -20,7 +20,7 @@
 import { existsSync, mkdirSync, writeFileSync, readFileSync, unlinkSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { LAZYBRAIN_DIR, GRAPH_PATH, GRAPH_VERSION } from '../src/constants.js';
+import { LAZYBRAIN_DIR, GRAPH_PATH, GRAPH_VERSION, STATUS_PATH } from '../src/constants.js';
 import { Graph } from '../src/graph/graph.js';
 import { match } from '../src/matcher/matcher.js';
 import { scan } from '../src/scanner/scanner.js';
@@ -32,6 +32,7 @@ import { generateWiki } from '../src/graph/wiki-generator.js';
 import { createEmbeddingProvider, type ApiEmbeddingConfig } from '../src/indexer/embeddings/provider.js';
 import { createProgressBar } from '../src/utils/progress.js';
 import { loadRecentHistory } from '../src/history/history.js';
+import { distillAndSave, loadProfile } from '../src/history/profile.js';
 import type { Capability, RawCapability, UserConfig } from '../src/types.js';
 
 const args = process.argv.slice(2);
@@ -69,6 +70,9 @@ async function main() {
     case 'wiki':
       cmdWiki();
       break;
+    case 'distill':
+      cmdDistill();
+      break;
     case 'hook':
       cmdHook();
       break;
@@ -100,6 +104,7 @@ async function main() {
 
 function cmdScan() {
   const config = loadConfig();
+  writeFileSync(STATUS_PATH, JSON.stringify({ state: 'scanning', updatedAt: Date.now() }));
   console.log('Scanning capability sources...');
 
   const result = scan({
@@ -147,6 +152,7 @@ function cmdScan() {
   }
   console.log(`\n  Saved to ${scanCachePath}`);
   console.log(`  Run 'lazybrain compile' to build the knowledge graph.`);
+  writeFileSync(STATUS_PATH, JSON.stringify({ state: 'idle', updatedAt: Date.now() }));
 }
 
 // ─── Interactive Platform Selection ──────────────────────────────────────
@@ -323,6 +329,7 @@ async function cmdCompile() {
     console.log(`  By kind: ${JSON.stringify(s.byKind)}`);
     console.log(`\n  Saved to ${GRAPH_PATH}`);
     console.log(`  Run 'lazybrain match "<query>"' to test matching.`);
+    writeFileSync(STATUS_PATH, JSON.stringify({ state: 'idle', updatedAt: Date.now() }));
   } else {
     // LLM mode
     console.log(`  Mode: LLM (${config.compileModel})`);
@@ -347,6 +354,7 @@ async function cmdCompile() {
 
     const phase1Bar = createProgressBar({ label: 'Phase 1/2  Tags & Categories' });
     phase1Bar.start(rawCapabilities.length);
+    writeFileSync(STATUS_PATH, JSON.stringify({ state: 'compiling', progress: `0/${rawCapabilities.length}`, updatedAt: Date.now() }));
 
     const phase2Bar = createProgressBar({ label: 'Phase 2/2  Relation Inference' });
 
@@ -358,6 +366,7 @@ async function cmdCompile() {
       checkpointPath: GRAPH_PATH,
       onProgress: (current, total, name) => {
         phase1Bar.update(current, name);
+        writeFileSync(STATUS_PATH, JSON.stringify({ state: 'compiling', progress: `${current}/${total}`, updatedAt: Date.now() }));
       },
       onRelationProgress: (current, total) => {
         if (current === total) {
@@ -382,6 +391,7 @@ async function cmdCompile() {
     const s = result.graph.stats();
     console.log(`  Nodes: ${s.nodes}, Links: ${s.links}`);
     console.log(`\n  Saved to ${GRAPH_PATH}`);
+    writeFileSync(STATUS_PATH, JSON.stringify({ state: 'idle', updatedAt: Date.now() }));
   }
 
   // ─── Embedding generation ──────────────────────────────────────────────
@@ -437,6 +447,7 @@ async function cmdCompile() {
     } else {
       console.log('\nAll capabilities already have embeddings.');
     }
+    writeFileSync(STATUS_PATH, JSON.stringify({ state: 'idle', updatedAt: Date.now() }));
   }
 }
 
@@ -776,6 +787,22 @@ function cmdConfig() {
 
 // ─── Wiki ─────────────────────────────────────────────────────────────────
 
+function cmdDistill() {
+  const history = loadRecentHistory(10000);
+  if (history.length === 0) {
+    console.log('No history found. Use LazyBrain for a while first.');
+    return;
+  }
+  const profile = distillAndSave(history);
+  console.log(`Profile distilled from ${profile.eventCount} events`);
+  console.log(`  Tools: ${profile.toolAffinities.length} unique`);
+  console.log(`  Chains: ${profile.taskChains.length} patterns`);
+  console.log(`  Advanced ratio: ${Math.round(profile.advancedToolRatio * 100)}%`);
+  if (profile.taskChains.length > 0) {
+    console.log(`  Top chain: ${profile.taskChains[0].sequence.join(' → ')} (${profile.taskChains[0].count}x)`);
+  }
+}
+
 function cmdWiki() {
   if (!existsSync(GRAPH_PATH)) {
     console.error('No graph found. Run `lazybrain scan && lazybrain compile` first.');
@@ -918,6 +945,7 @@ Usage:
   lazybrain config set <key> <val>   Set config value
   lazybrain config show              Show config
   lazybrain wiki                     Generate wiki articles
+  lazybrain distill                  Distill user profile from history
   lazybrain migrate                  Migrate graph.json to split format (meta + embeddings.bin)
   lazybrain --version                Show version
 `);

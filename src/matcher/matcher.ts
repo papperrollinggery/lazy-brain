@@ -39,7 +39,7 @@ export async function match(
   options: MatchOptions,
 ): Promise<Recommendation> {
   const { graph, config, history, embeddingProvider } = options;
-  const allNodes = graph.getAllNodes();
+  const allNodes = graph.getAllNodes().filter(n => n.status !== 'disabled');
   const platform = config.platform;
 
   // Empty graph check

@@ -46,7 +46,8 @@ const BRIDGE_WEIGHT = 0.6;
  * Check if a token matches a target string.
  */
 function tokenMatches(token: string, target: string): boolean {
-  return target.includes(token) || token.includes(target);
+  if (token.length < 2) return target === token;
+  return target.includes(token);
 }
 
 /**
@@ -158,7 +159,7 @@ function scoreCapability(
     }
   }
 
-  return totalWeight > 0 ? Math.min(1, hits / (totalWeight * 0.3)) : 0;
+  return totalWeight > 0 ? Math.min(1, hits / (totalWeight * 0.5)) : 0;
 }
 
 /**

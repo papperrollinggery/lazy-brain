@@ -18,5 +18,10 @@ export type {
   Platform,
   RawCapability,
   Recommendation,
+  SecretaryResponse,
+  SecretaryTask,
+  TaskChain,
+  ToolAffinity,
   UserConfig,
+  UserProfile,
 } from './types.js';

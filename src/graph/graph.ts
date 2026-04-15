@@ -5,33 +5,50 @@
  * Serializes to/from graph.json.
  */
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync, statSync } from 'node:fs';
 import { dirname } from 'node:path';
+
+function sleepSync(ms: number): void {
+  const buf = new SharedArrayBuffer(4);
+  const view = new Int32Array(buf);
+  Atomics.wait(view, 0, 0, ms);
+}
 
 function withFileLock<T>(lockPath: string, fn: () => T, timeoutMs = 3000): T {
   const lockFile = lockPath + '.lock';
   const start = Date.now();
+  const maxRetries = Math.ceil(timeoutMs / 50);
 
-  while (existsSync(lockFile)) {
-    if (Date.now() - start > timeoutMs) {
-      try { unlinkSync(lockFile); } catch {}
-      break;
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      writeFileSync(lockFile, String(process.pid), { flag: 'wx' });
+      // Lock acquired
+      try {
+        return fn();
+      } finally {
+        try { unlinkSync(lockFile); } catch {}
+      }
+    } catch {
+      // Lock file exists — check if it's stale
+      try {
+        const stat = statSync(lockFile);
+        if (Date.now() - stat.mtimeMs > timeoutMs) {
+          // Stale lock, force remove and retry immediately
+          try { unlinkSync(lockFile); } catch {}
+          continue;
+        }
+      } catch {
+        // Lock file disappeared between check, retry immediately
+        continue;
+      }
+      // Active lock held by another process, wait
+      sleepSync(50);
     }
-    const end = Date.now() + 20;
-    while (Date.now() < end) {}
   }
 
-  try {
-    writeFileSync(lockFile, String(process.pid), { flag: 'wx' });
-  } catch {
-    // Lock file exists, will be handled by while loop above on retry
-  }
-
-  try {
-    return fn();
-  } finally {
-    try { unlinkSync(lockFile); } catch {}
-  }
+  // All retries exhausted — execute without lock (degraded mode)
+  process.stderr.write(`[LazyBrain] Warning: could not acquire file lock after ${timeoutMs}ms, proceeding without lock\n`);
+  return fn();
 }
 
 import type {
@@ -177,10 +194,10 @@ export class Graph {
         writeFileSync(indexPath, JSON.stringify(embNodeIds));
       } else {
         if (existsSync(embPath)) {
-          try { require('node:fs').unlinkSync(embPath); } catch {}
+          try { unlinkSync(embPath); } catch {}
         }
         if (existsSync(indexPath)) {
-          try { require('node:fs').unlinkSync(indexPath); } catch {}
+          try { unlinkSync(indexPath); } catch {}
         }
       }
     });
@@ -265,7 +282,9 @@ export class Graph {
     const links: Link[] = [];
     for (const nodeLinks of this.adjacency.values()) {
       for (const link of nodeLinks) {
-        const key = [link.source, link.target, link.type].sort().join('::');
+        const a = link.source < link.target ? link.source : link.target;
+        const b = link.source < link.target ? link.target : link.source;
+        const key = `${a}::${b}::${link.type}`;
         if (!seen.has(key)) {
           seen.add(key);
           links.push(link);

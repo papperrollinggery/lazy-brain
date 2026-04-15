@@ -97,7 +97,10 @@ export function scan(options?: ScanOptions): ScanResult {
             continue;
           }
           const capability = parseSkill(filePath, content);
-          if (capability) capabilities.push(capability);
+          if (capability) {
+            capability.disabled = filePath.includes('/skills-disabled/');
+            capabilities.push(capability);
+          }
         }
       } else if (path.includes('/agents')) {
         const mdFiles = findMarkdownFiles(path);
@@ -109,7 +112,10 @@ export function scan(options?: ScanOptions): ScanResult {
             continue;
           }
           const capability = parseAgent(filePath, content);
-          if (capability) capabilities.push(capability);
+          if (capability) {
+            capability.disabled = filePath.includes('/skills-disabled/');
+            capabilities.push(capability);
+          }
         }
       } else if (path.includes('/commands')) {
         const mdFiles = findMarkdownFiles(path);
@@ -121,7 +127,10 @@ export function scan(options?: ScanOptions): ScanResult {
             continue;
           }
           const capability = parseCommand(filePath, content);
-          if (capability) capabilities.push(capability);
+          if (capability) {
+            capability.disabled = filePath.includes('/skills-disabled/');
+            capabilities.push(capability);
+          }
         }
       } else if (path.includes('/plugins')) {
         const skillFiles = findSkillFiles(path);
@@ -133,7 +142,10 @@ export function scan(options?: ScanOptions): ScanResult {
             continue;
           }
           const capability = parseSkill(filePath, content);
-          if (capability) capabilities.push(capability);
+          if (capability) {
+            capability.disabled = filePath.includes('/skills-disabled/');
+            capabilities.push(capability);
+          }
         }
       }
 
