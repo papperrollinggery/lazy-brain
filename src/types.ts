@@ -122,6 +122,8 @@ export interface MatchResult {
   /** Which layer produced this match */
   layer: MatchLayer;
   confidence: Confidence;
+  /** History boost applied (0-1), only set when boost > 0 */
+  historyBoost?: number;
 }
 
 /**
@@ -201,7 +203,7 @@ export interface SecretaryResponse {
 
 // ─── User Config ────────────────────────────────────────────────────────────
 
-export type MatchMode = 'auto' | 'select';
+export type MatchMode = 'auto' | 'select' | 'ask';
 export type MatchEngine = 'tag' | 'embedding' | 'llm' | 'hybrid';
 
 export interface UserConfig {

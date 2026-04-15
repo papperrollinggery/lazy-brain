@@ -31,6 +31,7 @@ import { loadConfig, saveConfig, updateConfig } from '../src/config/config.js';
 import { generateWiki } from '../src/graph/wiki-generator.js';
 import { createEmbeddingProvider, type ApiEmbeddingConfig } from '../src/indexer/embeddings/provider.js';
 import { createProgressBar } from '../src/utils/progress.js';
+import { loadRecentHistory } from '../src/history/history.js';
 import type { Capability, RawCapability, UserConfig } from '../src/types.js';
 
 const args = process.argv.slice(2);
@@ -50,6 +51,7 @@ async function main() {
       await cmdCompile();
       break;
     case 'match':
+    case 'find':
       cmdMatch();
       break;
     case 'list':
@@ -122,7 +124,27 @@ function cmdScan() {
 
   // Save raw scan results for compile step
   const scanCachePath = join(LAZYBRAIN_DIR, 'scan-cache.json');
+
+  // Increment scan: compare old vs new
+  const oldCache: RawCapability[] = existsSync(scanCachePath)
+    ? (() => { try { return JSON.parse(readFileSync(scanCachePath, 'utf-8')); } catch { return []; } })()
+    : [];
+  const oldKey = (c: RawCapability) => `${c.origin}:${c.kind}:${c.name}`;
+  const oldKeys = new Set(oldCache.map(oldKey));
+  const newOnes = result.capabilities.filter((c: RawCapability) => !oldKeys.has(oldKey(c)));
+  const removed = oldCache.filter((c: RawCapability) => !result.capabilities.find((n: RawCapability) => oldKey(n) === oldKey(c)));
+
   writeFileSync(scanCachePath, JSON.stringify(result.capabilities, null, 2));
+
+  // Output increment info
+  if (newOnes.length > 0) {
+    console.log(`\n  🆕 新增 ${newOnes.length} 个工具:`);
+    for (const c of newOnes.slice(0, 5)) console.log(`    + ${c.name}`);
+    if (newOnes.length > 5) console.log(`    ... 还有 ${newOnes.length - 5} 个`);
+  }
+  if (removed.length > 0) {
+    console.log(`\n  🗑  移除 ${removed.length} 个工具`);
+  }
   console.log(`\n  Saved to ${scanCachePath}`);
   console.log(`  Run 'lazybrain compile' to build the knowledge graph.`);
 }
@@ -534,7 +556,8 @@ async function cmdMatch(implicitQuery?: string) {
       })
     : undefined;
 
-  const result = await match(query, { graph, config, embeddingProvider });
+  const history = loadRecentHistory(50);
+  const result = await match(query, { graph, config, embeddingProvider, history });
 
   if (result.matches.length === 0) {
     console.log(`No matches for "${query}".`);
@@ -546,7 +569,10 @@ async function cmdMatch(implicitQuery?: string) {
   for (const [i, m] of result.matches.entries()) {
     const pct = Math.round(m.score * 100);
     const origin = m.capability.origin ? ` [${m.capability.origin}]` : '';
-    console.log(`  [${i + 1}] ${m.capability.name} (${pct}%)${origin}`);
+    const boostStr = m.historyBoost && m.historyBoost > 0.01
+      ? ` ↑ 历史加权 +${Math.round(m.historyBoost * 100)}%`
+      : '';
+    console.log(`  [${i + 1}] ${m.capability.name} (${pct}%)${origin}${boostStr}`);
     console.log(`      ${m.capability.description}`);
     if (m.capability.scenario) {
       console.log(`      Scenario: ${m.capability.scenario}`);

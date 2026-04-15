@@ -144,3 +144,13 @@ export const SECRETARY_CONTEXT_SIZE = 20;
 export const SECRETARY_CONTEXT_TOKENS = 1200;
 export const SECRETARY_CIRCUIT_BREAKER_THRESHOLD = 3;
 export const SECRETARY_CIRCUIT_BREAKER_PAUSE_MS = 600000;
+
+// ─── Capability Model Hints ─────────────────────────────────────────────────
+
+export const CAPABILITY_MODEL_HINTS: Record<string, string> = {
+  'santa-loop': 'claude-opus-4-6',
+  'ccg': 'claude-opus-4-6',
+  'ultrawork': 'claude-opus-4-6',
+  'ralph': 'claude-opus-4-6',
+  'deep-interview': 'claude-opus-4-6',
+};

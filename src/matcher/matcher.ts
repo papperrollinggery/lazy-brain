@@ -78,28 +78,26 @@ export async function match(
     }
   }
 
-  // ─── History boost ────────────────────────────────────────────────────
-  if (history && history.length > 0) {
-    results = applyHistoryBoost(results, history);
-  }
-
-  // ─── Layer 2: Embedding fallback (if enabled and tag results weak) ────
+  // ─── Layer 2: Embedding (if enabled) ─────────────────────────────────
   if (
     (config.engine === 'embedding' || config.engine === 'hybrid') &&
     embeddingProvider
   ) {
-    if (results.length === 0 || results[0].score < 0.5) {
-      const semanticResults = await semanticMatch(query, allNodes, {
-        provider: embeddingProvider,
-        topK: MAX_RESULTS,
-      });
+    const semanticResults = await semanticMatch(query, allNodes, {
+      provider: embeddingProvider,
+      topK: MAX_RESULTS,
+    });
 
-      if (config.engine === 'hybrid') {
-        results = mergeTagAndSemantic(results, semanticResults);
-      } else {
-        results = semanticResults;
-      }
+    if (config.engine === 'hybrid' && semanticResults.length > 0) {
+      results = mergeTagAndSemantic(results, semanticResults);
+    } else if (config.engine === 'embedding') {
+      results = semanticResults.length > 0 ? semanticResults : results;
     }
+  }
+
+  // ─── History boost (after merge, so boost survives embedding path) ────
+  if (history && history.length > 0) {
+    results = applyHistoryBoost(results, history);
   }
 
   // ─── Build enriched recommendation via graph traversal ────────────────
@@ -152,6 +150,7 @@ function applyHistoryBoost(
     return {
       ...r,
       score: Math.min(1, r.score + boost),
+      historyBoost: boost,
     };
   });
 

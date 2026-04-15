@@ -1,0 +1,11 @@
+{
+  "active": true,
+  "iteration": 1,
+  "max_iterations": 100,
+  "started_at": "2026-04-15T06:58:27.773Z",
+  "prompt": "ralph 帮我完成任务",
+  "project_path": "/Users/jinjungao/work/lazy_user",
+  "reinforcement_count": 0,
+  "awaiting_confirmation": true,
+  "last_checked_at": "2026-04-15T06:58:27.774Z"
+}
