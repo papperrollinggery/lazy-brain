@@ -10,30 +10,29 @@ import { LAZYBRAIN_DIR } from '../src/constants.js';
 
 const lastMatchPath = join(LAZYBRAIN_DIR, 'last-match.json');
 
-function render() {
-  if (!existsSync(lastMatchPath)) {
-    process.stdout.write('🧠 LazyBrain 待机中\n');
-    return;
-  }
-
+function getLabel(): string {
+  if (!existsSync(lastMatchPath)) return '🧠 待机中';
   try {
     const data = JSON.parse(readFileSync(lastMatchPath, 'utf-8'));
-
-    if (Date.now() - data.updatedAt > 30_000) {
-      process.stdout.write('🧠 LazyBrain 待机中\n');
-      return;
-    }
-
-    if (!data.tool) {
-      process.stdout.write('🧠 LazyBrain 无匹配\n');
-      return;
-    }
-
+    if (Date.now() - data.updatedAt > 30_000) return '🧠 待机中';
+    if (!data.tool) return '🧠 无匹配';
     const score = Math.round(data.score * 100);
     const boost = data.historyBoost > 0.01 ? ` ↑${Math.round(data.historyBoost * 100)}%` : '';
-    process.stdout.write(`🧠 /${data.tool}  [${score}%]${boost}\n`);
+    return `🧠 /${data.tool} [${score}%]${boost}`;
   } catch {
-    process.stdout.write('🧠 LazyBrain\n');
+    return '🧠 LazyBrain';
+  }
+}
+
+function render() {
+  // 支持两种模式：
+  // --json  输出 {"label": "..."} 供 claude-hud --extra-cmd 使用
+  // 默认    直接输出一行文字供独立 statusLine 使用
+  const label = getLabel();
+  if (process.argv.includes('--json')) {
+    process.stdout.write(JSON.stringify({ label }) + '\n');
+  } else {
+    process.stdout.write(label + '\n');
   }
 }
 
