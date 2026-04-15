@@ -22,7 +22,7 @@ import type {
 import { MAX_RESULTS, HISTORY_BOOST_CAP } from '../constants.js';
 import { Graph } from '../graph/graph.js';
 import { tagMatch } from './tag-layer.js';
-import { semanticMatch, mergeTagAndSemantic } from './semantic-layer.js';
+import { semanticMatch, mergeTagAndSemantic, reciprocalRankFusion } from './semantic-layer.js';
 
 export interface MatchOptions {
   graph: Graph;
@@ -89,7 +89,7 @@ export async function match(
     });
 
     if (config.engine === 'hybrid' && semanticResults.length > 0) {
-      results = mergeTagAndSemantic(results, semanticResults);
+      results = reciprocalRankFusion(results, semanticResults);
     } else if (config.engine === 'embedding') {
       results = semanticResults.length > 0 ? semanticResults : results;
     }

@@ -90,3 +90,39 @@ export function mergeTagAndSemantic(
 
   return merged;
 }
+
+/**
+ * Reciprocal Rank Fusion — merges tag and semantic results by rank, not score.
+ * Prevents score distribution mismatch between layers.
+ * k=60 is the standard constant from the original RRF paper.
+ */
+export function reciprocalRankFusion(
+  tagResults: MatchResult[],
+  semanticResults: MatchResult[],
+  k = 60,
+): MatchResult[] {
+  const scoreMap = new Map<string, number>();
+  const capMap = new Map<string, MatchResult>();
+
+  tagResults.forEach((r, i) => {
+    const id = r.capability.id;
+    scoreMap.set(id, (scoreMap.get(id) ?? 0) + 1 / (k + i + 1));
+    capMap.set(id, r);
+  });
+
+  semanticResults.forEach((r, i) => {
+    const id = r.capability.id;
+    scoreMap.set(id, (scoreMap.get(id) ?? 0) + 1 / (k + i + 1));
+    if (!capMap.has(id)) capMap.set(id, r);
+  });
+
+  const entries = Array.from(scoreMap.entries());
+  const maxScore = Math.max(...entries.map(([, s]) => s));
+
+  return entries
+    .map(([id, score]) => ({
+      ...capMap.get(id)!,
+      score: maxScore > 0 ? score / maxScore : 0,
+    }))
+    .sort((a, b) => b.score - a.score);
+}

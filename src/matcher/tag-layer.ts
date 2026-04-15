@@ -40,7 +40,7 @@ export function tokenize(text: string): string[] {
 }
 
 /** Weight multiplier for bridge-expanded tokens vs original tokens */
-const BRIDGE_WEIGHT = 0.6;
+const BRIDGE_WEIGHT = 0.4;
 
 /**
  * Check if a token matches a target string.
@@ -65,32 +65,31 @@ function scoreCapability(
   let totalWeight = 0;
 
   // Check tags (weight: 1.0 per hit)
-  for (const tag of cap.tags) {
-    const tagLower = tag.toLowerCase();
-    let matched = false;
+  // Each token matches at most one tag (prevents "code" from hitting 5 tags)
+  const tagLowers = cap.tags.map(t => t.toLowerCase());
+  const matchedTagIndices = new Set<number>();
 
-    // Original tokens: full weight
-    for (const token of original) {
-      if (tokenMatches(token, tagLower)) {
+  for (const token of original) {
+    for (let i = 0; i < tagLowers.length; i++) {
+      if (!matchedTagIndices.has(i) && tokenMatches(token, tagLowers[i])) {
         hits += 1.0;
-        matched = true;
+        matchedTagIndices.add(i);
         break;
       }
     }
-    // Expanded tokens: reduced weight (only if original didn't match)
-    if (!matched) {
-      for (const token of expanded) {
-        if (tokenMatches(token, tagLower)) {
-          hits += 1.0 * BRIDGE_WEIGHT;
-          break;
-        }
+  }
+  for (const token of expanded) {
+    for (let i = 0; i < tagLowers.length; i++) {
+      if (!matchedTagIndices.has(i) && tokenMatches(token, tagLowers[i])) {
+        hits += 1.0 * BRIDGE_WEIGHT;
+        matchedTagIndices.add(i);
+        break;
       }
     }
-    totalWeight += 1.0;
   }
+  totalWeight += tagLowers.length * 1.0;
 
   // Check example queries (weight: 1.5 per hit)
-  const allTokens = [...original, ...expanded];
   for (const query of cap.exampleQueries) {
     const queryLower = query.toLowerCase();
     let queryHits = 0;
@@ -101,7 +100,7 @@ function scoreCapability(
     }
     for (const token of expanded) {
       if (queryLower.includes(token)) queryHits += BRIDGE_WEIGHT;
-      queryTotal += 1.0;
+      queryTotal += BRIDGE_WEIGHT;
     }
     if (queryHits > 0 && queryTotal > 0) {
       hits += 1.5 * (queryHits / queryTotal);

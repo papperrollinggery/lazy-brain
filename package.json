@@ -49,5 +49,8 @@
   },
   "dependencies": {
     "@huggingface/transformers": "^4.0.1"
+  },
+  "optionalDependencies": {
+    "@rollup/rollup-darwin-x64": "^4.60.1"
   }
 }
