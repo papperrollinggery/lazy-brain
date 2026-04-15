@@ -18,11 +18,17 @@ export function tokenize(text: string): string[] {
   const lower = text.toLowerCase();
   const tokens: string[] = [];
 
-  // Extract CJK segments (2+ chars only — single chars are too noisy)
-  const cjk = lower.match(/[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]{2,}/g);
+  // Extract CJK segments with sliding window (2-char bigrams + full segment)
+  // This allows "帮我审查代码" to match bridge keys like "审查" and "代码"
+  const cjk = lower.match(/[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]+/g);
   if (cjk) {
     for (const segment of cjk) {
-      tokens.push(segment);
+      // Add full segment (for exact tag matches like "代码审查")
+      if (segment.length >= 2) tokens.push(segment);
+      // Add 2-char bigrams (for bridge key matching like "审查", "代码")
+      for (let i = 0; i < segment.length - 1; i++) {
+        tokens.push(segment.slice(i, i + 2));
+      }
     }
   }
 
