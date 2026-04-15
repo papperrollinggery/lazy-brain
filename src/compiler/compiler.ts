@@ -128,6 +128,8 @@ export interface CompileOptions {
   concurrency?: number;
   /** Force full relation inference (not just new nodes) */
   forceRelations?: boolean;
+  /** Path to save incremental checkpoint after each capability */
+  checkpointPath?: string;
   /** Progress callback */
   onProgress?: (current: number, total: number, name: string) => void;
   /** Relation inference progress callback */
@@ -138,7 +140,7 @@ export async function compile(
   rawCapabilities: RawCapability[],
   options: CompileOptions,
 ): Promise<CompileResult> {
-  const { llm, modelName, existingGraph, onProgress, onRelationProgress, forceRelations = false } = options;
+  const { llm, modelName, existingGraph, onProgress, onRelationProgress, forceRelations = false, checkpointPath } = options;
   const batchSize = options.relationBatchSize ?? 10;
   const concurrency = options.concurrency ?? 5;
 
@@ -245,6 +247,7 @@ export async function compile(
         compiled++;
         progressCount++;
         onProgress?.(progressCount + skipped, rawCapabilities.length, raw.name);
+        if (checkpointPath) graph.save(checkpointPath);
       }
       continue;
     }
@@ -276,6 +279,7 @@ export async function compile(
       compiled++;
       progressCount++;
       onProgress?.(progressCount + skipped, rawCapabilities.length, raw.name);
+      if (checkpointPath) graph.save(checkpointPath);
     }
 
     // Check for total batch failure (first batch only) - likely API key issue

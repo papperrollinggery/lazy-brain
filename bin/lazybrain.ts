@@ -17,7 +17,7 @@
  *   lazybrain wiki                    Generate wiki articles
  */
 
-import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync, readFileSync, unlinkSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LAZYBRAIN_DIR, GRAPH_PATH, GRAPH_VERSION } from '../src/constants.js';
@@ -207,6 +207,25 @@ async function interactiveSelect(
 // ─── Compile ──────────────────────────────────────────────────────────────
 
 async function cmdCompile() {
+  // ─── Concurrency lock ─────────────────────────────────────────────────────
+  const lockPath = join(LAZYBRAIN_DIR, 'compile.lock');
+  if (existsSync(lockPath)) {
+    const pidStr = (() => { try { return readFileSync(lockPath, 'utf-8').trim(); } catch { return ''; } })();
+    const pid = parseInt(pidStr, 10);
+    let running = false;
+    if (!isNaN(pid) && pid > 0) {
+      try { process.kill(pid, 0); running = true; } catch { running = false; }
+    }
+    if (running) {
+      console.error(`Another compile is running (PID: ${pid}). Exiting.`);
+      process.exit(1);
+    }
+    // Stale lock — remove it
+    try { unlinkSync(lockPath); } catch {}
+  }
+  writeFileSync(lockPath, String(process.pid));
+  process.on('exit', () => { try { unlinkSync(lockPath); } catch {} });
+
   const scanCachePath = join(LAZYBRAIN_DIR, 'scan-cache.json');
   if (!existsSync(scanCachePath)) {
     console.error('No scan cache found. Run `lazybrain scan` first.');
@@ -321,7 +340,7 @@ async function cmdCompile() {
     const sigintHandler = () => {
       liveGraph.save(GRAPH_PATH);
       console.log(`\n\nInterrupted. Saved ${liveGraph.getAllNodes().length} nodes to ${GRAPH_PATH}`);
-      console.log('Run without --force to resume from checkpoint.');
+      console.log('Run `lazybrain compile` (without --force) to resume.');
       process.exit(0);
     };
     process.on('SIGINT', sigintHandler);
@@ -336,6 +355,7 @@ async function cmdCompile() {
       modelName: config.compileModel,
       existingGraph: liveGraph,
       forceRelations: args.includes('--force'),
+      checkpointPath: GRAPH_PATH,
       onProgress: (current, total, name) => {
         phase1Bar.update(current, name);
       },
