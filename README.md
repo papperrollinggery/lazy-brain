@@ -5,7 +5,7 @@ Semantic skill router for AI coding agents — automatically recommends the righ
 ## Features
 
 - **Auto-match**: Hook into Claude Code, auto-inject the best skill on every prompt
-- **491+ capabilities**: Skills, agents, commands across claude-code, cursor, kiro
+- **Multi-platform**: Scans skills, agents, commands across claude-code, cursor, kiro
 - **Hybrid search**: Tag + embedding semantic matching
 - **History boost**: Frequently used tools rank higher
 - **Parchment pet**: Visual recommendation UI in terminal
