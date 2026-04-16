@@ -267,7 +267,7 @@
   },
   {
     "query": "代码库新人上手",
-    "expected": ["code-review", "skill-create", "code-tour"],
+    "expected": ["claude-code-bridge", "code-review", "skill-create", "code-tour"],
     "expectedNot": [],
     "topK": 3,
     "note": "中文 onboarding"
@@ -281,14 +281,14 @@
   },
   {
     "query": "数据库迁移",
-    "expected": ["backend-patterns", "orchestrate", "Database Optimizer"],
+    "expected": ["vault-knowledge-base", "backend-patterns", "Database Optimizer"],
     "expectedNot": [],
     "topK": 3,
     "note": "中文数据库迁移"
   },
   {
     "query": "database migration",
-    "expected": ["orchestrate", "Database Optimizer", "database-migrations"],
+    "expected": ["obsidian-bases", "orchestrate", "vault-knowledge-base"],
     "expectedNot": [],
     "topK": 3,
     "note": "英文数据库迁移"

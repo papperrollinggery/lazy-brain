@@ -114,10 +114,19 @@ function cmdScan() {
   writeFileSync(STATUS_PATH, JSON.stringify({ state: 'scanning', updatedAt: Date.now() }));
   console.log('Scanning capability sources...');
 
+  // --platform <name>: scan specific platform only
+  let platforms = config.platforms;
+  if (args.includes('--platform')) {
+    const pIdx = args.indexOf('--platform');
+    const targetPlatform = args[pIdx + 1];
+    platforms = { [targetPlatform]: true } as Record<string, boolean>;
+    console.log(`  Platform filter: ${targetPlatform}`);
+  }
+
   const result = scan({
     extraPaths: config.scanPaths,
     platform: config.platform ?? 'claude-code',
-    platforms: config.platforms,
+    platforms,
     onProgress: (scanned, found) => {
       process.stdout.write(`\r  Scanned ${scanned} files, found ${found} capabilities`);
     },
@@ -1117,7 +1126,7 @@ function printHelp() {
 lazybrain — Semantic skill router for AI coding agents
 
 Usage:
-  lazybrain scan                     Scan capability sources
+  lazybrain scan [--platform <p>]       Scan capability sources
   lazybrain compile [--offline]      Build knowledge graph (--offline: no LLM)
   lazybrain compile --all            Compile all platforms
   lazybrain compile --select         Interactive platform selection
