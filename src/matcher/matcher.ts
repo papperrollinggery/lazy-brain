@@ -329,12 +329,13 @@ function getNextSteps(matches: MatchResult[], history?: HistoryEntry[], sessionI
 
   if (sessionHistory.length === 0) return [];
 
-  // Find where topTool appears and get the next tool in sequence
+  // Collect all tools that follow any occurrence of topTool in session history
+  const allNextSteps: string[] = [];
   for (let i = 0; i < sessionHistory.length - 1; i++) {
     if (sessionHistory[i] === topTool) {
-      return sessionHistory.slice(i + 1, i + 3);
+      allNextSteps.push(...sessionHistory.slice(i + 1, i + 3));
     }
   }
-
-  return [];
+  // Deduplicate and cap at 3
+  return [...new Set(allNextSteps)].slice(0, 3);
 }

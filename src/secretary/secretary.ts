@@ -103,9 +103,12 @@ export function buildHistoryHints(history: HistoryEntry[], topN = 5): HistoryHin
     const key = entry.matched;
     const w = decayWeight(entry.timestamp);
     const s = stats.get(key) ?? { weightedCount: 0, weightedAccepted: 0, rawCount: 0 };
+    // weightedCount: all entries (for acceptRate denominator)
     s.weightedCount += w;
-    s.rawCount++;
-    if (entry.accepted) s.weightedAccepted += w;
+    if (entry.accepted) {
+      s.weightedAccepted += w;
+      s.rawCount++;  // only accepted entries count toward frequency
+    }
     stats.set(key, s);
   }
   return [...stats.entries()]
@@ -157,8 +160,6 @@ export async function askSecretary(
   const prompt = makeSecretaryPrompt(userPrompt, slimCandidates, taskType, options.historyHints, options.profile);
 
   try {
-    lastCallAt = Date.now();
-
     const llm = createLLMProvider({
       model: options.model,
       apiBase: options.apiBase,

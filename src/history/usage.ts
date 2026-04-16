@@ -151,6 +151,8 @@ export function inferTaskType(transcriptPath: string): string {
     if (!existsSync(transcriptPath)) return 'general';
     const raw = readFileSync(transcriptPath, 'utf-8').toLowerCase();
 
+    // NOTE: CJK keywords are matched as whole substrings, not character classes.
+    // "审查" is a 2-char word, not [审|查|细]. Keep CJK terms outside character classes.
     const patterns: Array<[RegExp, string]> = [
       [/(?:code.?)?review|审查/, 'code-review'],
       [/refactor|重构/, 'refactor'],
