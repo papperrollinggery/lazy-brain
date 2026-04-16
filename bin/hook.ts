@@ -264,8 +264,12 @@ async function main() {
       try {
         const entry = trackSessionUsage(sessionId, transcriptPath);
         if (entry) {
-          // Trigger evolution based on new usage data
-          evolveCapabilities({ auto: true });
+          // Trigger evolution based on new usage data — evolution errors are non-fatal
+          try {
+            evolveCapabilities({ auto: true });
+          } catch (evolutionError) {
+            process.stderr.write(`[LazyBrain] Evolution error: ${evolutionError instanceof Error ? evolutionError.message : String(evolutionError)}\n`);
+          }
         }
       } catch (err) {
         // Non-fatal: log but don't block session end
@@ -470,12 +474,12 @@ async function main() {
 
       const card = graph.getWikiCard(top.capability.id);
       const histStats2 = getHistoryStats(history ?? [], top.capability.name, top.capability.id);
-      const proposals2 = (config.strategy === 'optimal' || config.strategy === 'ask')
+      const proposals2 = config.strategy !== 'always-main'
         ? generateProposals(prompt, top.score)
         : undefined;
       const text = card
         ? formatWikiCard(card, top.score, secondary, histStats2.count > 0 ? { historyCount: histStats2.count, historyAcceptRate: histStats2.acceptRate, nextSteps: result.nextSteps, proposals: proposals2, strategy: config.strategy } : { nextSteps: result.nextSteps, proposals: proposals2, strategy: config.strategy })
-        : formatFallback(top, secondary, result.nextSteps);
+        : formatFallback(top, secondary, result.nextSteps, proposals2, config.strategy);
 
       appendHistory({
         timestamp: new Date().toISOString(),
@@ -590,6 +594,8 @@ function formatFallback(
   top: { capability: { kind: string; name: string; scenario?: string }; score: number },
   secondary: Array<{ name: string; score: number }>,
   nextSteps?: string[],
+  proposals?: ProposalOption[],
+  strategy?: string,
 ): string {
   const lines = [
     `[LazyBrain] 推荐: ${top.capability.kind}/${top.capability.name} (${Math.round(top.score * 100)}%)`,
@@ -600,6 +606,19 @@ function formatFallback(
   }
   if (nextSteps && nextSteps.length > 0) {
     lines.push(`  下一步: ${nextSteps.map(s => `/${s}`).join(' → ')}`);
+  }
+  if (proposals && proposals.length > 0) {
+    lines.push(`  方案:`);
+    for (const p of proposals) {
+      const tokenLabel = p.estimatedTokens >= 1000
+        ? `${(p.estimatedTokens / 1000).toFixed(1)}k`
+        : `${p.estimatedTokens}`;
+      lines.push(`    ${p.id}. ${p.label} (${tokenLabel} tokens)`);
+    }
+    if (proposals.length > 1 && strategy !== 'ask') {
+      const best = proposals.reduce((a, b) => a.savings > b.savings ? a : b);
+      lines.push(`    → 推荐 ${best.id} (节省 ${Math.round(best.savings * 100)}% token)`);
+    }
   }
   return lines.join('\n');
 }

@@ -79,11 +79,15 @@ export function generateProposals(
   const aCost = estimateCost(aInput, aOutput, 'sonnet');
   const aOpus = opusEstimate(prompt, taskCount);
   const aSavings = aOpus > 0 ? Math.round((1 - aCost / aOpus) * 100) / 100 : 0;
+  // Proposal A savings are relative to Opus baseline (the "no optimization" path).
+  // Proposal A label shows "主模型直推" meaning Sonnet direct — savings vs Opus baseline.
 
-  // Proposal B: Agent composition (分解任务，节省 Opus)
-  const bSavings = matchConfidence < 0.7 ? 0.3 : 0.15;
-  const bLabel = matchConfidence < 0.7 ? 'Agent 组合' : 'Agent 辅助';
-  const bReason = matchConfidence < 0.7
+  // Proposal B: Agent composition — derive complexity from query signals, not matchConfidence
+  const queryLen = prompt.length;
+  const isComplex = /\b(规划|设计|完整|全面|系统|多步骤|分解|架构|审查|优化|重构)\b/.test(prompt) || queryLen > 60;
+  const bSavings = isComplex ? 0.3 : 0.15;
+  const bLabel = isComplex ? 'Agent 组合' : 'Agent 辅助';
+  const bReason = isComplex
     ? '复杂任务，分解执行可节省约 30% Opus token'
     : '多步骤任务，agent 分解可提高准确性';
 
