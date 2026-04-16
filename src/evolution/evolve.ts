@@ -26,10 +26,11 @@ const STOP_WORDS = new Set([
 interface EvolveOptions {
   dryRun?: boolean;
   rollback?: boolean;
+  auto?: boolean; // 自动模式，不打印进度
 }
 
 export function evolveCapabilities(options: EvolveOptions = {}): void {
-  const { dryRun = false, rollback = false } = options;
+  const { dryRun = false, rollback = false, auto = false } = options;
 
   if (rollback) {
     doRollback();
@@ -38,12 +39,12 @@ export function evolveCapabilities(options: EvolveOptions = {}): void {
 
   const history = loadRecentHistory(200).filter(e => e.accepted);
   if (history.length === 0) {
-    console.log('No accepted history found. Run lazybrain hook first.');
+    if (!auto) console.log('No accepted history found. Run lazybrain hook first.');
     return;
   }
 
   if (!existsSync(GRAPH_PATH)) {
-    console.error('No graph found. Run `lazybrain scan && lazybrain compile` first.');
+    if (!auto) console.error('No graph found. Run `lazybrain scan && lazybrain compile` first.');
     return;
   }
 
@@ -80,7 +81,7 @@ export function evolveCapabilities(options: EvolveOptions = {}): void {
       } else {
         node.evolvedTags = [...(node.evolvedTags ?? []), ...newTags].slice(0, MAX_EVOLVED_TAGS);
         evolved++;
-        console.log(`[EVOLVED] ${toolName}: +${newTags.length} tags`);
+      if (!dryRun && !auto) console.log(`[EVOLVED] ${toolName}: +${newTags.length} tags`);
       }
     }
   }
@@ -88,13 +89,13 @@ export function evolveCapabilities(options: EvolveOptions = {}): void {
   if (!dryRun && evolved > 0) {
     const backupPath = `${GRAPH_PATH}.backup.${Date.now()}`;
     copyFileSync(GRAPH_PATH, backupPath);
-    console.log(`\nBackup saved to: ${backupPath}`);
+    if (!auto) console.log(`\nBackup saved to: ${backupPath}`);
 
     graph.save();
-    console.log(`Updated ${evolved} capabilities with evolved tags.`);
+    if (!auto) console.log(`Updated ${evolved} capabilities with evolved tags.`);
   }
 
-  if (evolved === 0) {
+  if (evolved === 0 && !auto) {
     console.log('No new tags to learn.');
   }
 }

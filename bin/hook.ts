@@ -21,6 +21,8 @@ import { createEmbeddingProvider } from '../src/indexer/embeddings/provider.js';
 import { askSecretary, buildHistoryHints } from '../src/secretary/secretary.js';
 import { loadRecentHistory, appendHistory } from '../src/history/history.js';
 import { loadProfile, isProfileStale, distillAndSave } from '../src/history/profile.js';
+import { trackSessionUsage } from '../src/history/usage.js';
+import { evolveCapabilities } from '../src/evolution/evolve.js';
 import type { WikiCard, SecretaryResponse } from '../src/types.js';
 
 interface EmbeddingConfig {
@@ -247,6 +249,31 @@ async function main() {
     const raw = readFileSync('/dev/stdin', 'utf-8').trim();
     if (raw) input = JSON.parse(raw) as HookInput;
   } catch {
+    output({ continue: true });
+    return;
+  }
+
+  // ─── Stop Hook: Token tracking + evolution ─────────────────────────────
+  if (input.hook_event_name === 'Stop') {
+    const sessionId = input.session_id ?? 'unknown';
+    const transcriptPath = (input as Record<string, unknown>)['transcript_path'] as string ?? '';
+
+    // Track token usage for this session
+    if (transcriptPath) {
+      try {
+        const entry = trackSessionUsage(sessionId, transcriptPath);
+        if (entry) {
+          // Trigger evolution based on new usage data
+          evolveCapabilities({ auto: true });
+        }
+      } catch (err) {
+        // Non-fatal: log but don't block session end
+        process.stderr.write(`[LazyBrain] Usage tracking error: ${err instanceof Error ? err.message : String(err)}\n`);
+      }
+    }
+
+    // Update last-match to reflect session end
+    writeLastMatch(null, 0);
     output({ continue: true });
     return;
   }
