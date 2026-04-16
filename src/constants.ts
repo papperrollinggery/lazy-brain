@@ -163,6 +163,7 @@ export const DEFAULT_CONFIG: UserConfig = {
   externalDiscovery: false,
   platform: 'claude-code',
   language: 'auto',
+  platforms: { 'claude-code': true, 'openclaw': false, 'workbuddy': false },
 };
 
 // ─── Graph Version ──────────────────────────────────────────────────────────
