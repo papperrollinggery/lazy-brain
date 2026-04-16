@@ -235,6 +235,15 @@ export interface SecretaryResponse {
   reasoning: string;
 }
 
+export interface ProposalOption {
+  id: 'A' | 'B' | 'C';
+  label: string;
+  model: string;
+  estimatedTokens: number;
+  savings: number;       // 0-1, fraction vs Opus baseline
+  reason: string;
+}
+
 // ─── User Config ────────────────────────────────────────────────────────────
 
 export type MatchMode = 'auto' | 'select' | 'ask';
