@@ -117,6 +117,7 @@ function cmdScan() {
   const result = scan({
     extraPaths: config.scanPaths,
     platform: config.platform ?? 'claude-code',
+    platforms: config.platforms,
     onProgress: (scanned, found) => {
       process.stdout.write(`\r  Scanned ${scanned} files, found ${found} capabilities`);
     },

@@ -193,6 +193,29 @@ function scoreCapability(
     }
   }
 
+  // Aliases (0.9) — exact match, author-defined triggers
+  if (cap.aliases && cap.aliases.length > 0) {
+    const aliasLowers = cap.aliases.map(a => a.toLowerCase());
+    for (const token of allTokens) {
+      if (aliasLowers.includes(token)) {
+        credit(token, 0.9);
+      }
+    }
+  }
+
+  // EvolvedTags (0.6) — tokenMatches, user-learned (may have noise)
+  if (cap.evolvedTags && cap.evolvedTags.length > 0) {
+    const evolvedLowers = cap.evolvedTags.map(t => t.toLowerCase());
+    for (const token of allTokens) {
+      for (const evolved of evolvedLowers) {
+        if (tokenMatches(token, evolved)) {
+          credit(token, 0.6);
+          break;
+        }
+      }
+    }
+  }
+
   // Example queries (0.6) — best-matching query per token
   if (cap.exampleQueries.length > 0) {
     for (const token of allTokens) {

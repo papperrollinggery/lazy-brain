@@ -26,6 +26,42 @@ LazyBrain 是一个**自动帮你找到对工具的小助手**。你在 Claude C
 
 LazyBrain 就是来解决这些问题的。
 
+## Wiki 知识库在哪？
+
+`lazybrain compile` 会自动生成一个知识库，存在你电脑的 `~/.lazybrain/wiki/` 文件夹里。它不在项目仓库里——是运行时生成的。
+
+里面有 16 个分类文件，把你所有工具按用途整理好了：
+
+```
+~/.lazybrain/wiki/
+├── index.md           # 总目录（"491 capabilities across 15 categories"）
+├── development.md     # 开发类工具（107 个）
+├── operations.md      # 运维类工具（65 个）
+├── content.md         # 内容创作类（60 个）
+├── code-quality.md    # 代码质量类（48 个）
+├── testing.md         # 测试类（43 个）
+├── design.md          # 设计类（33 个）
+├── orchestration.md   # 编排协调类（27 个）
+├── planning.md        # 规划类（23 个）
+├── security.md        # 安全类（22 个）
+├── research.md        # 研究类（20 个）
+├── data.md            # 数据类（14 个）
+└── ...                # 更多分类
+```
+
+每个文件里列出了工具名称、一句话描述、标签、以及跟其他工具的关系（依赖、相似、组合使用）。你可以直接用 `cat ~/.lazybrain/wiki/orchestration.md` 看某个分类。
+
+### 单个工具 Wiki 文件
+
+`lazybrain compile` 也会为每个工具生成独立的 Markdown 说明文件：
+
+- **路径**：`~/.lazybrain/wiki/<tool-name>.md`
+- **内容**：工具描述、标签、示例查询、使用场景
+- **用途**：`lazybrain wiki <tool-name>` 命令读取这些文件展示详情
+- **生成方式**：每次 `lazybrain compile` 自动更新
+
+如果 wiki 目录不存在，运行 `lazybrain compile` 即可生成。
+
 ## 怎么用？（3 步，5 分钟）
 
 ### 第 1 步：安装

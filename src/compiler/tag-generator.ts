@@ -32,9 +32,15 @@ ${cap.triggers?.length ? `Triggers: ${cap.triggers.join(', ')}` : ''}
 Respond with JSON:
 {
   "tags": ["keyword1", "keyword2", ...],       // 8-15 semantic tags${hasCJK ? ' (include Chinese)' : ''}
-  "exampleQueries": ["query1", "query2", ...], // 5-8 example user queries that should match this
+  "exampleQueries": ["query1", "query2", ...], // 5-8 example queries, each >= 8 chars, must be natural language (not just tool name)
   "scenario": "one sentence: when a user should use this"
 }
+
+Requirements for exampleQueries:
+- At least 5 queries, each >= 8 characters
+- Must be natural language queries users might say
+- Bad example: ["code-review"] (just tool name)
+- Good example: ["帮我审查这段代码", "review this PR", "检查代码质量", "code review before merge", "看看有没有bug"]${hasCJK ? '\n- At least 3 Chinese queries (users may search Chinese tools in English)' : '\n- At least 1 query in another language'}`}
 
 Allowed categories: ${CATEGORIES.join(', ')}`;
 }

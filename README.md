@@ -123,6 +123,21 @@ LazyBrain doesn't just match — it learns from your usage patterns:
   └───────────────────────────────────────────────┘
 ```
 
+## Where is the Wiki?
+
+`lazybrain compile` generates a knowledge base at `~/.lazybrain/wiki/`. It's a runtime artifact, not in the project repo.
+
+```
+~/.lazybrain/wiki/
+├── index.md           # Master index ("491 capabilities across 15 categories")
+├── development.md     # Development tools (107)
+├── operations.md      # Operations tools (65)
+├── orchestration.md   # Orchestration & multi-agent (27)
+└── ...                # More categories
+```
+
+Each file lists tool name, one-line description, tags, and relationships (depends_on, similar_to, composes_with).
+
 ## Quick Start
 
 ```bash

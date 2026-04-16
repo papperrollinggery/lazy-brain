@@ -4,7 +4,7 @@
 
 import type { RawCapability } from '../../types.js';
 import { parseFrontmatter } from '../../utils/yaml.js';
-import { inferPlatformFromPath } from '../../constants.js';
+import { inferPlatformFromPath, inferSinglePlatformFromPath } from '../../constants.js';
 
 /**
  * Extract first non-heading paragraph from body.
@@ -51,5 +51,6 @@ export function parseCommand(filePath: string, content: string): RawCapability |
     origin: 'local',
     filePath,
     compatibility: inferPlatformFromPath(filePath),
+    platform: inferSinglePlatformFromPath(filePath),
   };
 }

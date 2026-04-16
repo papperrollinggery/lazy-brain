@@ -13,6 +13,7 @@ export type CapabilityKind = 'skill' | 'agent' | 'command' | 'mode' | 'hook';
 export type Platform =
   | 'claude-code'
   | 'openclaw'
+  | 'workbuddy'
   | 'cursor'
   | 'kiro'
   | 'codex'
@@ -64,6 +65,9 @@ export interface Capability {
   // ─── Frontmatter-extracted ───
   /** Original trigger keywords from SKILL.md frontmatter */
   triggers?: string[];
+
+  /** Author-defined trigger aliases (e.g. "ap" for autopilot, "ulw" for ultrawork) */
+  aliases?: string[];
 
   /** Compilation tier: 0=current platform, 1=universal, 2=other platforms */
   tier?: 0 | 1 | 2;
@@ -273,6 +277,8 @@ export interface UserConfig {
   language: 'auto' | 'en' | 'zh';
   /** Platforms to compile (default: auto-detect current) */
   compilePlatforms?: Platform[];
+  /** Platforms to scan (default: only current platform) */
+  platforms?: Record<Platform, boolean>;
 }
 
 // ─── History ────────────────────────────────────────────────────────────────
@@ -354,6 +360,8 @@ export interface RawCapability {
   tier?: 0 | 1 | 2;
   /** True if scanned from skills-disabled path */
   disabled?: boolean;
+  /** Primary platform this capability was scanned from */
+  platform?: Platform;
 }
 
 // ─── LLM Provider ───────────────────────────────────────────────────────────

@@ -18,10 +18,11 @@ import type {
 import { CATEGORIES, GRAPH_VERSION } from '../constants.js';
 import { Graph } from '../graph/graph.js';
 
-/** Generate deterministic capability ID */
-export function makeCapabilityId(kind: string, name: string, origin: string): string {
+/** Generate deterministic capability ID with optional platform prefix */
+export function makeCapabilityId(kind: string, name: string, origin: string, platform?: string): string {
+  const prefix = platform && platform !== 'claude-code' ? `${platform}:` : '';
   return createHash('sha256')
-    .update(`${kind}:${name}:${origin}`)
+    .update(`${prefix}${kind}:${name}:${origin}`)
     .digest('hex')
     .slice(0, 16);
 }
@@ -157,12 +158,18 @@ export async function compile(
   const toCompile: Array<{ raw: RawCapability; index: number }> = [];
   for (let i = 0; i < rawCapabilities.length; i++) {
     const raw = rawCapabilities[i];
-    const id = makeCapabilityId(raw.kind, raw.name, raw.origin);
-    if (existingGraph?.getNode(id)) {
-      skipped++;
-    } else {
-      toCompile.push({ raw, index: i });
+    const id = makeCapabilityId(raw.kind, raw.name, raw.origin, raw.platform);
+    const existingNode = existingGraph?.getNode(id);
+    if (existingNode) {
+      const hasQualityData = existingNode.exampleQueries &&
+        existingNode.exampleQueries.length > 1 &&
+        existingNode.exampleQueries.some(q => q.length >= 8 && q !== existingNode.name);
+      if (hasQualityData) {
+        skipped++;
+        continue;
+      }
     }
+    toCompile.push({ raw, index: i });
   }
 
   // Process in concurrent batches (batch of capabilities per LLM call)
@@ -186,7 +193,7 @@ export async function compile(
       }
       // Subsequent batch failures: record errors and skip
       for (const { raw } of batch) {
-        const id = makeCapabilityId(raw.kind, raw.name, raw.origin);
+        const id = makeCapabilityId(raw.kind, raw.name, raw.origin, raw.platform);
         errors.push(`${raw.name}: LLM request failed`);
         graph.addNode({ id, kind: raw.kind, name: raw.name, description: raw.description, origin: raw.origin, status: raw.disabled ? 'disabled' : 'installed', compatibility: raw.compatibility, filePath: raw.filePath, tags: raw.triggers ?? [], exampleQueries: [], category: 'other', meta: raw.meta });
         newlyCompiledIds.push(id);
@@ -211,7 +218,7 @@ export async function compile(
       process.stderr.write(`\n[BATCH PARSE FAIL] Expected ${batchRaws.length}, got ${enrichments?.length ?? 0}. Falling back to individual prompts.\n`);
       for (let j = 0; j < batch.length; j++) {
         const { raw } = batch[j];
-        const id = makeCapabilityId(raw.kind, raw.name, raw.origin);
+        const id = makeCapabilityId(raw.kind, raw.name, raw.origin, raw.platform);
 
         try {
           const prompt = makeTagPrompt(raw);
@@ -278,7 +285,7 @@ export async function compile(
     for (let j = 0; j < batch.length; j++) {
       const raw = batch[j].raw;
       const enrichment = enrichments[j];
-      const id = makeCapabilityId(raw.kind, raw.name, raw.origin);
+      const id = makeCapabilityId(raw.kind, raw.name, raw.origin, raw.platform);
 
       graph.addNode({
         id,

@@ -35,22 +35,52 @@ export function getClaudeConfigDir(): string {
 
 // ─── Default Scan Paths ─────────────────────────────────────────────────────
 
+/** Infer primary platform from file path (single platform, not array) */
+ export function inferSinglePlatformFromPath(filePath: string): Platform {
+   if (filePath.includes('/.openclaw/')) return 'openclaw';
+   if (filePath.includes('/.workbuddy/')) return 'workbuddy';
+   if (filePath.includes('/.cursor/')) return 'cursor';
+   if (filePath.includes('/.kiro/')) return 'kiro';
+   return 'claude-code';
+ }
+
 /** Generate default scan paths based on Claude config dir */
-export function getDefaultScanPaths(): string[] {
+export function getDefaultScanPaths(platforms?: Record<string, boolean>): string[] {
   const claude = getClaudeConfigDir();
-  return [
-    join(claude, 'skills'),
-    join(claude, 'skills-disabled'),
-    join(claude, '.agents', 'skills'),
-    join(claude, 'agents'),
-    join(claude, 'commands'),
-    join(claude, 'ecc', 'skills'),
-    join(claude, 'ecc', '.agents', 'skills'),
-    join(claude, 'ecc', '.claude', 'skills'),
-    join(claude, 'ecc', '.cursor', 'skills'),
-    join(claude, 'ecc', '.kiro', 'skills'),
-    join(claude, 'plugins'),
-  ];
+  const home = homedir();
+  const pf = platforms ?? { 'claude-code': true };
+  const paths: string[] = [];
+
+  if (pf['claude-code'] !== false) {
+    paths.push(
+      join(claude, 'skills'),
+      join(claude, 'skills-disabled'),
+      join(claude, '.agents', 'skills'),
+      join(claude, 'agents'),
+      join(claude, 'commands'),
+      join(claude, 'ecc', 'skills'),
+      join(claude, 'ecc', '.agents', 'skills'),
+      join(claude, 'ecc', '.claude', 'skills'),
+      join(claude, 'ecc', '.cursor', 'skills'),
+      join(claude, 'ecc', '.kiro', 'skills'),
+      join(claude, 'plugins'),
+    );
+  }
+
+  if (pf['openclaw'] === true) {
+    paths.push(
+      join(home, '.openclaw', 'skills'),
+      join(home, '.openclaw', 'agents'),
+    );
+  }
+
+  if (pf['workbuddy'] === true) {
+    paths.push(
+      join(home, '.workbuddy', 'skills'),
+    );
+  }
+
+  return paths;
 }
 
 /**

@@ -19,6 +19,8 @@ export interface ScanOptions {
   onProgress?: (scanned: number, found: number) => void;
   /** Current platform for tier assignment */
   platform?: Platform;
+  /** Platforms to scan (default: only current platform) */
+  platforms?: Record<string, boolean>;
 }
 
 export interface ScanResult {
@@ -76,7 +78,7 @@ function safeReadFile(filePath: string): string | null {
 }
 
 export function scan(options?: ScanOptions): ScanResult {
-  const paths = [...getDefaultScanPaths(), ...(options?.extraPaths ?? [])];
+  const paths = [...getDefaultScanPaths(options?.platforms), ...(options?.extraPaths ?? [])];
   const capabilities: RawCapability[] = [];
   const errors: string[] = [];
   let scannedFiles = 0;

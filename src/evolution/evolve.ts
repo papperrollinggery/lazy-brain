@@ -14,6 +14,15 @@ import { loadRecentHistory } from '../history/history.js';
 
 const MAX_EVOLVED_TAGS = 5;
 
+const STOP_WORDS = new Set([
+  'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'had',
+  'her', 'was', 'one', 'our', 'out', 'has', 'have', 'been', 'from', 'that',
+  'this', 'with', 'they', 'will', 'what', 'when', 'make', 'like', 'just',
+  'over', 'such', 'take', 'than', 'them', 'very', 'also', 'some', 'into',
+  'could', 'would', 'should', 'about', 'which', 'their', 'there', 'these',
+  'those', 'other', 'being', 'after', 'before', 'between', 'through',
+]);
+
 interface EvolveOptions {
   dryRun?: boolean;
   rollback?: boolean;
@@ -45,7 +54,7 @@ export function evolveCapabilities(options: EvolveOptions = {}): void {
     const tool = entry.matched;
     if (!tagCounts.has(tool)) tagCounts.set(tool, new Map());
 
-    const parts = entry.query.toLowerCase().match(/\b[a-z]{3,}\b/g) ?? [];
+    const parts = entry.query.toLowerCase().match(/\b[a-z]{3,}\b/g)?.filter(w => !STOP_WORDS.has(w)) ?? [];
     const toolTags = tagCounts.get(tool)!;
     for (const part of parts) {
       toolTags.set(part, (toolTags.get(part) ?? 0) + 1);
@@ -62,7 +71,7 @@ export function evolveCapabilities(options: EvolveOptions = {}): void {
       .filter(([tag]) => !existingTags.has(tag))
       .filter(([, count]) => count >= 3)
       .sort((a, b) => b[1] - a[1])
-      .slice(0, MAX_EVOLVED_TAGS - node.evolvedTags.length)
+      .slice(0, MAX_EVOLVED_TAGS - (node.evolvedTags?.length ?? 0))
       .map(([tag]) => tag);
 
     if (newTags.length > 0) {
