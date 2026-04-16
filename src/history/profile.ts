@@ -1,10 +1,13 @@
 /**
  * LazyBrain — User Profile Distiller
  *
- * 从 history.jsonl 蒸馏用户画像：
+ * Phase 3.1: 从 history.jsonl 蒸馏用户画像：
  * - 工具亲和度（频次 + 接受率 + 最近使用）
  * - 任务链模式（session 内连续使用的工具序列）
  * - 能力信号（高级工具占比）
+ *
+ * Phase 3.2: 从 usage.jsonl 补充 token 消耗画像：
+ * - taskType 分布、平均 session token、agent 组合建议
  *
  * 蒸馏结果写入 profile.json，secretary 直接读取，不用每次实时聚合。
  * 触发时机：lazybrain distill / hook 检测到 profile 过期（>24h）
@@ -12,7 +15,8 @@
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import type { HistoryEntry, UserProfile, ToolAffinity, TaskChain, MatchLayer } from '../types.js';
-import { PROFILE_PATH } from '../constants.js';
+import { PROFILE_PATH, LAZYBRAIN_DIR } from '../constants.js';
+import type { UsageEntry } from './usage.js';
 
 /** 高级工具关键词——用这些工具多说明用户是高级用户 */
 const ADVANCED_TOOL_PATTERNS = [
@@ -23,7 +27,89 @@ const ADVANCED_TOOL_PATTERNS = [
 /** session 间隔阈值：超过 30 分钟算新 session */
 const SESSION_GAP_MS = 30 * 60 * 1000;
 
-export function distillProfile(history: HistoryEntry[]): UserProfile {
+const USAGE_PATH = `${LAZYBRAIN_DIR}/usage.jsonl`;
+
+/** 从 usage.jsonl 读取所有 UsageEntry（无记录返回空数组） */
+export function loadUsageEntries(): UsageEntry[] {
+  if (!existsSync(USAGE_PATH)) return [];
+  try {
+    const raw = readFileSync(USAGE_PATH, 'utf-8');
+    return raw
+      .split('\n')
+      .filter(Boolean)
+      .map(line => {
+        try { return JSON.parse(line) as UsageEntry; }
+        catch { return null; }
+      })
+      .filter((e): e is UsageEntry => e !== null);
+  } catch {
+    return [];
+  }
+}
+
+/** 从 UsageEntry[] 提取 Phase 3.2 画像字段 */
+function distillUsageStats(entries: UsageEntry[]) {
+  if (entries.length === 0) {
+    return {
+      sessionCount: 0,
+      taskTypeDistribution: {} as Record<string, number>,
+      topTaskTypes: [] as Array<{ type: string; count: number }>,
+      avgInputTokens: 0,
+      avgOutputTokens: 0,
+      avgSessionCost: 0,
+      totalCost: 0,
+      avgAgentsPerSession: 0,
+      shouldUseAgentComposition: false,
+      agentTypesUsed: [] as string[],
+    };
+  }
+
+  // taskType 分布
+  const taskTypeCount = new Map<string, number>();
+  const agentTypesUsed = new Set<string>();
+  let multiAgentSessions = 0;
+  let totalInput = 0;
+  let totalOutput = 0;
+  let totalCost = 0;
+  let totalAgents = 0;
+
+  for (const e of entries) {
+    taskTypeCount.set(e.taskType, (taskTypeCount.get(e.taskType) ?? 0) + 1);
+    totalInput += e.inputTokens;
+    totalOutput += e.outputTokens;
+    totalCost += e.costUsd;
+
+    for (const agent of e.agentsUsed) agentTypesUsed.add(agent);
+    totalAgents += e.agentsUsed.length;
+    if (e.agentsUsed.length >= 2) multiAgentSessions++;
+  }
+
+  const sessionCount = entries.length;
+  const topTaskTypes = [...taskTypeCount.entries()]
+    .map(([type, count]) => ({ type, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 3);
+
+  const multiAgentRatio = multiAgentSessions / sessionCount;
+  const shouldUseAgentComposition = multiAgentRatio >= 0.3;
+
+  return {
+    sessionCount,
+    taskTypeDistribution: Object.fromEntries(taskTypeCount),
+    topTaskTypes,
+    avgInputTokens: Math.round(totalInput / sessionCount),
+    avgOutputTokens: Math.round(totalOutput / sessionCount),
+    avgSessionCost: Math.round((totalCost / sessionCount) * 1000) / 1000,
+    totalCost: Math.round(totalCost * 1000) / 1000,
+    avgAgentsPerSession: Math.round((totalAgents / sessionCount) * 10) / 10,
+    shouldUseAgentComposition,
+    agentTypesUsed: [...agentTypesUsed],
+  };
+}
+
+export function distillProfile(history: HistoryEntry[], usageEntries: UsageEntry[] = []): UserProfile {
+  const usage = distillUsageStats(usageEntries);
+
   if (history.length === 0) {
     return {
       distilledAt: new Date().toISOString(),
@@ -32,6 +118,7 @@ export function distillProfile(history: HistoryEntry[]): UserProfile {
       taskChains: [],
       preferredLayer: 'tag',
       advancedToolRatio: 0,
+      ...usage,
     };
   }
 
@@ -159,12 +246,14 @@ export function distillProfile(history: HistoryEntry[]): UserProfile {
     preferredLayer,
     advancedToolRatio,
     corrections,
+    ...usage,
   };
 }
 
 /** 蒸馏并写入 profile.json */
 export function distillAndSave(history: HistoryEntry[]): UserProfile {
-  const profile = distillProfile(history);
+  const usageEntries = loadUsageEntries();
+  const profile = distillProfile(history, usageEntries);
   writeFileSync(PROFILE_PATH, JSON.stringify(profile, null, 2));
   return profile;
 }
