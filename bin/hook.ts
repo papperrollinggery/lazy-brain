@@ -309,7 +309,9 @@ async function main() {
       : undefined;
 
     const history = loadRecentHistory(50);
-    const result = await match(prompt, { graph, config, embeddingProvider, history });
+    let profile: import('../src/types.js').UserProfile | undefined = undefined;
+    try { profile = loadProfile() ?? undefined; } catch {}
+    const result = await match(prompt, { graph, config, embeddingProvider, history, profile });
 
     if (result.matches.length === 0) {
       if (config.mode === 'ask') renderParchment({ type: 'no_match' });
@@ -338,8 +340,8 @@ async function main() {
       const card = graph.getWikiCard(top.capability.id);
       const histStats = getHistoryStats(history ?? [], top.capability.name, top.capability.id);
       const text = card
-        ? formatWikiCard(card, top.score, secondary, { historyCount: histStats.count || undefined, historyAcceptRate: histStats.count > 0 ? histStats.acceptRate : undefined })
-        : formatFallback(top, secondary);
+        ? formatWikiCard(card, top.score, secondary, { historyCount: histStats.count || undefined, historyAcceptRate: histStats.count > 0 ? histStats.acceptRate : undefined, nextSteps: result.nextSteps })
+        : formatFallback(top, secondary, result.nextSteps);
 
       appendHistory({
         timestamp: new Date().toISOString(),
@@ -460,8 +462,8 @@ async function main() {
       const card = graph.getWikiCard(top.capability.id);
       const histStats2 = getHistoryStats(history ?? [], top.capability.name, top.capability.id);
       const text = card
-        ? formatWikiCard(card, top.score, secondary, histStats2.count > 0 ? { historyCount: histStats2.count, historyAcceptRate: histStats2.acceptRate } : undefined)
-        : formatFallback(top, secondary);
+        ? formatWikiCard(card, top.score, secondary, histStats2.count > 0 ? { historyCount: histStats2.count, historyAcceptRate: histStats2.acceptRate, nextSteps: result.nextSteps } : { nextSteps: result.nextSteps })
+        : formatFallback(top, secondary, result.nextSteps);
 
       appendHistory({
         timestamp: new Date().toISOString(),
@@ -575,6 +577,7 @@ function formatSecretaryInjection(
 function formatFallback(
   top: { capability: { kind: string; name: string; scenario?: string }; score: number },
   secondary: Array<{ name: string; score: number }>,
+  nextSteps?: string[],
 ): string {
   const lines = [
     `[LazyBrain] 推荐: ${top.capability.kind}/${top.capability.name} (${Math.round(top.score * 100)}%)`,
@@ -583,6 +586,9 @@ function formatFallback(
   if (secondary.length > 0) {
     lines.push(`  备选: ${secondary.map(m => `/${m.name}`).join(', ')}`);
   }
+  if (nextSteps && nextSteps.length > 0) {
+    lines.push(`  下一步: ${nextSteps.map(s => `/${s}`).join(' → ')}`);
+  }
   return lines.join('\n');
 }
 
@@ -590,7 +596,7 @@ function formatWikiCard(
   card: WikiCard,
   score: number,
   secondaryMatches: Array<{ name: string; score: number }>,
-  opts?: { reasoning?: string; historyCount?: number; historyAcceptRate?: number; secretaryPlan?: string },
+  opts?: { reasoning?: string; historyCount?: number; historyAcceptRate?: number; secretaryPlan?: string; nextSteps?: string[] },
 ): string {
   const cap = card.capability;
   const pct = Math.round(score * 100);
@@ -627,6 +633,9 @@ function formatWikiCard(
   }
   if (opts?.secretaryPlan) {
     ctxLines.push(`分析: ${opts.secretaryPlan}`);
+  }
+  if (opts?.nextSteps && opts.nextSteps.length > 0) {
+    ctxLines.push(`下一步: ${opts.nextSteps.map(s => `/${s}`).join(' → ')}`);
   }
   if (ctxLines.length > 0) {
     lines.push('<context>');
