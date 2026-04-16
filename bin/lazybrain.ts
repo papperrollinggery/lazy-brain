@@ -1005,10 +1005,26 @@ function cmdSuggestAliases() {
     return;
   }
 
+  // Detect alias collisions before suggesting
+  const seenAlias = new Set<string>();
+  const collisions: Array<[string, string]> = [];
+
   console.log('\n📝 Suggested aliases (based on your usage history):\n');
   for (const [tool, count] of suggestions) {
-    const alias = tool.replace(/[-_]/g, '');
+    let alias = tool.replace(/[-_]/g, '').toLowerCase();
+    if (seenAlias.has(alias)) {
+      // Disambiguate by appending the first distinctive char
+      alias = alias + count;  // e.g. codereview → codereview3
+      collisions.push([tool, alias]);
+    }
+    seenAlias.add(alias);
     console.log(`  "${alias}" -> "${tool}"  (${count} uses)`);
+  }
+  if (collisions.length > 0) {
+    console.log('\n⚠️  Alias collisions were disambiguated:');
+    for (const [, alias] of collisions) {
+      console.log(`  (disambiguated: "${alias}")`);
+    }
   }
   console.log('\nTo add an alias, run:');
   console.log('  lazybrain alias set <alias> <target>');

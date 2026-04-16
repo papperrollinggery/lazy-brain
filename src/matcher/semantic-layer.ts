@@ -118,6 +118,11 @@ export function reciprocalRankFusion(
   });
 
   const entries = Array.from(scoreMap.entries());
+  // NOTE: TAG_RRF_BOOST (default 1.0) is added to tag-layer scores in the RRF sum above,
+  // but the subsequent `score / maxScore` normalization cancels out the boost factor —
+  // tag and semantic results at the same rank both normalize to 1.0.
+  // The tag bias therefore comes from raw tag confidence scores (0.3–1.0 range) being
+  // higher than semantic similarity scores (0.4–0.8), not from the RRF boost constant.
   const maxScore = Math.max(...entries.map(([, s]) => s));
 
   return entries

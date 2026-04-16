@@ -23,6 +23,7 @@ export const PROFILE_PATH = join(LAZYBRAIN_DIR, 'profile.json');
 export const OMC_STATE_DIR = join(homedir(), '.omc', 'state');
 export const STATUS_PATH = join(LAZYBRAIN_DIR, 'status.json');
 export const HOOK_ACTIVE_PATH = join(LAZYBRAIN_DIR, '.hook-pid');
+export const SECRETARY_CB_PATH = join(LAZYBRAIN_DIR, '.secretary-cb.json');
 export const EMBEDDING_INDEX_PATH = join(LAZYBRAIN_DIR, 'index.bin');
 export const MODELS_DIR = join(LAZYBRAIN_DIR, 'models');
 

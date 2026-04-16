@@ -17,6 +17,7 @@ import {
   SECRETARY_RATE_LIMIT_MS,
   SECRETARY_CIRCUIT_BREAKER_THRESHOLD,
   SECRETARY_CIRCUIT_BREAKER_PAUSE_MS,
+  SECRETARY_CB_PATH,
 } from '../constants.js';
 import {
   SECRETARY_SYSTEM_PROMPT,
@@ -24,33 +25,69 @@ import {
   detectTaskType,
 } from './prompt-templates.js';
 import type { HistoryHint } from './prompt-templates.js';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
-// ─── Circuit Breaker State ────────────────────────────────────────────────────
-// 注意：hook 是 fork 新进程模式，这些状态在进程间不共享。
-// 但在同一进程内（如 CLI 调用）可以防止连续失败。
+// ─── Circuit Breaker (file-based, survives hook restarts) ──────────────────
+// Persists to ~/.lazybrain/.secretary-cb.json so state survives across hook invocations.
 
-let consecutiveFailures = 0;
-let circuitOpenedAt = 0;
-let lastCallAt = 0;
+interface CircuitState {
+  consecutiveFailures: number;
+  openedAt: number;   // 0 = closed
+  lastCallAt: number;
+}
+
+function readCircuitState(): CircuitState {
+  try {
+    if (existsSync(SECRETARY_CB_PATH)) {
+      return JSON.parse(readFileSync(SECRETARY_CB_PATH, 'utf-8')) as CircuitState;
+    }
+  } catch {}
+  return { consecutiveFailures: 0, openedAt: 0, lastCallAt: 0 };
+}
+
+function writeCircuitState(state: CircuitState): void {
+  try {
+    writeFileSync(SECRETARY_CB_PATH, JSON.stringify(state), 'utf-8');
+  } catch {
+    // Non-fatal: circuit breaker state loss just means more retries
+  }
+}
+
+function recordFailure(): void {
+  const state = readCircuitState();
+  state.consecutiveFailures++;
+  if (state.consecutiveFailures >= SECRETARY_CIRCUIT_BREAKER_THRESHOLD) {
+    state.openedAt = Date.now();
+  }
+  writeCircuitState(state);
+}
+
+function recordSuccess(): void {
+  const state = readCircuitState();
+  state.consecutiveFailures = 0;
+  state.openedAt = 0;
+  state.lastCallAt = Date.now();
+  writeCircuitState(state);
+}
 
 function isCircuitOpen(): boolean {
-  if (consecutiveFailures < SECRETARY_CIRCUIT_BREAKER_THRESHOLD) return false;
-  const elapsed = Date.now() - circuitOpenedAt;
-  if (elapsed > SECRETARY_CIRCUIT_BREAKER_PAUSE_MS) {
-    consecutiveFailures = 0;
-    circuitOpenedAt = 0;
+  const state = readCircuitState();
+  if (state.consecutiveFailures < SECRETARY_CIRCUIT_BREAKER_THRESHOLD) return false;
+  if (state.openedAt > 0 && Date.now() - state.openedAt > SECRETARY_CIRCUIT_BREAKER_PAUSE_MS) {
+    // Auto-reset after pause
+    const s = readCircuitState();
+    s.consecutiveFailures = 0;
+    s.openedAt = 0;
+    writeCircuitState(s);
     return false;
   }
   return true;
 }
 
 function isRateLimited(): boolean {
-  return Date.now() - lastCallAt < SECRETARY_RATE_LIMIT_MS;
+  const state = readCircuitState();
+  return Date.now() - state.lastCallAt < SECRETARY_RATE_LIMIT_MS;
 }
-
-// ─── History Hints ────────────────────────────────────────────────────────────
-
-// ─── History Hints (time-decayed) ─────────────────────────────────────────────
 
 function decayWeight(timestamp: string): number {
   const ageMs = Date.now() - new Date(timestamp).getTime();
@@ -169,15 +206,15 @@ export async function askSecretary(
       throw new Error('needsTool=true but no tasks');
     }
 
-    consecutiveFailures = 0;
+    recordSuccess();
     return result;
   } catch (err) {
-    consecutiveFailures++;
-    if (consecutiveFailures >= SECRETARY_CIRCUIT_BREAKER_THRESHOLD) {
-      circuitOpenedAt = Date.now();
-      process.stderr.write(`[LazyBrain] Secretary circuit opened after ${consecutiveFailures} failures\n`);
+    recordFailure();
+    if (isCircuitOpen()) {
+      process.stderr.write(`[LazyBrain] Secretary circuit open (paused ${SECRETARY_CIRCUIT_BREAKER_PAUSE_MS / 1000 / 60}min)\n`);
+    } else {
+      process.stderr.write(`[LazyBrain] Secretary error: ${err instanceof Error ? err.message : String(err)}\n`);
     }
-    process.stderr.write(`[LazyBrain] Secretary error: ${err instanceof Error ? err.message : String(err)}\n`);
     return null;
   }
 }
