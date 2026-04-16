@@ -5,7 +5,7 @@
  * Used by statusline to display current execution context.
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { OMC_STATE_DIR } from '../constants.js';
 
@@ -31,18 +31,27 @@ const MODE_FILES: Array<[Omit<Parameters<typeof join>[2], string>, OmcMode]> = [
   ['hud-state.json', 'hud'],
 ];
 
+/** State files older than 5 minutes are considered stale (OMC doesn't clean up on exit) */
+const STATE_MAX_AGE_MS = 5 * 60 * 1000;
+
 /**
  * Read OMC state directory, return the highest-priority active mode.
- * Returns null if no OMC mode is active.
+ * Returns null if no OMC mode is active or all state files are stale.
  */
 export function readOmcMode(): OmcMode {
   for (const [filename, mode] of MODE_FILES) {
     const path = join(OMC_STATE_DIR, filename);
     try {
       if (existsSync(path)) {
+        // Reject stale state files (OMC doesn't clean up on exit)
+        const mtimeMs = statSync(path).mtimeMs;
+        if (Date.now() - mtimeMs > STATE_MAX_AGE_MS) continue;
+
         const raw = readFileSync(path, 'utf-8');
         const state = JSON.parse(raw) as OmcStateFile;
-        if (state.active === true) return mode;
+        // active=true + awaiting_confirmation=true → completed, waiting for user input
+        // active=true + awaiting_confirmation=false → actively working
+        if (state.active === true && state.awaiting_confirmation !== true) return mode;
       }
     } catch {
       // File corrupted or unreadable — skip
