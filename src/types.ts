@@ -339,6 +339,28 @@ export interface UserProfile {
   advancedToolRatio: number;
   /** 纠正信号：被拒工具 → 替代工具 */
   corrections?: CorrectionSignal[];
+
+  // ─── Phase 3.2: Usage-based profile ──────────────────────────────────────
+  /** usage.jsonl 中的 session 总数 */
+  sessionCount: number;
+  /** taskType 分布 { taskType: count } */
+  taskTypeDistribution: Record<string, number>;
+  /** 热门 taskType Top3 */
+  topTaskTypes: Array<{ type: string; count: number }>;
+  /** 平均每次 session 的 input tokens */
+  avgInputTokens: number;
+  /** 平均每次 session 的 output tokens */
+  avgOutputTokens: number;
+  /** 平均每次 session 的总 cost (USD) */
+  avgSessionCost: number;
+  /** 总累计 cost (USD) */
+  totalCost: number;
+  /** 平均每次 session 使用的 agent 数量 */
+  avgAgentsPerSession: number;
+  /** 是否建议使用 agent 组合（agent 数量 >= 2 的 session 占比 >= 30%） */
+  shouldUseAgentComposition: boolean;
+  /** 使用的 agent 类型列表 */
+  agentTypesUsed: string[];
 }
 
 // ─── Scanner ────────────────────────────────────────────────────────────────

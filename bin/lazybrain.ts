@@ -963,6 +963,22 @@ function cmdDistill() {
   if (profile.taskChains.length > 0) {
     console.log(`  Top chain: ${profile.taskChains[0].sequence.join(' → ')} (${profile.taskChains[0].count}x)`);
   }
+  if (profile.sessionCount > 0) {
+    console.log(`\n  [Phase 3.2 — Usage Profile]`);
+    console.log(`  Sessions: ${profile.sessionCount}`);
+    console.log(`  Total cost: $${profile.totalCost}`);
+    console.log(`  Avg session: ${profile.avgInputTokens.toLocaleString()} in / ${profile.avgOutputTokens.toLocaleString()} out tokens, $${profile.avgSessionCost}`);
+    if (profile.topTaskTypes.length > 0) {
+      console.log(`  Top task types: ${profile.topTaskTypes.map(t => `${t.type}(${t.count})`).join(', ')}`);
+    }
+    if (profile.agentTypesUsed.length > 0) {
+      console.log(`  Agents used: ${profile.agentTypesUsed.join(', ')}`);
+      console.log(`  Avg agents/session: ${profile.avgAgentsPerSession}`);
+    }
+    if (profile.shouldUseAgentComposition) {
+      console.log(`  Suggestion: agent composition recommended (${profile.avgAgentsPerSession}+ agents/session)`);
+    }
+  }
 }
 
 function cmdEvolve() {
