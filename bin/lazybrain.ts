@@ -1058,19 +1058,28 @@ function cmdHook() {
       }
 
       const hooks = (settings.hooks ?? {}) as Record<string, unknown>;
-      const existing = (hooks.UserPromptSubmit ?? []) as Array<Record<string, unknown>>;
 
-      // Remove any existing lazybrain hook
-      const filtered = existing.filter(
+      // ─── UserPromptSubmit ─────────────────────────────────────────────────
+      const existingUps = (hooks.UserPromptSubmit ?? []) as Array<Record<string, unknown>>;
+      const filteredUps = existingUps.filter(
         (h) => !(typeof h.command === 'string' && h.command.includes('lazybrain')),
       );
-
-      filtered.push({
+      filteredUps.push({
         matcher: '',
         hooks: [{ type: 'command', command: `node ${hookScript}` }],
       });
+      hooks.UserPromptSubmit = filteredUps;
 
-      hooks.UserPromptSubmit = filtered;
+      // ─── Stop ───────────────────────────────────────────────────────────
+      const existingStop = (hooks.Stop ?? []) as Array<Record<string, unknown>>;
+      const filteredStop = existingStop.filter(
+        (h) => !(typeof (h as Record<string, unknown>).command === 'string' && ((h as Record<string, unknown>).command as string).includes('lazybrain')),
+      );
+      filteredStop.push({
+        hooks: [{ type: 'command', command: `node ${hookScript}` }],
+      });
+      hooks.Stop = filteredStop;
+
       settings.hooks = hooks;
 
       writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
@@ -1093,9 +1102,13 @@ function cmdHook() {
       }
 
       const hooks = (settings.hooks ?? {}) as Record<string, unknown>;
-      const existing = (hooks.UserPromptSubmit ?? []) as Array<Record<string, unknown>>;
-      hooks.UserPromptSubmit = existing.filter(
+      const existingUps = (hooks.UserPromptSubmit ?? []) as Array<Record<string, unknown>>;
+      hooks.UserPromptSubmit = existingUps.filter(
         (h) => !(typeof h.command === 'string' && h.command.includes('lazybrain')),
+      );
+      const existingStop = (hooks.Stop ?? []) as Array<Record<string, unknown>>;
+      hooks.Stop = existingStop.filter(
+        (h) => !(typeof (h as Record<string, unknown>).command === 'string' && ((h as Record<string, unknown>).command as string).includes('lazybrain')),
       );
       settings.hooks = hooks;
 
