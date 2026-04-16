@@ -15,10 +15,22 @@ import { LAZYBRAIN_DIR } from '../constants.js';
 const USAGE_PATH = `${LAZYBRAIN_DIR}/usage.jsonl`;
 
 // Token cost per 1M tokens (USD)
+//
+// NOTE: These tiers track Anthropic model equivalents for comparative display
+// (e.g. "节省 80%" = Sonnet vs Opus baseline). Actual API calls go through
+// SiliconFlow GLM models at SiliconFlow pricing. Usage costs in usage.jsonl are
+// approximations using these tier labels; they are not precise billing figures.
+//
+// Model detection via detectModelTier():
+//   - transcript contains 'opus'/'sonnet'/'haiku' → direct Anthropic tier
+//   - transcript contains 'glm'                    → GLM pricing tier
+//   - unknown / missing                           → sonnet (default)
 export const COST_PER_1M: Record<string, { input: number; output: number; cacheWrite: number; cacheRead: number }> = {
   opus:   { input: 15.0,  output: 75.0,  cacheWrite: 18.75, cacheRead: 1.5 },
   sonnet: { input: 3.0,   output: 15.0,  cacheWrite: 3.75,  cacheRead: 0.30 },
   haiku:  { input: 0.80,  output: 4.0,   cacheWrite: 1.0,   cacheRead: 0.08 },
+  // SiliconFlow GLM pricing (approximate, based on public rate card)
+  glm:    { input: 0.07,  output: 0.07,  cacheWrite: 0.0,   cacheRead: 0.0 },
 };
 
 export interface TokenStats {
@@ -42,12 +54,17 @@ export interface UsageEntry {
 }
 
 /** Detect model tier from model string */
+/** Detect model tier from model string in transcript.
+ * Fallback: 'unknown' → COST_PER_1M['sonnet'] (safe default).
+ * Falls through to 'sonnet' for any unrecognized provider.
+ */
 function detectModelTier(model: string): string {
   const m = model.toLowerCase();
   if (m.includes('opus')) return 'opus';
   if (m.includes('sonnet')) return 'sonnet';
   if (m.includes('haiku')) return 'haiku';
-  return 'sonnet'; // default
+  if (m.includes('glm')) return 'glm';  // SiliconFlow GLM models
+  return 'sonnet'; // default — avoids 'unknown' causing silent NaN in cost calc
 }
 
 /** Infer model from last assistant entry in transcript */

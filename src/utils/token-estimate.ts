@@ -44,6 +44,16 @@ export function estimateOutputTokens(taskCount: number, model: 'sonnet' | 'haiku
 }
 
 /**
+ * Estimate output tokens for agent composition (sonnet planner + haiku executor).
+ * Sonnet: planning output (20% of base). Haiku: execution output (80% of base).
+ */
+function estimateOutputTokensAgent(taskCount: number): number {
+  const sonnetPlanning = Math.round(taskCount * 200 * 1.0 * 0.2);
+  const haikuExecution = Math.round(taskCount * 200 * 0.5 * 0.8);
+  return sonnetPlanning + haikuExecution;
+}
+
+/**
  * Estimate USD cost for a given token count + model tier.
  */
 export function estimateCost(inputTokens: number, outputTokens: number, model: 'sonnet' | 'haiku' | 'opus'): number {
@@ -110,7 +120,8 @@ export function generateProposals(
       id: 'B',
       label: bLabel,
       model: 'sonnet+haiku',
-      estimatedTokens: Math.round((aInput + aOutput) * 0.6),
+      // Actual token estimate: sonnet planning (20%) + haiku execution (80% of haiku base)
+      estimatedTokens: estimateInputTokens(prompt, taskCount) + estimateOutputTokensAgent(taskCount),
       savings: bSavings,
       reason: bReason,
     },
