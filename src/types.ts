@@ -248,6 +248,7 @@ export interface ProposalOption {
 
 export type MatchMode = 'auto' | 'select' | 'ask';
 export type MatchEngine = 'tag' | 'embedding' | 'llm' | 'hybrid';
+export type RoutingStrategy = 'always-main' | 'optimal' | 'ask';
 
 export interface UserConfig {
   /** User-defined aliases: "疯狗模式" → "ralph" */
@@ -260,6 +261,8 @@ export interface UserConfig {
   autoThreshold: number;
   /** Which matching engine(s) to use */
   engine: MatchEngine;
+  /** Routing strategy: always-main (no proposals), optimal (auto-pick cheapest), ask (show all) */
+  strategy: RoutingStrategy;
   /** LLM model for compilation */
   compileModel: string;
   /** LLM API base URL (for MiniMax mirror, Ollama, etc.) */

@@ -157,6 +157,7 @@ export const DEFAULT_CONFIG: UserConfig = {
   mode: 'select',
   autoThreshold: DEFAULT_AUTO_THRESHOLD,
   engine: 'tag',
+  strategy: 'ask',
   compileApiBase: 'https://api.siliconflow.cn/v1',
   compileModel: 'Qwen/Qwen3-235B-A22B-Instruct-2507',
   embeddingApiBase: 'https://api.siliconflow.cn/v1',
