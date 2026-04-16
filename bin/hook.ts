@@ -23,7 +23,8 @@ import { loadRecentHistory, appendHistory } from '../src/history/history.js';
 import { loadProfile, isProfileStale, distillAndSave } from '../src/history/profile.js';
 import { trackSessionUsage } from '../src/history/usage.js';
 import { evolveCapabilities } from '../src/evolution/evolve.js';
-import type { WikiCard, SecretaryResponse } from '../src/types.js';
+import { generateProposals } from '../src/utils/token-estimate.js';
+import type { WikiCard, SecretaryResponse, ProposalOption } from '../src/types.js';
 
 interface EmbeddingConfig {
   apiBase: string;
@@ -339,8 +340,9 @@ async function main() {
 
       const card = graph.getWikiCard(top.capability.id);
       const histStats = getHistoryStats(history ?? [], top.capability.name, top.capability.id);
+      const proposals = config.mode === 'ask' ? generateProposals(prompt, top.score) : undefined;
       const text = card
-        ? formatWikiCard(card, top.score, secondary, { historyCount: histStats.count || undefined, historyAcceptRate: histStats.count > 0 ? histStats.acceptRate : undefined, nextSteps: result.nextSteps })
+        ? formatWikiCard(card, top.score, secondary, { historyCount: histStats.count || undefined, historyAcceptRate: histStats.count > 0 ? histStats.acceptRate : undefined, nextSteps: result.nextSteps, proposals })
         : formatFallback(top, secondary, result.nextSteps);
 
       appendHistory({
@@ -461,8 +463,9 @@ async function main() {
 
       const card = graph.getWikiCard(top.capability.id);
       const histStats2 = getHistoryStats(history ?? [], top.capability.name, top.capability.id);
+      const proposals2 = config.mode === 'ask' ? generateProposals(prompt, top.score) : undefined;
       const text = card
-        ? formatWikiCard(card, top.score, secondary, histStats2.count > 0 ? { historyCount: histStats2.count, historyAcceptRate: histStats2.acceptRate, nextSteps: result.nextSteps } : { nextSteps: result.nextSteps })
+        ? formatWikiCard(card, top.score, secondary, histStats2.count > 0 ? { historyCount: histStats2.count, historyAcceptRate: histStats2.acceptRate, nextSteps: result.nextSteps, proposals: proposals2 } : { nextSteps: result.nextSteps, proposals: proposals2 })
         : formatFallback(top, secondary, result.nextSteps);
 
       appendHistory({
@@ -596,7 +599,7 @@ function formatWikiCard(
   card: WikiCard,
   score: number,
   secondaryMatches: Array<{ name: string; score: number }>,
-  opts?: { reasoning?: string; historyCount?: number; historyAcceptRate?: number; secretaryPlan?: string; nextSteps?: string[] },
+  opts?: { reasoning?: string; historyCount?: number; historyAcceptRate?: number; secretaryPlan?: string; nextSteps?: string[]; proposals?: ProposalOption[] },
 ): string {
   const cap = card.capability;
   const pct = Math.round(score * 100);
@@ -661,6 +664,22 @@ function formatWikiCard(
     lines.push('<alternatives>');
     for (const a of altParts) lines.push(`  ${a}`);
     lines.push('</alternatives>');
+  }
+
+  if (opts?.proposals && opts.proposals.length > 0) {
+    lines.push('<proposals>');
+    for (const p of opts.proposals) {
+      const savingsLabel = Math.round(p.savings * 100);
+      const tokenLabel = p.estimatedTokens >= 1000
+        ? `${(p.estimatedTokens / 1000).toFixed(1)}k`
+        : `${p.estimatedTokens}`;
+      lines.push(`  <option id="${p.id}" label="${p.label}" model="${p.model}" tokens="${tokenLabel}" savings="${savingsLabel}%">`);
+      lines.push(`    ${p.reason}`);
+      lines.push('  </option>');
+    }
+    const best = opts.proposals.reduce((a, b) => a.savings > b.savings ? a : b);
+    lines.push(`  <recommend id="${best.id}" reason="节省 ${Math.round(best.savings * 100)}% token"/>`);
+    lines.push('</proposals>');
   }
 
   lines.push('</lazybrain-recommendation>');
