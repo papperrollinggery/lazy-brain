@@ -340,9 +340,16 @@ async function main() {
 
       const card = graph.getWikiCard(top.capability.id);
       const histStats = getHistoryStats(history ?? [], top.capability.name, top.capability.id);
-      const proposals = config.mode === 'ask' ? generateProposals(prompt, top.score) : undefined;
+      // 'optimal': show proposals with auto-recommend (cheapest picked)
+      // 'ask': show all proposals, no auto-recommend tag
+      const allProposals = generateProposals(prompt, top.score);
+      const proposals = config.strategy === 'always-main'
+        ? undefined
+        : config.strategy === 'optimal'
+          ? allProposals
+          : allProposals; // 'ask' shows all, no recommend tag
       const text = card
-        ? formatWikiCard(card, top.score, secondary, { historyCount: histStats.count || undefined, historyAcceptRate: histStats.count > 0 ? histStats.acceptRate : undefined, nextSteps: result.nextSteps, proposals })
+        ? formatWikiCard(card, top.score, secondary, { historyCount: histStats.count || undefined, historyAcceptRate: histStats.count > 0 ? histStats.acceptRate : undefined, nextSteps: result.nextSteps, proposals, strategy: config.strategy })
         : formatFallback(top, secondary, result.nextSteps);
 
       appendHistory({
@@ -463,9 +470,11 @@ async function main() {
 
       const card = graph.getWikiCard(top.capability.id);
       const histStats2 = getHistoryStats(history ?? [], top.capability.name, top.capability.id);
-      const proposals2 = config.mode === 'ask' ? generateProposals(prompt, top.score) : undefined;
+      const proposals2 = (config.strategy === 'optimal' || config.strategy === 'ask')
+        ? generateProposals(prompt, top.score)
+        : undefined;
       const text = card
-        ? formatWikiCard(card, top.score, secondary, histStats2.count > 0 ? { historyCount: histStats2.count, historyAcceptRate: histStats2.acceptRate, nextSteps: result.nextSteps, proposals: proposals2 } : { nextSteps: result.nextSteps, proposals: proposals2 })
+        ? formatWikiCard(card, top.score, secondary, histStats2.count > 0 ? { historyCount: histStats2.count, historyAcceptRate: histStats2.acceptRate, nextSteps: result.nextSteps, proposals: proposals2, strategy: config.strategy } : { nextSteps: result.nextSteps, proposals: proposals2, strategy: config.strategy })
         : formatFallback(top, secondary, result.nextSteps);
 
       appendHistory({
@@ -599,7 +608,7 @@ function formatWikiCard(
   card: WikiCard,
   score: number,
   secondaryMatches: Array<{ name: string; score: number }>,
-  opts?: { reasoning?: string; historyCount?: number; historyAcceptRate?: number; secretaryPlan?: string; nextSteps?: string[]; proposals?: ProposalOption[] },
+  opts?: { reasoning?: string; historyCount?: number; historyAcceptRate?: number; secretaryPlan?: string; nextSteps?: string[]; proposals?: ProposalOption[]; strategy?: string },
 ): string {
   const cap = card.capability;
   const pct = Math.round(score * 100);
@@ -677,8 +686,11 @@ function formatWikiCard(
       lines.push(`    ${p.reason}`);
       lines.push('  </option>');
     }
-    const best = opts.proposals.reduce((a, b) => a.savings > b.savings ? a : b);
-    lines.push(`  <recommend id="${best.id}" reason="节省 ${Math.round(best.savings * 100)}% token"/>`);
+    // 'optimal' = auto-recommend cheapest; 'ask' = let user decide
+    if (opts?.proposals && opts.proposals.length > 1 && opts.strategy !== 'ask') {
+      const best = opts.proposals.reduce((a, b) => a.savings > b.savings ? a : b);
+      lines.push(`  <recommend id="${best.id}" reason="节省 ${Math.round(best.savings * 100)}% token，${best.reason.split('，')[1] ?? best.reason}"/>`);
+    }
     lines.push('</proposals>');
   }
 
