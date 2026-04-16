@@ -90,6 +90,9 @@ export class Graph {
         meta: node.meta,
         embedding: undefined,
         triggers: Array.isArray(node.triggers) ? node.triggers : undefined,
+        aliases: Array.isArray(node.aliases) ? node.aliases : undefined,
+        tier: node.tier,
+        evolvedTags: Array.isArray(node.evolvedTags) ? node.evolvedTags : undefined,
       };
       g.nodes.set(validNode.id, validNode);
     }
@@ -141,6 +144,9 @@ export class Graph {
           meta: node.meta,
           embedding: embMap.get(node.id ?? '') ?? (Array.isArray(node.embedding) ? node.embedding : undefined),
           triggers: Array.isArray(node.triggers) ? node.triggers : undefined,
+          aliases: Array.isArray(node.aliases) ? node.aliases : undefined,
+          tier: node.tier,
+          evolvedTags: Array.isArray(node.evolvedTags) ? node.evolvedTags : undefined,
         };
         g.nodes.set(validNode.id, validNode);
       }
