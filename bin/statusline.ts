@@ -10,6 +10,20 @@ import { LAZYBRAIN_DIR, STATUS_PATH } from '../src/constants.js';
 import { readOmcMode } from '../src/utils/omc-state.js';
 
 const lastMatchPath = join(LAZYBRAIN_DIR, 'last-match.json');
+const hookActivePath = join(LAZYBRAIN_DIR, '.hook-pid');
+
+function isHookRunning(): boolean {
+  try {
+    if (!existsSync(hookActivePath)) return false;
+    const pid = parseInt(readFileSync(hookActivePath, 'utf-8').trim(), 10);
+    if (isNaN(pid)) return false;
+    // Node.js: process.kill(pid, 0) checks if process exists — works on Unix/macOS
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function getModel(): string {
   try {
@@ -34,6 +48,21 @@ function getCompileStatus(): string | null {
   return null;
 }
 
+/**
+ * Format a time duration string from milliseconds.
+ * e.g. 5000 → "5秒前", 90000 → "1分30秒前", 7200000 → "2小时前"
+ */
+function timeAgo(ms: number): string {
+  if (ms < 0) return '刚刚';
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}秒前`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}分前`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}小时前`;
+  return `${Math.floor(h / 24)}天前`;
+}
+
 const OMC_MODE_LABELS: Record<string, string> = {
   ralph: 'Ralph',
   ultrawork: 'Ultrawork',
@@ -52,16 +81,20 @@ function getLabel(): string {
   const compileStatus = getCompileStatus();
   if (compileStatus) return `🧠 ${compileStatus}${suffix}`;
 
-  if (!existsSync(lastMatchPath)) return `🧠 待机中${suffix}`;
+  // Hook 正在运行 = LazyBrain 正在思考
+  if (isHookRunning()) return `🧠 思考中${suffix}`;
+
+  if (!existsSync(lastMatchPath)) return `🧠 监控中${suffix}`;
   try {
     const data = JSON.parse(readFileSync(lastMatchPath, 'utf-8'));
-    if (Date.now() - data.updatedAt > 30_000) return `🧠 待机中${suffix}`;
-    if (!data.tool) return `🧠 无匹配${suffix}`;
+    const age = Date.now() - data.updatedAt;
+    const timeLabel = timeAgo(age);
+    if (!data.tool) return `🧠 监控中${suffix}`;
     const score = Math.round(data.score * 100);
     const boost = data.historyBoost > 0.01 ? ` ↑${Math.round(data.historyBoost * 100)}%` : '';
-    return `🧠 /${data.tool} [${score}%]${boost}${suffix}`;
+    return `🧠 ${timeLabel} /${data.tool} [${score}%]${boost}${suffix}`;
   } catch {
-    return `🧠 LazyBrain${suffix}`;
+    return `🧠 监控中${suffix}`;
   }
 }
 

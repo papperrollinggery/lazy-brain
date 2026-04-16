@@ -11,9 +11,9 @@
  *   stdout: { continue: true, additionalSystemPrompt?: string }
  */
 
-import { readFileSync, existsSync, writeFileSync } from 'node:fs';
+import { readFileSync, existsSync, writeFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { GRAPH_PATH, CAPABILITY_MODEL_HINTS, LAZYBRAIN_DIR } from '../src/constants.js';
+import { GRAPH_PATH, CAPABILITY_MODEL_HINTS, LAZYBRAIN_DIR, HOOK_ACTIVE_PATH } from '../src/constants.js';
 import { Graph } from '../src/graph/graph.js';
 import { match } from '../src/matcher/matcher.js';
 import { loadConfig } from '../src/config/config.js';
@@ -246,12 +246,20 @@ function renderParchment(scene: ParchmentScene): void {
 
 async function main() {
   let input: HookInput = {};
+  // Signal statusline that LazyBrain is processing
+  try {
+    writeFileSync(HOOK_ACTIVE_PATH, String(process.pid), 'utf-8');
+  } catch {}
+
   try {
     const raw = readFileSync('/dev/stdin', 'utf-8').trim();
     if (raw) input = JSON.parse(raw) as HookInput;
   } catch {
     output({ continue: true });
     return;
+  } finally {
+    // Clean up PID marker when hook exits (always runs)
+    try { if (existsSync(HOOK_ACTIVE_PATH)) unlinkSync(HOOK_ACTIVE_PATH); } catch {}
   }
 
   // ─── Stop Hook: Token tracking + evolution ─────────────────────────────

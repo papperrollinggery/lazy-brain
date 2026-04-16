@@ -22,6 +22,7 @@ export const PROFILE_PATH = join(LAZYBRAIN_DIR, 'profile.json');
 /** OMC state directory — read to detect active execution mode */
 export const OMC_STATE_DIR = join(homedir(), '.omc', 'state');
 export const STATUS_PATH = join(LAZYBRAIN_DIR, 'status.json');
+export const HOOK_ACTIVE_PATH = join(LAZYBRAIN_DIR, '.hook-pid');
 export const EMBEDDING_INDEX_PATH = join(LAZYBRAIN_DIR, 'index.bin');
 export const MODELS_DIR = join(LAZYBRAIN_DIR, 'models');
 
