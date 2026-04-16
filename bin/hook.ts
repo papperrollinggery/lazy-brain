@@ -244,6 +244,10 @@ function renderParchment(scene: ParchmentScene): void {
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
+function cleanupPid(): void {
+  try { if (existsSync(HOOK_ACTIVE_PATH)) unlinkSync(HOOK_ACTIVE_PATH); } catch {}
+}
+
 async function main() {
   let input: HookInput = {};
   // Signal statusline that LazyBrain is processing
@@ -255,11 +259,9 @@ async function main() {
     const raw = readFileSync('/dev/stdin', 'utf-8').trim();
     if (raw) input = JSON.parse(raw) as HookInput;
   } catch {
+    cleanupPid();
     output({ continue: true });
     return;
-  } finally {
-    // Clean up PID marker when hook exits (always runs)
-    try { if (existsSync(HOOK_ACTIVE_PATH)) unlinkSync(HOOK_ACTIVE_PATH); } catch {}
   }
 
   // ─── Stop Hook: Token tracking + evolution ─────────────────────────────
@@ -606,6 +608,7 @@ async function main() {
 }
 
 function output(data: HookOutput) {
+  cleanupPid();
   process.stdout.write(JSON.stringify(data) + '\n');
 }
 

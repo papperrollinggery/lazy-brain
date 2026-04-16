@@ -31,7 +31,7 @@ export function makeCapabilityId(kind: string, name: string, origin: string, pla
 
 const SYSTEM_PROMPT = `You are a capability classifier for AI coding agent tools.
 Given a tool's name and description, generate structured metadata.
-Always respond in valid JSON. No markdown, no explanation.`;
+Always respond in valid JSON. No markdown, no explanation, no thinking process.`;
 
 function makeTagPrompt(cap: RawCapability): string {
   return `Analyze this AI coding agent capability and generate metadata.
@@ -129,6 +129,8 @@ export interface CompileOptions {
   concurrency?: number;
   /** Force full relation inference (not just new nodes) */
   forceRelations?: boolean;
+  /** Skip Phase 2 relation inference entirely */
+  skipRelations?: boolean;
   /** Path to save incremental checkpoint after each capability */
   checkpointPath?: string;
   /** Progress callback */
@@ -141,7 +143,7 @@ export async function compile(
   rawCapabilities: RawCapability[],
   options: CompileOptions,
 ): Promise<CompileResult> {
-  const { llm, modelName, existingGraph, onProgress, onRelationProgress, forceRelations = false, checkpointPath } = options;
+  const { llm, modelName, existingGraph, onProgress, onRelationProgress, forceRelations = false, skipRelations = false, checkpointPath } = options;
   const batchSize = options.relationBatchSize ?? 10;
   const concurrency = options.concurrency ?? 5;
 
@@ -172,150 +174,92 @@ export async function compile(
     toCompile.push({ raw, index: i });
   }
 
-  // Process in concurrent batches (batch of capabilities per LLM call)
-  const BATCH_SIZE = 5;
-  for (let i = 0; i < toCompile.length; i += BATCH_SIZE) {
-    const batch = toCompile.slice(i, i + BATCH_SIZE);
-    const batchRaws = batch.map(b => b.raw);
+  // Process concurrently in chunks of `concurrency` — one LLM call per capability.
+  // Batch prompts were removed: reasoning models (M2.7, Qwen3) emit <think> blocks
+  // that break JSON array parsing. Single-item prompts are simpler and more stable.
+  const CHUNK_SIZE = concurrency;
+  for (let i = 0; i < toCompile.length; i += CHUNK_SIZE) {
+    const chunk = toCompile.slice(i, i + CHUNK_SIZE);
 
-    // Try batch prompt first
-    const batchPrompt = makeBatchTagPrompt(batchRaws);
-    let batchResponse: LLMResponse;
-    try {
-      batchResponse = await llm.complete(batchPrompt, SYSTEM_PROMPT);
-    } catch (err) {
-      // First batch failure likely means API key/config issue — abort early
-      if (i === 0) {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        console.error(`\nLLM API error (first batch failed): ${errMsg}`);
-        console.error('Check: compileApiBase, compileApiKey, compileModel in ~/.lazybrain/config.json');
-        process.exit(1);
-      }
-      // Subsequent batch failures: record errors and skip
-      for (const { raw } of batch) {
-        const id = makeCapabilityId(raw.kind, raw.name, raw.origin, raw.platform);
-        errors.push(`${raw.name}: LLM request failed`);
-        graph.addNode({ id, kind: raw.kind, name: raw.name, description: raw.description, origin: raw.origin, status: raw.disabled ? 'disabled' : 'installed', compatibility: raw.compatibility, filePath: raw.filePath, tags: raw.triggers ?? [], exampleQueries: [], category: 'other', meta: raw.meta });
-        newlyCompiledIds.push(id);
-        compiled++;
-        progressCount++;
-        onProgress?.(progressCount + skipped, rawCapabilities.length, raw.name);
-      }
-      continue;
-    }
-    totalTokens.input += batchResponse.inputTokens;
-    totalTokens.output += batchResponse.outputTokens;
-
-    const enrichments = parseJsonResponse<Array<{
-      tags: string[];
-      exampleQueries: string[];
-      category: string;
-      scenario: string;
-    }>>(batchResponse.content);
-
-    // If batch failed, fallback to individual prompts
-    if (!enrichments || enrichments.length !== batchRaws.length) {
-      process.stderr.write(`\n[BATCH PARSE FAIL] Expected ${batchRaws.length}, got ${enrichments?.length ?? 0}. Falling back to individual prompts.\n`);
-      for (let j = 0; j < batch.length; j++) {
-        const { raw } = batch[j];
-        const id = makeCapabilityId(raw.kind, raw.name, raw.origin, raw.platform);
-
-        try {
-          const prompt = makeTagPrompt(raw);
-          const response = await llm.complete(prompt, SYSTEM_PROMPT);
-          totalTokens.input += response.inputTokens;
-          totalTokens.output += response.outputTokens;
-
-          const enrichment = parseJsonResponse<{
-            tags: string[];
-            exampleQueries: string[];
-            category: string;
-            scenario: string;
-          }>(response.content);
-
-          if (!enrichment) {
-            process.stderr.write(`[PARSE FAIL] ${raw.name}\n`);
-          }
-
-          graph.addNode({
-            id,
-            kind: raw.kind,
-            name: raw.name,
-            description: raw.description,
-            origin: raw.origin,
-            status: raw.disabled ? 'disabled' : 'installed',
-            compatibility: raw.compatibility,
-            filePath: raw.filePath,
-            tags: enrichment?.tags ?? [],
-            exampleQueries: enrichment?.exampleQueries ?? [],
-            category: enrichment?.category ?? 'other',
-            scenario: enrichment?.scenario,
-            triggers: raw.triggers,
-            meta: raw.meta,
-            tier: raw.tier,
-          });
-        } catch (err) {
-          const errMsg = err instanceof Error ? err.message : String(err);
-          errors.push(`${raw.name}: ${errMsg}`);
-          graph.addNode({
-            id,
-            kind: raw.kind,
-            name: raw.name,
-            description: raw.description,
-            origin: raw.origin,
-            status: raw.disabled ? 'disabled' : 'installed',
-            compatibility: raw.compatibility,
-            filePath: raw.filePath,
-            tags: raw.triggers ?? [],
-            exampleQueries: [],
-            category: 'other',
-            meta: raw.meta,
-          });
-        }
-        newlyCompiledIds.push(id);
-        compiled++;
-        progressCount++;
-        onProgress?.(progressCount + skipped, rawCapabilities.length, raw.name);
-        if (checkpointPath) graph.save(checkpointPath);
-      }
-      continue;
-    }
-
-    // Process successful batch results
-    for (let j = 0; j < batch.length; j++) {
-      const raw = batch[j].raw;
-      const enrichment = enrichments[j];
+    await Promise.all(chunk.map(async ({ raw }) => {
       const id = makeCapabilityId(raw.kind, raw.name, raw.origin, raw.platform);
 
-      graph.addNode({
-        id,
-        kind: raw.kind,
-        name: raw.name,
-        description: raw.description,
-        origin: raw.origin,
-        status: raw.disabled ? 'disabled' : 'installed',
-        compatibility: raw.compatibility,
-        filePath: raw.filePath,
-        tags: enrichment?.tags ?? [],
-        exampleQueries: enrichment?.exampleQueries ?? [],
-        category: enrichment?.category ?? 'other',
-        scenario: enrichment?.scenario,
-        triggers: raw.triggers,
-        meta: raw.meta,
-        tier: raw.tier,
-      });
+      // First call: abort early on API config issues
+      const isFirst = i === 0 && chunk[0].raw === raw;
+
+      try {
+        const prompt = makeTagPrompt(raw);
+        const response = await llm.complete(prompt, SYSTEM_PROMPT);
+        totalTokens.input += response.inputTokens;
+        totalTokens.output += response.outputTokens;
+
+        const enrichment = parseJsonResponse<{
+          tags: string[];
+          exampleQueries: string[];
+          category: string;
+          scenario: string;
+        }>(response.content);
+
+        if (!enrichment) {
+          process.stderr.write(`[PARSE FAIL] ${raw.name}\n`);
+        }
+
+        graph.addNode({
+          id,
+          kind: raw.kind,
+          name: raw.name,
+          description: raw.description,
+          origin: raw.origin,
+          status: raw.disabled ? 'disabled' : 'installed',
+          compatibility: raw.compatibility,
+          filePath: raw.filePath,
+          tags: enrichment?.tags ?? raw.triggers ?? [],
+          exampleQueries: enrichment?.exampleQueries ?? [],
+          category: enrichment?.category ?? 'other',
+          scenario: enrichment?.scenario,
+          triggers: raw.triggers,
+          meta: raw.meta,
+          tier: raw.tier,
+        });
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        if (isFirst) {
+          console.error(`\nLLM API error (first call failed): ${errMsg}`);
+          console.error('Check: compileApiBase, compileApiKey, compileModel in ~/.lazybrain/config.json');
+          process.exit(1);
+        }
+        errors.push(`${raw.name}: ${errMsg}`);
+        graph.addNode({
+          id,
+          kind: raw.kind,
+          name: raw.name,
+          description: raw.description,
+          origin: raw.origin,
+          status: raw.disabled ? 'disabled' : 'installed',
+          compatibility: raw.compatibility,
+          filePath: raw.filePath,
+          tags: raw.triggers ?? [],
+          exampleQueries: [],
+          category: 'other',
+          meta: raw.meta,
+        });
+      }
+
       newlyCompiledIds.push(id);
       compiled++;
       progressCount++;
       onProgress?.(progressCount + skipped, rawCapabilities.length, raw.name);
       if (checkpointPath) graph.save(checkpointPath);
-    }
-
+    }));
   }
 
   // Phase 2: Infer relationships between capabilities (concurrent)
   // Only process tier 0+1 nodes for relations; tier 2 is skipped for speed
   // If forceRelations is false, only process newly compiled nodes (incremental mode)
+  if (skipRelations) {
+    return { graph, compiled, skipped, errors, totalTokens };
+  }
+
   const allNodes = graph.getAllNodes();
   const relationNodes = forceRelations
     ? allNodes.filter(n => n.tier === undefined || n.tier <= 1)

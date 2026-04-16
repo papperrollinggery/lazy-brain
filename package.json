@@ -53,5 +53,6 @@
   },
   "optionalDependencies": {
     "@rollup/rollup-darwin-x64": "^4.60.1"
-  }
+  },
+  "repository": "github:LazyBrain/lazybrain"
 }

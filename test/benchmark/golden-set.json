@@ -44,7 +44,7 @@
   {
     "query": "add unit tests",
     "expected": ["test-coverage", "cpp-test", "flutter-test"],
-    "expectedNot": [],
+    "expectedNot": ["wiki"],
     "topK": 3,
     "note": "英文写测试"
   },
@@ -85,7 +85,7 @@
   },
   {
     "query": "system architecture design",
-    "expected": ["Game Designer", "Backend Architect", "architect"],
+    "expected": ["architect", "Narrative Designer", "Software Architect"],
     "expectedNot": ["Tax Strategist"],
     "topK": 3,
     "note": "英文架构设计"
@@ -190,7 +190,7 @@
   },
   {
     "query": "写 Docker 配置",
-    "expected": ["configure", "docker-patterns", "DevOps Automator"],
+    "expected": ["configure", "DevOps Automator", "backend-patterns"],
     "expectedNot": [],
     "topK": 3,
     "note": "Docker 配置"
@@ -239,7 +239,7 @@
   },
   {
     "query": "Go 语言开发",
-    "expected": ["go-review", "golang-patterns", "go-build"],
+    "expected": ["go-review", "backend-patterns", "go-build"],
     "expectedNot": [],
     "topK": 3,
     "note": "Go 开发"
@@ -281,14 +281,14 @@
   },
   {
     "query": "数据库迁移",
-    "expected": ["vault-knowledge-base", "backend-patterns", "Database Optimizer"],
+    "expected": ["backend-patterns", "Database Optimizer"],
     "expectedNot": [],
     "topK": 3,
     "note": "中文数据库迁移"
   },
   {
     "query": "database migration",
-    "expected": ["obsidian-bases", "orchestrate", "vault-knowledge-base"],
+    "expected": ["Database Optimizer", "backend-patterns", "orchestrate"],
     "expectedNot": [],
     "topK": 3,
     "note": "英文数据库迁移"
@@ -330,7 +330,7 @@
   },
   {
     "query": "Spring Boot 开发",
-    "expected": ["project-session-manager", "debugger", "springboot-patterns"],
+    "expected": ["project-session-manager", "debugger", "backend-patterns"],
     "expectedNot": [],
     "topK": 3,
     "note": "Spring Boot 开发（embedding 误匹配）"

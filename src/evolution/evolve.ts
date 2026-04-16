@@ -55,7 +55,12 @@ export function evolveCapabilities(options: EvolveOptions = {}): void {
     const tool = entry.matched;
     if (!tagCounts.has(tool)) tagCounts.set(tool, new Map());
 
-    const parts = entry.query.toLowerCase().match(/\b[a-z]{3,}\b/g)?.filter(w => !STOP_WORDS.has(w)) ?? [];
+    const query = entry.query.toLowerCase();
+    // Extract Latin words (3+ chars)
+    const latinParts = query.match(/\b[a-z]{3,}\b/g)?.filter(w => !STOP_WORDS.has(w)) ?? [];
+    // Extract CJK segments (2+ chars): Chinese, Japanese Kanji, Korean
+    const cjkParts = query.match(/[\u4e00-\u9fff\u3400-\u4dbf\uac00-\ud7af]{2,}/g) ?? [];
+    const parts = [...latinParts, ...cjkParts];
     const toolTags = tagCounts.get(tool)!;
     for (const part of parts) {
       toolTags.set(part, (toolTags.get(part) ?? 0) + 1);
