@@ -305,6 +305,8 @@ export interface HistoryEntry {
   sessionId?: string;
   candidateList?: string[];
   chosenInstead?: string;
+  /** Why this entry was recorded: 'matched' | 'no_match' | 'low_score' | 'secretary_rejected' | 'error' */
+  reason?: string;
 }
 
 // ─── User Profile (distilled from history) ─────────────────────────────────

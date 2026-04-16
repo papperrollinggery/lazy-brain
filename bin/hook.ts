@@ -304,6 +304,15 @@ async function main() {
       renderParchment({ type: 'no_graph' });
     }
     process.stderr.write('[LazyBrain] No graph found. Run `lazybrain scan && lazybrain compile` first.\n');
+    appendHistory({
+      timestamp: new Date().toISOString(),
+      query: prompt,
+      matched: '',
+      accepted: false,
+      layer: 'tag',
+      sessionId: process.env.CLAUDE_SESSION_ID ?? 'unknown',
+      reason: 'no_graph',
+    });
     writeLastMatch(null, 0);
     output({ continue: true });
     return;
@@ -373,6 +382,7 @@ async function main() {
         layer: top.layer,
         sessionId: process.env.CLAUDE_SESSION_ID ?? 'unknown',
         candidateList: result.matches.slice(0, 3).map(m => m.capability.name),
+        reason: 'matched',
       });
 
       writeLastMatch(top.capability.name, top.score, top.historyBoost);
@@ -383,10 +393,22 @@ async function main() {
     // ─── Low confidence (< 0.4) and no API — skip injection ───
     if (top.score < 0.4 && !(config.compileApiBase && config.compileApiKey)) {
       if (config.mode === 'ask') renderParchment({ type: 'sleeping' });
+      appendHistory({
+        timestamp: new Date().toISOString(),
+        query: prompt,
+        matched: top.capability.name,
+        id: top.capability.id,
+        accepted: false,
+        layer: top.layer,
+        sessionId: process.env.CLAUDE_SESSION_ID ?? 'unknown',
+        reason: 'low_score',
+      });
       writeLastMatch(top.capability.name, top.score, top.historyBoost);
       output({ continue: true });
       return;
     }
+
+    // ─── Low confidence (< 0.4) with API — try Secretary below, log if it rejects ───
 
     // ─── Layer 2: Secretary (score 0.4-0.85, or <0.4 with API) ───
     const secretaryApiBase = config.secretaryApiBase ?? config.embeddingApiBase ?? config.compileApiBase;
@@ -425,6 +447,15 @@ async function main() {
           if (config.mode === 'ask') {
             renderParchment({ type: 'sleeping' });
           }
+          appendHistory({
+            timestamp: new Date().toISOString(),
+            query: prompt,
+            matched: '',
+            accepted: false,
+            layer: 'llm',
+            sessionId: process.env.CLAUDE_SESSION_ID ?? 'unknown',
+            reason: 'secretary_no_tool',
+          });
           writeLastMatch(null, 0);
           output({ continue: true });
           return;
@@ -460,12 +491,27 @@ async function main() {
             layer: 'llm',
             sessionId: process.env.CLAUDE_SESSION_ID ?? 'unknown',
             candidateList: secretaryResult.tasks.slice(0, 3).map(t => t.action),
+            reason: 'matched',
           });
 
           writeLastMatch(primaryAction!, secretaryResult.confidence);
           output({ continue: true, additionalSystemPrompt: text });
           return;
         }
+
+        // Secretary 推荐了工具但图中找不到 → 记录为拒绝
+        appendHistory({
+          timestamp: new Date().toISOString(),
+          query: prompt,
+          matched: primaryAction ?? '',
+          accepted: false,
+          layer: 'llm',
+          sessionId: process.env.CLAUDE_SESSION_ID ?? 'unknown',
+          reason: 'secretary_rejected',
+        });
+        writeLastMatch(primaryAction ?? null, secretaryResult.confidence);
+        output({ continue: true });
+        return;
       } else {
         // Secretary failed
         if (config.mode === 'ask') {
@@ -498,6 +544,7 @@ async function main() {
         layer: top.layer,
         sessionId: process.env.CLAUDE_SESSION_ID ?? 'unknown',
         candidateList: result.matches.slice(0, 3).map(m => m.capability.name),
+        reason: 'matched',
       });
 
       writeLastMatch(top.capability.name, top.score, top.historyBoost);
@@ -505,7 +552,18 @@ async function main() {
       return;
     }
 
+    // ─── 最终无匹配（所有路径都过了，分数仍不够） ───
     if (config.mode === 'ask') renderParchment({ type: 'sleeping' });
+    appendHistory({
+      timestamp: new Date().toISOString(),
+      query: prompt,
+      matched: top.capability.name,
+      id: top.capability.id,
+      accepted: false,
+      layer: top.layer,
+      sessionId: process.env.CLAUDE_SESSION_ID ?? 'unknown',
+      reason: 'no_match',
+    });
     writeLastMatch(null, 0);
     output({ continue: true });
   } catch (err: unknown) {
@@ -514,6 +572,16 @@ async function main() {
     if (config.mode === 'ask') {
       renderParchment({ type: 'secretary_dead', code: String(code) });
     }
+    // 在 catch 中 top 可能未定义，只记录 query 和 error 信号
+    appendHistory({
+      timestamp: new Date().toISOString(),
+      query: typeof prompt !== 'undefined' ? prompt : '',
+      matched: '',
+      accepted: false,
+      layer: 'tag',
+      sessionId: process.env.CLAUDE_SESSION_ID ?? 'unknown',
+      reason: 'error',
+    });
     writeLastMatch(null, 0);
     output({ continue: true });
   }
