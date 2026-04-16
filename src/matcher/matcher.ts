@@ -114,7 +114,9 @@ export async function match(
     (config.engine === 'embedding' || config.engine === 'hybrid') &&
     embeddingProvider
   ) {
-    const semanticResults = await semanticMatch(query, allNodes, {
+    // Embedding layer uses primary nodes only (tier 0+1) to avoid tier-2 noise
+    const embeddingNodes = results.length >= 3 ? primaryNodes : allNodes;
+    const semanticResults = await semanticMatch(query, embeddingNodes, {
       provider: embeddingProvider,
       topK: MAX_RESULTS,
     });
@@ -319,23 +321,36 @@ function buildRecommendation(
 }
 
 function getNextSteps(matches: MatchResult[], history?: HistoryEntry[], sessionId?: string): string[] {
-  if (!history || history.length === 0 || !sessionId) return [];
+  if (!history || history.length === 0) return [];
   if (matches.length === 0) return [];
 
   const topTool = matches[0].capability.name;
-  const sessionHistory = history
-    .filter(e => e.sessionId === sessionId && e.accepted)
-    .map(e => e.matched);
 
-  if (sessionHistory.length === 0) return [];
+  // Search current session first, then fall back to cross-session patterns
+  const sessionHistory = sessionId
+    ? history.filter(e => e.sessionId === sessionId && e.accepted).map(e => e.matched)
+    : [];
 
-  // Collect all tools that follow any occurrence of topTool in session history
+  const allHistory = history.filter(e => e.accepted).map(e => e.matched);
+
+  // Collect tools that follow topTool in history
   const allNextSteps: string[] = [];
-  for (let i = 0; i < sessionHistory.length - 1; i++) {
-    if (sessionHistory[i] === topTool) {
-      allNextSteps.push(...sessionHistory.slice(i + 1, i + 3));
+  const source = sessionHistory.length > 0 ? sessionHistory : allHistory;
+  for (let i = 0; i < source.length - 1; i++) {
+    if (source[i] === topTool) {
+      allNextSteps.push(...source.slice(i + 1, i + 3));
     }
   }
+
+  // If current session yielded nothing, also check cross-session
+  if (allNextSteps.length === 0 && sessionHistory.length > 0) {
+    for (let i = 0; i < allHistory.length - 1; i++) {
+      if (allHistory[i] === topTool) {
+        allNextSteps.push(...allHistory.slice(i + 1, i + 3));
+      }
+    }
+  }
+
   // Deduplicate and cap at 3
   return [...new Set(allNextSteps)].slice(0, 3);
 }

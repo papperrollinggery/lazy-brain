@@ -119,7 +119,13 @@ function queryHasLangHint(tokens: string[]): boolean {
  */
 function tokenMatches(token: string, target: string): boolean {
   if (token.length < 2) return target === token;
-  return target.includes(token);
+  // Require word-boundary match: token must appear as a complete word segment
+  // "unit" matches "unit-test", "unit_test", "unit" but NOT "community"
+  const idx = target.indexOf(token);
+  if (idx === -1) return false;
+  const before = idx === 0 || /[^a-z0-9]/.test(target[idx - 1]);
+  const after = idx + token.length === target.length || /[^a-z0-9]/.test(target[idx + token.length]);
+  return before && after;
 }
 
 /**
@@ -171,12 +177,33 @@ function scoreCapability(
   const nameLower = cap.name.toLowerCase();
   const descLower = cap.description.toLowerCase();
 
-  // Triggers (1.0)
+  // Triggers (1.0) — each trigger word must appear as a complete word
+  // in the query. This prevents "add" from matching "wiki add" trigger.
   if (cap.triggers) {
     for (const trigger of cap.triggers) {
-      const tl = trigger.toLowerCase();
-      for (const token of allTokens) {
-        if (tl === token || tl.includes(token)) credit(token, 1.0);
+      const triggerWords = trigger.toLowerCase().split(/\s+/);
+      // Count how many trigger words are present in query tokens
+      let matchedWords = 0;
+      for (const tw of triggerWords) {
+        if (tw.length < 2) continue; // Skip single-char trigger words
+        for (const token of allTokens) {
+          if (token === tw || tokenMatches(tw, token)) {
+            matchedWords++;
+            break;
+          }
+        }
+      }
+      // Only credit if ALL trigger words are present in the query
+      if (matchedWords === triggerWords.filter(w => w.length >= 2).length && matchedWords > 0) {
+        for (const tw of triggerWords) {
+          if (tw.length < 2) continue;
+          for (const token of allTokens) {
+            if (token === tw || tokenMatches(tw, token)) {
+              credit(token, 1.0);
+              break;
+            }
+          }
+        }
       }
     }
   }
@@ -233,9 +260,9 @@ function scoreCapability(
     if (nameLower.includes(token)) credit(token, 0.4);
   }
 
-  // Description (0.2)
+  // Description (0.2) — only for tokens >= 3 chars to reduce noise
   for (const token of allTokens) {
-    if (descLower.includes(token)) credit(token, 0.2);
+    if (token.length >= 3 && descLower.includes(token)) credit(token, 0.2);
   }
 
   if (tokenScore.size === 0) return 0;

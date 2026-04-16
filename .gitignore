@@ -13,3 +13,10 @@ _debug_*.ts
 BRAINSTORM.md
 PLAN.md
 CLAUDE.md
+
+# Test coverage
+coverage/
+
+# Temp files
+*.tmp
+*.log

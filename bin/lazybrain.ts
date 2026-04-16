@@ -380,6 +380,7 @@ async function cmdCompile() {
       modelName: config.compileModel,
       existingGraph: liveGraph,
       forceRelations: args.includes('--force'),
+      skipRelations: !args.includes('--with-relations'),
       checkpointPath: GRAPH_PATH,
       onProgress: (current, total, name) => {
         phase1Bar.update(current, name);
@@ -1176,7 +1177,14 @@ function cmdHook() {
       // ─── UserPromptSubmit ─────────────────────────────────────────────────
       const existingUps = (hooks.UserPromptSubmit ?? []) as Array<Record<string, unknown>>;
       const filteredUps = existingUps.filter(
-        (h) => !(typeof h.command === 'string' && h.command.includes('lazybrain')),
+        (h) => {
+          // Check old format: { command: '...' }
+          if (typeof h.command === 'string' && h.command.includes('lazybrain')) return false;
+          // Check new format: { hooks: [{ command: '...' }] }
+          const inner = Array.isArray(h.hooks) ? h.hooks as Array<Record<string, unknown>> : [];
+          if (inner.some(ih => typeof ih.command === 'string' && (ih.command as string).includes('lazybrain'))) return false;
+          return true;
+        },
       );
       filteredUps.push({
         matcher: '',
@@ -1187,7 +1195,12 @@ function cmdHook() {
       // ─── Stop ───────────────────────────────────────────────────────────
       const existingStop = (hooks.Stop ?? []) as Array<Record<string, unknown>>;
       const filteredStop = existingStop.filter(
-        (h) => !(typeof (h as Record<string, unknown>).command === 'string' && ((h as Record<string, unknown>).command as string).includes('lazybrain')),
+        (h) => {
+          if (typeof h.command === 'string' && h.command.includes('lazybrain')) return false;
+          const inner = Array.isArray(h.hooks) ? h.hooks as Array<Record<string, unknown>> : [];
+          if (inner.some(ih => typeof ih.command === 'string' && (ih.command as string).includes('lazybrain'))) return false;
+          return true;
+        },
       );
       filteredStop.push({
         hooks: [{ type: 'command', command: `node ${hookScript}` }],
@@ -1218,11 +1231,21 @@ function cmdHook() {
       const hooks = (settings.hooks ?? {}) as Record<string, unknown>;
       const existingUps = (hooks.UserPromptSubmit ?? []) as Array<Record<string, unknown>>;
       hooks.UserPromptSubmit = existingUps.filter(
-        (h) => !(typeof h.command === 'string' && h.command.includes('lazybrain')),
+        (h) => {
+          if (typeof h.command === 'string' && h.command.includes('lazybrain')) return false;
+          const inner = Array.isArray(h.hooks) ? h.hooks as Array<Record<string, unknown>> : [];
+          if (inner.some(ih => typeof ih.command === 'string' && (ih.command as string).includes('lazybrain'))) return false;
+          return true;
+        },
       );
       const existingStop = (hooks.Stop ?? []) as Array<Record<string, unknown>>;
       hooks.Stop = existingStop.filter(
-        (h) => !(typeof (h as Record<string, unknown>).command === 'string' && ((h as Record<string, unknown>).command as string).includes('lazybrain')),
+        (h) => {
+          if (typeof h.command === 'string' && h.command.includes('lazybrain')) return false;
+          const inner = Array.isArray(h.hooks) ? h.hooks as Array<Record<string, unknown>> : [];
+          if (inner.some(ih => typeof ih.command === 'string' && (ih.command as string).includes('lazybrain'))) return false;
+          return true;
+        },
       );
       settings.hooks = hooks;
 
@@ -1271,6 +1294,7 @@ lazybrain — Semantic skill router for AI coding agents
 Usage:
   lazybrain scan [--platform <p>]       Scan capability sources
   lazybrain compile [--offline]      Build knowledge graph (--offline: no LLM)
+  lazybrain compile --with-relations Include Phase 2 relation inference (slow)
   lazybrain compile --all            Compile all platforms
   lazybrain compile --select         Interactive platform selection
   lazybrain compile --platform <p>   Compile specific platform only
