@@ -84,7 +84,7 @@ function getLabel(): string {
   // Hook 正在运行 = LazyBrain 正在思考
   if (isHookRunning()) return `🧠 思考中${suffix}`;
 
-  if (!existsSync(lastMatchPath)) return `🧠 监控中${suffix}`;
+  if (!existsSync(lastMatchPath)) return `🧠 待机中${suffix}`;
   try {
     const data = JSON.parse(readFileSync(lastMatchPath, 'utf-8'));
     const age = Date.now() - data.updatedAt;
@@ -94,7 +94,7 @@ function getLabel(): string {
     const boost = data.historyBoost > 0.01 ? ` ↑${Math.round(data.historyBoost * 100)}%` : '';
     return `🧠 ${timeLabel} /${data.tool} [${score}%]${boost}${suffix}`;
   } catch {
-    return `🧠 监控中${suffix}`;
+    return `🧠 待机中${suffix}`;
   }
 }
 
