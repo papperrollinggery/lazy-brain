@@ -55,7 +55,8 @@ type ParchmentScene =
   | { type: 'no_graph' }
   | { type: 'sleeping' }
   | { type: 'omc_yield'; keyword: string }
-  | { type: 'new_tools'; count: number };
+  | { type: 'new_tools'; count: number }
+  | { type: 'mode_proposal'; mode: string; agents: string[]; reason: string };
 
 const PARCHMENT_WIDTH = 36;
 
@@ -216,6 +217,19 @@ function buildParchment(scene: ParchmentScene): string {
       lines.push(row('让我进化！'));
       lines.push(bottom);
       break;
+
+    case 'mode_proposal':
+      lines.push(row('(⊙‿⊙)  发现大任务！'));
+      lines.push(divider());
+      lines.push(row(`🎯 建议: ${scene.mode.toUpperCase()} 模式`));
+      lines.push(row(`📝 ${scene.reason}`));
+      for (const agent of scene.agents) {
+        lines.push(row(`  • ${agent}`));
+      }
+      lines.push(row(''));
+      lines.push(row('❓ 确认执行？输入 y 继续'));
+      lines.push(bottom);
+      break;
   }
 
   return lines.join('\n');
@@ -307,6 +321,8 @@ async function main() {
         id: top.capability.id,
         accepted: true,
         layer: top.layer,
+        sessionId: process.env.CLAUDE_SESSION_ID ?? 'unknown',
+        candidateList: result.matches.slice(0, 3).map(m => m.capability.name),
       });
 
       writeLastMatch(top.capability.name, top.score, top.historyBoost);
@@ -323,7 +339,9 @@ async function main() {
     }
 
     // ─── Layer 2: Secretary (score 0.4-0.85, or <0.4 with API) ───
-    if (config.compileApiBase && config.compileApiKey) {
+    const secretaryApiBase = config.secretaryApiBase ?? config.embeddingApiBase ?? config.compileApiBase;
+    const secretaryApiKey = config.secretaryApiKey ?? config.embeddingApiKey ?? config.compileApiKey;
+    if (secretaryApiBase && secretaryApiKey) {
       if (config.mode === 'ask') {
         renderParchment({ type: 'thinking', topTool: top.capability.name, score: top.score });
       }
@@ -344,9 +362,9 @@ async function main() {
       }
 
       const secretaryResult = await askSecretary(prompt, candidates, {
-        apiBase: config.compileApiBase,
-        apiKey: config.compileApiKey ?? '',
-        model: config.compileModel,
+        apiBase: config.secretaryApiBase ?? config.embeddingApiBase ?? config.compileApiBase ?? '',
+        apiKey: config.secretaryApiKey ?? config.embeddingApiKey ?? config.compileApiKey ?? '',
+        model: config.secretaryModel ?? 'Qwen/Qwen2.5-7B-Instruct',
         historyHints,
         profile,
       });
@@ -363,6 +381,18 @@ async function main() {
         }
 
         const primaryAction = secretaryResult.tasks[0]?.action;
+
+        // Mode proposal: 非 regular 模式显示提案 UI
+        if (secretaryResult.mode && secretaryResult.mode !== 'regular' && config.mode === 'ask') {
+          const agents = secretaryResult.tasks.map(t => `${t.action}(${t.model ?? 'sonnet'})`).slice(0, 4);
+          renderParchment({
+            type: 'mode_proposal',
+            mode: secretaryResult.mode,
+            reason: secretaryResult.modeReason ?? `推荐 ${secretaryResult.mode} 模式执行`,
+            agents,
+          });
+        }
+
         if (config.mode === 'ask' && primaryAction) {
           renderParchment({ type: 'secretary_done', tool: primaryAction, score: secretaryResult.confidence, plan: secretaryResult.plan });
         }
@@ -378,6 +408,8 @@ async function main() {
             id: primaryNode.id,
             accepted: true,
             layer: 'llm',
+            sessionId: process.env.CLAUDE_SESSION_ID ?? 'unknown',
+            candidateList: secretaryResult.tasks.slice(0, 3).map(t => t.action),
           });
 
           writeLastMatch(primaryAction!, secretaryResult.confidence);
@@ -411,6 +443,8 @@ async function main() {
         id: top.capability.id,
         accepted: true,
         layer: top.layer,
+        sessionId: process.env.CLAUDE_SESSION_ID ?? 'unknown',
+        candidateList: result.matches.slice(0, 3).map(m => m.capability.name),
       });
 
       writeLastMatch(top.capability.name, top.score, top.historyBoost);
@@ -465,6 +499,19 @@ function formatSecretaryInjection(
   lines.push('<lazybrain-recommendation>');
 
   lines.push(`<intent>${resp.intent}</intent>`);
+
+  // Mode proposal: 非 regular 模式注入 XML 块
+  if (resp.mode && resp.mode !== 'regular') {
+    lines.push('<mode-proposal>');
+    lines.push(`  推荐模式: ${resp.mode.toUpperCase()}`);
+    if (resp.modeReason) lines.push(`  理由: ${resp.modeReason}`);
+    lines.push('  编排方案:');
+    for (const task of resp.tasks.slice(0, 4)) {
+      lines.push(`    • ${task.action}(${task.model ?? 'sonnet'}) — ${task.reason}`);
+    }
+    lines.push('  请用户确认执行模式，或输入其他方式。');
+    lines.push('</mode-proposal>');
+  }
 
   if (resp.tasks.length > 0) {
     lines.push('<tasks>');

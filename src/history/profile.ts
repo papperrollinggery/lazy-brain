@@ -111,6 +111,46 @@ export function distillProfile(history: HistoryEntry[]): UserProfile {
   const totalAccepted = history.filter(e => e.accepted).length;
   const advancedToolRatio = totalAccepted > 0 ? advancedUses / totalAccepted : 0;
 
+  // ─── 5. 纠正信号提取 ──────────────────────────────────────────────────
+  // 同 session 内，用户拒绝了 A，5 分钟内选了 B → 记录 rejected|chosen
+  const correctionsMap = new Map<string, { rejected: string; chosen: string; count: number }>();
+
+  const sessionGroups = new Map<string, HistoryEntry[]>();
+  for (const entry of history) {
+    const sid = entry.sessionId ?? 'unknown';
+    if (!sessionGroups.has(sid)) sessionGroups.set(sid, []);
+    sessionGroups.get(sid)!.push(entry);
+  }
+
+  for (const [, entries] of sessionGroups) {
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i];
+      if (entry.accepted) continue;
+
+      const ts = new Date(entry.timestamp).getTime();
+      for (let j = i + 1; j < entries.length; j++) {
+        const next = entries[j];
+        const nextTs = new Date(next.timestamp).getTime();
+        if (nextTs - ts > 5 * 60 * 1000) break;
+        if (!next.accepted) continue;
+        if (next.matched === entry.matched) continue;
+
+        const key = `${entry.matched}|${next.matched}`;
+        const existing = correctionsMap.get(key);
+        if (existing) {
+          existing.count++;
+        } else {
+          correctionsMap.set(key, { rejected: entry.matched, chosen: next.matched, count: 1 });
+        }
+        break;
+      }
+    }
+  }
+
+  const corrections = [...correctionsMap.values()]
+    .filter(c => c.count >= 3)
+    .sort((a, b) => b.count - a.count);
+
   return {
     distilledAt: new Date().toISOString(),
     eventCount: history.length,
@@ -118,6 +158,7 @@ export function distillProfile(history: HistoryEntry[]): UserProfile {
     taskChains,
     preferredLayer,
     advancedToolRatio,
+    corrections,
   };
 }
 

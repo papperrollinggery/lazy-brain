@@ -48,7 +48,8 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "@huggingface/transformers": "^4.0.1"
+    "@huggingface/transformers": "^4.0.1",
+    "esbuild": "^0.28.0"
   },
   "optionalDependencies": {
     "@rollup/rollup-darwin-x64": "^4.60.1"

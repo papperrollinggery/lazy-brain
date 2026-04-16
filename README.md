@@ -1,111 +1,256 @@
-# LazyBrain
+<div align="center">
 
-> AI 编程助手的技能路由器 — 根据你的意图，自动推荐并注入最合适的 skill 或 agent。
+# 🧠 LazyBrain
 
-你有几十上百个 skill，但每次都要手动想"该用哪个"。LazyBrain 解决这个问题：它在你输入 prompt 的瞬间，自动匹配最相关的工具，并把它注入到上下文里。
+**Semantic Skill Router for AI Coding Assistants**
+
+> You have dozens of skills installed, but can never remember which one to use.
+> LazyBrain matches your intent to the right tool — automatically.
+
+[English](README.md) | [中文文档](README_CN.md)
+
+---
+
+</div>
+
+## What Problem Does This Solve?
+
+If you use Claude Code (or similar AI coding assistants), you probably have dozens of skills, agents, and commands installed. The problem is: **you can never remember which one to use**. You end up either ignoring your toolbelt or spending time searching for the right command.
+
+LazyBrain fixes this by being a **semantic router** between your intent and your tools. The moment you type a prompt, it instantly identifies the most relevant skill and injects it into your context — no manual lookup needed.
 
 ```
-你: "帮我审查这个 PR"
+You type: "帮我审查这个 PR"
 LazyBrain: → /review-pr (92%) | /critic (78%) | /santa-loop (71%)
-           已自动注入 /review-pr 到系统提示
+           ✅ Auto-injected /review-pr into system prompt
 ```
 
-## 工作原理
+## How It Works
+
+LazyBrain has three phases: **Scan → Compile → Hook**.
 
 ```
-scan → compile → hook
- ↓        ↓        ↓
-发现     LLM      每次
-所有     打标     prompt
-工具     签       自动匹配
+  ┌──────────┐     ┌──────────┐     ┌──────────┐
+  │   scan   │────▶│ compile  │────▶│   hook   │
+  │ Discover │     │ LLM tags │     │ Auto     │
+  │ tools    │     │ + graph  │     │ match    │
+  └──────────┘     └──────────┘     └──────────┘
+       │                 │                 │
+  ~/.claude/skills/  graph.json      UserPromptSubmit
+  MCP servers       366 nodes       every prompt
+  built-in cmds     11666 links     <100ms latency
 ```
 
-1. **scan** — 扫描 `~/.claude/skills/`、MCP servers、内置命令，建立原始能力库
-2. **compile** — LLM 为每个工具生成语义标签、示例查询、分类、关系图
-3. **hook** — 安装 `UserPromptSubmit` hook，每次输入时自动匹配并注入推荐
+1. **scan** — Discovers all skills, agents, MCP tools, and built-in commands
+2. **compile** — Uses an LLM to generate semantic tags, relationships, example queries, and a knowledge graph
+3. **hook** — Installs into Claude Code and auto-matches every prompt to the right tool
 
-匹配引擎支持三种模式：
-- `tag` — 基于关键词和 CJK bigram，零延迟
-- `embedding` — 基于向量语义相似度（需要 embedding API）
-- `hybrid` — RRF 融合两层结果，兼顾精度和召回
+## The Five-Layer Matching Engine
 
-## 安装
+When you type a prompt, LazyBrain routes it through five matching layers in order. Each layer can short-circuit and return immediately, or pass through to the next:
+
+```
+  Prompt: "帮我审查这个 PR"
+       │
+       ▼
+  ┌─────────────────────────────────────────────────┐
+  │  Layer 0: Manual Alias                          │
+  │  Exact match? → Return immediately              │
+  │  e.g. "review" → /review-pr                    │
+  └─────────────────┬───────────────────────────────┘
+                    │ No match
+                    ▼
+  ┌─────────────────────────────────────────────────┐
+  │  Layer 0.5: Auto-Alias (learned)                │
+  │  Same query → same tool 3+ times? → Auto-alias  │
+  │  Zero latency, no API needed                    │
+  └─────────────────┬───────────────────────────────┘
+                    │ No match
+                    ▼
+  ┌─────────────────────────────────────────────────┐
+  │  Layer 1: Tag Matching                          │
+  │  CJK bigram + cross-language bridge              │
+  │  "审查" → expanded to ["review", "audit"]        │
+  │  <1ms, fully offline                            │
+  └─────────────────┬───────────────────────────────┘
+                    │ Low confidence
+                    ▼
+  ┌─────────────────────────────────────────────────┐
+  │  Layer 2: Embedding Similarity                  │
+  │  bge-m3 semantic vectors + RRF fusion            │
+  │  ~100ms, requires API key                       │
+  └─────────────────┬───────────────────────────────┘
+                    │ Still unsure?
+                    ▼
+  ┌─────────────────────────────────────────────────┐
+  │  Layer 3: Secretary (LLM fallback)              │
+  │  LLM second-pass judgment for ambiguous cases   │
+  │  ~2s, requires API key                          │
+  └─────────────────────────────────────────────────┘
+```
+
+**Offline capable**: Layers 0–1 work without any network connection (74.5% top-3 accuracy). Layers 2–3 require API keys but boost accuracy to near-perfect levels.
+
+## Evolution: It Gets Smarter Over Time
+
+LazyBrain doesn't just match — it learns from your usage patterns:
+
+```
+  ┌───────────────────────────────────────────────┐
+  │              Usage History                     │
+  │  "审查代码" → /code-review (accepted)          │
+  │  "审查代码" → /wiki (rejected!)                │
+  │  "审查代码" → /code-review (accepted)          │
+  └───────────────┬───────────────────────────────┘
+                  │ distill
+                  ▼
+  ┌───────────────────────────────────────────────┐
+  │  Rejection Learning                           │
+  │  wiki was rejected for "审查代码" queries      │
+  │  → auto-deprioritize wiki for similar queries │
+  ├───────────────────────────────────────────────┤
+  │  Auto-Alias Generation                        │
+  │  "审查代码" → /code-review matched 3 times    │
+  │  → auto-promote to alias (zero latency next)  │
+  ├───────────────────────────────────────────────┤
+  │  Tag Evolution                                │
+  │  Users search "审查代码" but tag is only       │
+  │  "review" → evolve adds "审查" as a new tag   │
+  ├───────────────────────────────────────────────┤
+  │  Task Chain Prediction                        │
+  │  After using /review-pr → suggest /refactor   │
+  │  (within current session only)                │
+  └───────────────────────────────────────────────┘
+```
+
+## Quick Start
 
 ```bash
+# Install
 npm install -g lazybrain
+
+# Setup
+lazybrain scan                        # Scan local tools
+lazybrain compile                     # Compile knowledge graph (needs API key)
+
+# Or compile offline (no API key needed, tag-layer only)
+lazybrain compile --offline
+
+# Install into Claude Code
+lazybrain hook install
 ```
 
-**首次配置：**
+That's it. Every prompt you type in Claude Code will now be automatically matched.
+
+## Configuration
 
 ```bash
-lazybrain scan              # 扫描本地工具
-lazybrain compile           # LLM 编译知识图谱（需要 API key）
-lazybrain hook install      # 安装 Claude Code hook
-```
-
-## 配置
-
-```bash
-# 必须：编译用 LLM（支持 OpenAI 兼容接口）
-lazybrain config set compileApiBase https://api.minimaxi.com/v1
+# Required: LLM for compilation (OpenAI-compatible)
+lazybrain config set compileApiBase https://api.siliconflow.cn/v1
 lazybrain config set compileApiKey  <your-key>
-lazybrain config set compileModel   MiniMax-M2.7
+lazybrain config set compileModel   Qwen/Qwen3-235B-A22B-Instruct-2507
 
-# 可选：语义搜索（推荐 SiliconFlow BAAI/bge-m3，免费）
+# Recommended: Embedding for semantic search (SiliconFlow bge-m3, free tier)
 lazybrain config set embeddingApiKey  <your-key>
 lazybrain config set embeddingApiBase https://api.siliconflow.cn/v1
 lazybrain config set embeddingModel   BAAI/bge-m3
 lazybrain config set engine           hybrid   # tag | embedding | hybrid
 
-# 推荐模式
-lazybrain config set mode auto    # 自动注入（静默）
-# lazybrain config set mode ask   # 弹出选择框
+# Optional: Secretary LLM (falls back to compile key if not set)
+lazybrain config set secretaryApiKey  <your-key>
+lazybrain config set secretaryModel   Qwen/Qwen2.5-7B-Instruct
+
+# UI mode
+lazybrain config set mode auto        # Auto-inject (silent)
+# lazybrain config set mode ask       # Show selection UI
 ```
 
-配置文件：`~/.lazybrain/config.json`
+Config file: `~/.lazybrain/config.json`
 
-## 命令
+## Commands
+
+### Matching
 
 ```bash
-# 匹配
-lazybrain match "重构这段代码"     # 查找匹配的工具
-lazybrain find  "代码审查"         # match 的别名
-
-# 管理
-lazybrain scan                     # 重新扫描工具
-lazybrain compile                  # 重新编译知识图谱
-lazybrain compile --force          # 强制全量重编译
-lazybrain list                     # 列出所有工具
-lazybrain stats                    # 图谱统计
-
-# Hook
-lazybrain hook install             # 安装 Claude Code hook
-lazybrain hook uninstall           # 卸载 hook
-lazybrain hook status              # 查看 hook 状态
-
-# 配置
-lazybrain config list              # 查看当前配置
-lazybrain config set <key> <val>   # 设置配置项
+lazybrain match "重构这段代码"       # Find matching tools
+lazybrain find  "代码审查"           # Alias for match
 ```
 
-## 特性
+### Management
 
-- **历史加权** — 常用工具自动排名更高，越用越准
-- **Secretary 层** — 匹配置信度低时，LLM 二次判断意图
-- **Wiki 卡片** — 每个工具有详细说明页，`lazybrain wiki`
-- **增量编译** — 只重新编译有变化的工具，断点续传
-- **CJK 支持** — 中文 bigram + bridge 映射，中英文混合查询
+```bash
+lazybrain scan                       # Re-scan tools
+lazybrain compile                    # Recompile knowledge graph
+lazybrain compile --force            # Force full recompile
+lazybrain compile --offline          # Compile without LLM (tag-based only)
+lazybrain list                       # List all tools
+lazybrain stats                      # Graph statistics
+```
 
-## 数据目录
+### Evolution (learn from usage)
+
+```bash
+lazybrain suggest-aliases            # Show suggested aliases (read-only)
+lazybrain evolve                     # Learn new tags from usage patterns
+lazybrain evolve --dry-run           # Preview what evolve would do
+lazybrain evolve --rollback          # Undo last evolution
+```
+
+### Hook
+
+```bash
+lazybrain hook install               # Install Claude Code hook
+lazybrain hook uninstall             # Uninstall hook
+lazybrain hook status                # Check hook status
+```
+
+### Config
+
+```bash
+lazybrain config list                # Show current config
+lazybrain config set <key> <val>     # Set config value
+```
+
+## Data Directory
 
 ```
 ~/.lazybrain/
-├── config.json          # 配置
-├── graph.json           # 知识图谱（含 embedding 向量）
-├── history.jsonl        # 使用历史
-├── profile.json         # 用户画像（secretary 层使用）
-└── wiki/                # 工具 wiki 文章
+├── config.json           # Configuration
+├── graph.json            # Knowledge graph (366 nodes, 11666 links)
+├── graph.embeddings.bin  # Embedding vectors cache
+├── history.jsonl         # Usage history
+├── profile.json          # Distilled user profile
+├── last-match.json       # Latest match result
+└── wiki/                 # Tool wiki articles
 ```
+
+## Source Structure
+
+```
+src/
+├── scanner/          # Tool discovery & parsers (skill/agent/command)
+├── compiler/         # LLM tag generation & category classification
+├── graph/            # Graph CRUD & wiki generation
+├── matcher/          # Five-layer matching engine
+│   ├── alias-layer.ts     # Layer 0: manual + auto aliases
+│   ├── tag-layer.ts       # Layer 1: keyword + CJK bigram
+│   ├── semantic-layer.ts  # Layer 2: embedding + RRF fusion
+│   └── matcher.ts         # Orchestrator + history boost + corrections
+├── secretary/        # Layer 3: LLM second-pass judgment
+├── history/          # Usage tracking & profile distillation
+├── evolution/        # Tag evolution engine
+├── config/           # Configuration management
+└── utils/            # CJK bridge, progress, YAML
+```
+
+## Benchmark
+
+| Mode | Top-1 | Top-3 |
+|------|-------|-------|
+| Full pipeline (tag + embedding) | 100% | 100% |
+| Tag-only (offline) | — | 74.5% |
+
+Tested on 55 queries (33 Chinese, 22 English) across 366 tools.
 
 ## License
 

@@ -5,3 +5,11 @@ dist/
 .env
 *.env
 prompts/
+.DS_Store
+_debug_*.ts
+
+# 开发过程文件（不含 API key 但不应对外公开）
+.omc/
+BRAINSTORM.md
+PLAN.md
+CLAUDE.md

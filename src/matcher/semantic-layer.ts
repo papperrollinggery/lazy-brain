@@ -6,6 +6,7 @@
  */
 
 import type { Capability, MatchResult, EmbeddingProvider } from '../types.js';
+import { TAG_RRF_BOOST } from '../constants.js';
 
 function cosineSimilarity(a: number[], b: number[]): number {
   if (a.length !== b.length) return 0;
@@ -106,7 +107,7 @@ export function reciprocalRankFusion(
 
   tagResults.forEach((r, i) => {
     const id = r.capability.id;
-    scoreMap.set(id, (scoreMap.get(id) ?? 0) + 1 / (k + i + 1));
+    scoreMap.set(id, (scoreMap.get(id) ?? 0) + TAG_RRF_BOOST / (k + i + 1));
     capMap.set(id, r);
   });
 

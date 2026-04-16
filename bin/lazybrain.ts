@@ -33,6 +33,7 @@ import { createEmbeddingProvider, type ApiEmbeddingConfig } from '../src/indexer
 import { createProgressBar } from '../src/utils/progress.js';
 import { loadRecentHistory } from '../src/history/history.js';
 import { distillAndSave, loadProfile } from '../src/history/profile.js';
+import { evolveCapabilities } from '../src/evolution/evolve.js';
 import type { Capability, RawCapability, UserConfig } from '../src/types.js';
 
 const args = process.argv.slice(2);
@@ -64,6 +65,9 @@ async function main() {
     case 'alias':
       cmdAlias();
       break;
+    case 'suggest-aliases':
+      cmdSuggestAliases();
+      break;
     case 'config':
       cmdConfig();
       break;
@@ -72,6 +76,9 @@ async function main() {
       break;
     case 'distill':
       cmdDistill();
+      break;
+    case 'evolve':
+      cmdEvolve();
       break;
     case 'hook':
       cmdHook();
@@ -456,7 +463,12 @@ async function cmdCompile() {
  * and raw triggers/name/description as tags.
  */
 function compileOffline(rawCapabilities: RawCapability[]): Graph {
+  // 保留已有 links（offline compile 跳过 LLM，无法重新生成 links）
+  const existingGraph = existsSync(GRAPH_PATH) ? Graph.load(GRAPH_PATH) : null;
+  const existingLinks = existingGraph ? existingGraph.getAllLinks() : [];
+
   const graph = new Graph();
+  const newNodeIds = new Set<string>();
 
   for (const raw of rawCapabilities) {
     const id = makeCapabilityId(raw.kind, raw.name, raw.origin);
@@ -485,62 +497,167 @@ function compileOffline(rawCapabilities: RawCapability[]): Graph {
     };
 
     graph.addNode(capability);
+    newNodeIds.add(id);
+  }
+
+  // 恢复 links（只保留引用仍存在 node 的 links）
+  for (const link of existingLinks) {
+    if (newNodeIds.has(link.source) && newNodeIds.has(link.target)) {
+      graph.addLink(link);
+    }
+  }
+
+  // 如果没有已有 links，基于规则生成（tag 相似度）
+  if (graph.getAllLinks().length === 0) {
+    generateOfflineLinks(graph);
   }
 
   graph.setCompileInfo('offline');
   return graph;
 }
 
-function generateOfflineTags(raw: RawCapability): string[] {
-  const tags = new Set<string>();
+/**
+ * 基于规则生成 links（不需要 LLM）
+ * - similar_to: tag 重叠度 > 40%
+ * - composes_with: category 相同
+ */
+function generateOfflineLinks(graph: Graph): void {
+  const nodes = graph.getAllNodes();
+  const addedLinks = new Set<string>();
 
-  // From name: split on hyphens/underscores (high value)
-  for (const part of raw.name.split(/[-_\s]+/)) {
-    if (part.length > 1) tags.add(part.toLowerCase());
-  }
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      const a = nodes[i];
+      const b = nodes[j];
 
-  // From triggers (high value)
-  if (raw.triggers) {
-    for (const t of raw.triggers) {
-      const cleaned = t.replace(/^[/"']|[/"']$/g, '').toLowerCase();
-      if (cleaned.length > 1) tags.add(cleaned);
+      // similar_to: tag 重叠度 > 40%
+      const aTags = new Set(a.tags.map(t => t.toLowerCase()));
+      const bTags = new Set(b.tags.map(t => t.toLowerCase()));
+      let overlap = 0;
+      for (const tag of aTags) {
+        if (bTags.has(tag)) overlap++;
+      }
+      const unionSize = aTags.size + bTags.size - overlap;
+      const jaccard = unionSize > 0 ? overlap / unionSize : 0;
+
+      if (jaccard > 0.4) {
+        const linkKey = `${a.id}→${b.id}`;
+        if (!addedLinks.has(linkKey)) {
+          graph.addLink({
+            source: a.id,
+            target: b.id,
+            type: 'similar_to',
+            description: `共享 tags: ${[...aTags].filter(t => bTags.has(t)).join(', ')}`,
+            diff: `${a.name} vs ${b.name}`,
+            confidence: jaccard,
+          });
+          addedLinks.add(linkKey);
+        }
+      }
+
+      // composes_with: category 相同且不是 similar_to
+      if (a.category === b.category && jaccard <= 0.4) {
+        const linkKey = `${a.id}→${b.id}`;
+        if (!addedLinks.has(linkKey)) {
+          graph.addLink({
+            source: a.id,
+            target: b.id,
+            type: 'composes_with',
+            description: `同属 ${a.category} 分类`,
+            confidence: 0.6,
+          });
+          addedLinks.add(linkKey);
+        }
+      }
     }
   }
-
-  // From description: extract meaningful words (4+ chars, aggressive stop word filter)
-  const stopWords = new Set([
-    // English function words
-    'the', 'and', 'for', 'with', 'this', 'that', 'from', 'use', 'used',
-    'when', 'you', 'your', 'are', 'not', 'but', 'all', 'can', 'has',
-    'have', 'will', 'been', 'more', 'also', 'into', 'than', 'each',
-    'any', 'only', 'using', 'after', 'before', 'about', 'should',
-    'would', 'could', 'does', 'make', 'made', 'like', 'just', 'over',
-    'such', 'take', 'other', 'some', 'them', 'then', 'these', 'those',
-    'what', 'which', 'while', 'where', 'here', 'there', 'their',
-    'being', 'both', 'between', 'through', 'during', 'most', 'much',
-    'very', 'well', 'back', 'even', 'still', 'every', 'need', 'needs',
-    'across', 'along', 'based', 'best', 'high', 'grade', 'level',
-    'first', 'last', 'next', 'same', 'work', 'working', 'works',
-    'including', 'includes', 'include', 'ensure', 'ensures',
-    'comprehensive', 'specific', 'particular', 'general', 'common',
-    'follows', 'following', 'prefer', 'directly', 'instead',
-    'matters', 'asks', 'sessions', 'compounds', 'model',
-    'distinctive', 'production', 'direction', 'applications',
-    'persistent', 'markdown', 'knowledge', 'base',
-  ]);
-  const words = raw.description.toLowerCase().match(/[a-z]{4,}/g) ?? [];
-  for (const w of words) {
-    if (!stopWords.has(w)) tags.add(w);
-  }
-
-  // CJK terms from description (2+ chars)
-  const cjkTerms = raw.description.match(/[\u4e00-\u9fff]{2,}/g) ?? [];
-  for (const t of cjkTerms) {
-    tags.add(t);
-  }
-
-  return [...tags].slice(0, 15);
 }
+
+function generateOfflineTags(raw: RawCapability): string[] {
+  const tags: Set<string> = new Set();
+
+  // 1. name 拆分（kebab-case → 独立词）
+  for (const part of raw.name.split(/[-_]/)) {
+    if (part.length > 2) tags.add(part.toLowerCase());
+  }
+
+  // 2. description 提取有价值的 token
+  const desc = raw.description ?? '';
+  // 提取引号内容
+  for (const m of desc.matchAll(/"([^"]+)"/g)) tags.add(m[1].toLowerCase());
+  // 提取 PascalCase/camelCase 词
+  for (const m of desc.matchAll(/[A-Z][a-z]+(?:[A-Z][a-z]+)+/g)) tags.add(m[0].toLowerCase());
+  // 提取技术术语（带连字符的复合词）
+  for (const m of desc.matchAll(/\b[a-z]+-[a-z]+(?:-[a-z]+)*\b/g)) tags.add(m[0]);
+
+  // 3. frontmatter triggers 直接作为 tag
+  if (raw.triggers) {
+    for (const t of raw.triggers) tags.add(t.toLowerCase());
+  }
+
+  // 4. 中文 tags（通过映射表）
+  const allTags = [...tags];
+  for (const tag of allTags) {
+    const zhVariants = ZH_TAG_MAP[tag];
+    if (zhVariants) for (const zh of zhVariants) tags.add(zh);
+  }
+
+  // 5. 过滤停用词
+  const STOP = new Set(['a','an','the','and','or','but','in','on','at','to','for','of','with','by','from','is','it','be','this','that','safely','step']);
+  return [...tags].filter(t => !STOP.has(t) && t.length > 1).slice(0, 15);
+}
+
+// 中英 tag 映射表
+const ZH_TAG_MAP: Record<string, string[]> = {
+  'review': ['审查', '审核', '评审', '检查'],
+  'refactor': ['重构', '重写'],
+  'test': ['测试', '单测', '集成测试'],
+  'debug': ['调试', '排错', '修复'],
+  'deploy': ['部署', '发布', '上线'],
+  'security': ['安全', '认证', '鉴权'],
+  'performance': ['性能', '优化', '加速'],
+  'code': ['代码', '编码', '编程'],
+  'plan': ['计划', '规划', '方案', '设计'],
+  'build': ['构建', '编译', '打包'],
+  'commit': ['提交', '推送'],
+  'search': ['搜索', '查找', '检索'],
+  'document': ['文档', '文件', '说明'],
+  'database': ['数据库', '数据', '存储'],
+  'api': ['接口', '端点'],
+  'frontend': ['前端', '界面', 'UI'],
+  'backend': ['后端', '服务端'],
+  'architecture': ['架构', '系统设计'],
+  'clean': ['清理', '清洗', '整理'],
+  'install': ['安装', '配置', '初始化'],
+  'monitor': ['监控', '日志', '追踪'],
+  'cache': ['缓存', '加速'],
+  'config': ['配置', '设置', '环境'],
+  'validate': ['验证', '校验', '检查'],
+  'parse': ['解析', '提取', '转换'],
+  'generate': ['生成', '创建', '产出'],
+  'analyze': ['分析', '评估', '诊断'],
+  'optimize': ['优化', '改进', '提升'],
+  'migrate': ['迁移', '升级'],
+  'rollback': ['回滚', '撤销', '恢复'],
+  'schedule': ['调度', '定时', '计划'],
+  'notify': ['通知', '提醒', '告警'],
+  'encrypt': ['加密', '解密', '签名'],
+  'proxy': ['代理', '转发', '中间件'],
+  'docker': ['容器', '镜像', 'Docker'],
+  'git': ['版本控制', 'Git'],
+  'cicd': ['CI/CD', '持续集成', '流水线'],
+  'template': ['模板', '脚手架', '样板'],
+  'query': ['查询', '搜索', '检索'],
+  'transform': ['转换', '变换', '处理'],
+  'export': ['导出', '输出'],
+  'import': ['导入', '引入'],
+  'sync': ['同步', '复制', '镜像'],
+  'backup': ['备份', '归档'],
+  'restore': ['恢复', '还原'],
+  'batch': ['批量', '批处理'],
+  'stream': ['流式', '实时'],
+  'parallel': ['并行', '并发'],
+};
 
 function generateOfflineQueries(raw: RawCapability): string[] {
   const queries: string[] = [];
@@ -754,6 +871,41 @@ function cmdAlias() {
   }
 }
 
+// ─── Suggest Aliases ────────────────────────────────────────────────────
+
+function cmdSuggestAliases() {
+  const history = loadRecentHistory(100);
+  if (history.length === 0) {
+    console.log('No history found. Run lazybrain hook first to build history.');
+    return;
+  }
+
+  const toolStats = new Map<string, number>();
+  for (const entry of history) {
+    if (entry.accepted) {
+      toolStats.set(entry.matched, (toolStats.get(entry.matched) ?? 0) + 1);
+    }
+  }
+
+  const suggestions = [...toolStats.entries()]
+    .filter(([, count]) => count >= 3)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10);
+
+  if (suggestions.length === 0) {
+    console.log('No alias suggestions (need 3+ uses for a tool to suggest alias).');
+    return;
+  }
+
+  console.log('\n📝 Suggested aliases (based on your usage history):\n');
+  for (const [tool, count] of suggestions) {
+    const alias = tool.replace(/[-_]/g, '');
+    console.log(`  "${alias}" -> "${tool}"  (${count} uses)`);
+  }
+  console.log('\nTo add an alias, run:');
+  console.log('  lazybrain alias set <alias> <target>');
+}
+
 // ─── Config ───────────────────────────────────────────────────────────────
 
 function cmdConfig() {
@@ -800,6 +952,40 @@ function cmdDistill() {
   console.log(`  Advanced ratio: ${Math.round(profile.advancedToolRatio * 100)}%`);
   if (profile.taskChains.length > 0) {
     console.log(`  Top chain: ${profile.taskChains[0].sequence.join(' → ')} (${profile.taskChains[0].count}x)`);
+  }
+}
+
+function cmdEvolve() {
+  const dryRun = args.includes('--dry-run');
+  const rollback = args.includes('--rollback');
+  const yes = args.includes('--yes') || args.includes('-y');
+
+  if (rollback) {
+    evolveCapabilities({ rollback: true });
+    return;
+  }
+
+  const history = loadRecentHistory(99999);
+  const historyCount = history.length;
+
+  if (historyCount < 200) {
+    console.log(`⚠️  当前 history: ${historyCount} 条（建议 200+ 条后再运行 evolve，当前结果可靠性低）`);
+    if (!yes) {
+      console.log('   继续运行可能产生噪声标签。使用 --yes 跳过此警告。');
+    }
+  } else {
+    console.log(`✅ 当前 history: ${historyCount} 条，数据量充足`);
+  }
+
+  if (!yes && historyCount < 200) {
+    console.log('（使用 --yes 强制继续）');
+    return;
+  }
+
+  if (dryRun) {
+    evolveCapabilities({ dryRun: true });
+  } else {
+    evolveCapabilities();
   }
 }
 

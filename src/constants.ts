@@ -124,9 +124,12 @@ export const DEFAULT_CONFIG: UserConfig = {
   mode: 'select',
   autoThreshold: DEFAULT_AUTO_THRESHOLD,
   engine: 'tag',
-  compileModel: 'claude-sonnet-4-6',
+  compileApiBase: 'https://api.siliconflow.cn/v1',
+  compileModel: 'Qwen/Qwen3-235B-A22B-Instruct-2507',
   embeddingApiBase: 'https://api.siliconflow.cn/v1',
   embeddingModel: 'BAAI/bge-m3',
+  secretaryApiBase: 'https://api.siliconflow.cn/v1',
+  secretaryModel: 'Qwen/Qwen2.5-7B-Instruct',
   externalDiscovery: false,
   platform: 'claude-code',
   language: 'auto',
@@ -140,12 +143,15 @@ export const GRAPH_VERSION = '1.0.0';
 
 export const SECRETARY_THRESHOLD = 0.85;
 export const SECRETARY_LOW_THRESHOLD = 0.5;
-export const SECRETARY_TIMEOUT_MS = 2000;
+export const SECRETARY_TIMEOUT_MS = 5000;
 export const SECRETARY_RATE_LIMIT_MS = 30000;
 export const SECRETARY_CONTEXT_SIZE = 20;
 export const SECRETARY_CONTEXT_TOKENS = 1200;
 export const SECRETARY_CIRCUIT_BREAKER_THRESHOLD = 3;
 export const SECRETARY_CIRCUIT_BREAKER_PAUSE_MS = 600000;
+
+// ─── Tag RRF Boost (for reciprocal rank fusion) ───────────────────────────────
+export const TAG_RRF_BOOST = 1.0;
 
 // ─── Capability Model Hints ─────────────────────────────────────────────────
 

@@ -10,9 +10,30 @@ import { MIN_MATCH_SCORE } from '../constants.js';
 import { expandTokens } from '../utils/cjk-bridge.js';
 
 /**
+ * English stopwords that carry no domain signal.
+ * Filtering these prevents "for", "to", "the" from inflating scores on
+ * uncompiled capabilities whose totalWeight is near zero.
+ */
+const STOPWORDS = new Set([
+  'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
+  'of', 'with', 'by', 'from', 'up', 'as', 'is', 'it', 'its', 'be', 'was',
+  'are', 'been', 'has', 'have', 'had', 'do', 'does', 'did', 'will', 'would',
+  'can', 'could', 'may', 'might', 'this', 'that', 'these', 'those', 'my',
+  'your', 'our', 'their', 'me', 'him', 'her', 'us', 'them', 'i', 'we',
+  'you', 'he', 'she', 'they', 'what', 'which', 'who', 'how', 'when',
+  'where', 'why', 'all', 'any', 'some', 'no', 'not', 'so', 'if', 'then',
+]);
+
+/**
  * Tokenize input into searchable terms.
- * Handles CJK characters (Chinese/Japanese/Korean) by splitting on each character,
- * and Latin text by splitting on word boundaries.
+ * Returns { semantic, bigrams } where:
+ *   semantic — meaningful units used as the normalization denominator
+ *              (CJK full segments ≥2 chars, Latin words after stopword filter)
+ *   bigrams  — CJK 2-char sliding windows used only for bridge key matching
+ *
+ * Keeping them separate lets scoreCapability normalize by semantic count
+ * instead of total token count, preventing CJK bigram explosion from
+ * diluting scores on short queries.
  */
 export function tokenize(text: string): string[] {
   const lower = text.toLowerCase();
@@ -32,15 +53,66 @@ export function tokenize(text: string): string[] {
     }
   }
 
-  // Extract Latin words (including single-char like "ai", "v2", "3d"):
+  // Extract Latin words, filtering stopwords
   const words = lower.match(/[a-z0-9][a-z0-9-]*/g);
-  if (words) tokens.push(...words);
+  if (words) {
+    for (const w of words) {
+      if (!STOPWORDS.has(w)) tokens.push(w);
+    }
+  }
 
   return [...new Set(tokens)];
 }
 
 /** Weight multiplier for bridge-expanded tokens vs original tokens */
 const BRIDGE_WEIGHT = 0.4;
+
+/**
+ * Language/framework keywords that make a capability specialized.
+ * When the query lacks these but the capability has them, we apply a penalty.
+ */
+const LANG_KEYWORDS = new Set([
+  'cpp', 'c++', 'c#', 'kotlin', 'python', 'go', 'golang', 'rust',
+  'flutter', 'dart', 'swift', 'java', 'ruby', 'php', 'scala',
+  'django', 'spring', 'springboot', 'laravel', 'rails', 'react', 'vue',
+  'angular', 'svelte', 'nextjs', 'nuxt', 'fastapi', 'flask', 'express',
+  'kubernetes', 'docker', 'terraform', 'android', 'ios', 'macos', 'windows',
+  'linux', 'webassembly', 'wasm', 'solidity', 'blockchain', 'mcp',
+  'postgres', 'mysql', 'mongodb', 'redis', 'clickhouse',
+  'gradle', 'maven', 'webpack', 'vite', 'bun', 'deno',
+]);
+
+/** Penalty multiplier for language-specialized capabilities on generic queries */
+const LANG_SPECIALTY_PENALTY = 0.5;
+
+/**
+ * Check if a capability is language/framework-specialized.
+ * Returns the matching language keyword, or undefined if generic.
+ */
+function getLangSpecialty(cap: Capability): string | undefined {
+  const nameLower = cap.name.toLowerCase();
+  const tagsLower = cap.tags.map(t => t.toLowerCase());
+  for (const kw of LANG_KEYWORDS) {
+    if (nameLower.includes(kw) || tagsLower.some(t => t.includes(kw))) {
+      return kw;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Check if any query token mentions a language/framework.
+ */
+function queryHasLangHint(tokens: string[]): boolean {
+  for (const t of tokens) {
+    if (LANG_KEYWORDS.has(t)) return true;
+    // Also check expanded tokens (e.g. "代码" → "code" doesn't help, but "go" from bridge would)
+    for (const kw of LANG_KEYWORDS) {
+      if (t.includes(kw) && t.length <= kw.length + 3) return true;
+    }
+  }
+  return false;
+}
 
 /**
  * Check if a token matches a target string.
@@ -54,6 +126,24 @@ function tokenMatches(token: string, target: string): boolean {
  * Score how well a capability matches the query tokens.
  * Original tokens score at full weight; bridge-expanded tokens at reduced weight.
  */
+/**
+ * Score a capability against query tokens.
+ *
+ * Scoring is query-centric: we measure what fraction of query tokens are
+ * "covered" by the capability, weighted by signal quality:
+ *   - trigger match  → 1.0 (user-defined, highest signal)
+ *   - tag match      → 0.8 (compiled, high signal)
+ *   - exampleQuery   → 0.6 (compiled, medium signal)
+ *   - name match     → 0.4 (structural, lower signal)
+ *   - desc match     → 0.2 (noisy, lowest signal)
+ *
+ * Each query token contributes at most once per signal tier.
+ * Bridge-expanded tokens are down-weighted by BRIDGE_WEIGHT.
+ *
+ * Final score = sum(token_scores) / queryTokenCount, capped at 1.0.
+ * This means a 2-token query and a 10-token query are scored on the same
+ * scale — capability size no longer inflates or deflates the score.
+ */
 function scoreCapability(
   original: string[],
   expanded: string[],
@@ -61,104 +151,94 @@ function scoreCapability(
 ): number {
   if (original.length === 0 && expanded.length === 0) return 0;
 
-  let hits = 0;
-  let totalWeight = 0;
+  // Uncompiled capabilities have no tags or example queries.
+  // Without them there is no domain signal — skip entirely.
+  if (cap.tags.length === 0 && cap.exampleQueries.length === 0) return 0;
 
-  // Check tags (weight: 1.0 per hit)
-  // Each token matches at most one tag (prevents "code" from hitting 5 tags)
+  const allTokens = [...original, ...expanded];
+  const isExpanded = new Set(expanded);
+
+  // Per-token best score across all signal tiers
+  const tokenScore = new Map<string, number>();
+
+  function credit(token: string, weight: number) {
+    const w = isExpanded.has(token) ? weight * BRIDGE_WEIGHT : weight;
+    const prev = tokenScore.get(token) ?? 0;
+    if (w > prev) tokenScore.set(token, w);
+  }
+
   const tagLowers = cap.tags.map(t => t.toLowerCase());
-  const matchedTagIndices = new Set<number>();
-
-  for (const token of original) {
-    for (let i = 0; i < tagLowers.length; i++) {
-      if (!matchedTagIndices.has(i) && tokenMatches(token, tagLowers[i])) {
-        hits += 1.0;
-        matchedTagIndices.add(i);
-        break;
-      }
-    }
-  }
-  for (const token of expanded) {
-    for (let i = 0; i < tagLowers.length; i++) {
-      if (!matchedTagIndices.has(i) && tokenMatches(token, tagLowers[i])) {
-        hits += 1.0 * BRIDGE_WEIGHT;
-        matchedTagIndices.add(i);
-        break;
-      }
-    }
-  }
-  totalWeight += tagLowers.length * 1.0;
-
-  // Check example queries (weight: 1.5 per hit)
-  for (const query of cap.exampleQueries) {
-    const queryLower = query.toLowerCase();
-    let queryHits = 0;
-    let queryTotal = 0;
-    for (const token of original) {
-      if (queryLower.includes(token)) queryHits += 1.0;
-      queryTotal += 1.0;
-    }
-    for (const token of expanded) {
-      if (queryLower.includes(token)) queryHits += BRIDGE_WEIGHT;
-      queryTotal += BRIDGE_WEIGHT;
-    }
-    if (queryHits > 0 && queryTotal > 0) {
-      hits += 1.5 * (queryHits / queryTotal);
-    }
-    totalWeight += 1.5;
-  }
-
-  // Check name (weight: 0.5)
   const nameLower = cap.name.toLowerCase();
-  let nameHit = false;
-  for (const token of original) {
-    if (nameLower.includes(token)) { hits += 0.5; nameHit = true; break; }
-  }
-  if (!nameHit) {
-    for (const token of expanded) {
-      if (nameLower.includes(token)) { hits += 0.5 * BRIDGE_WEIGHT; break; }
-    }
-  }
-  totalWeight += 0.5;
-
-  // Check description (weight: 0.3)
   const descLower = cap.description.toLowerCase();
-  let descHit = false;
-  for (const token of original) {
-    if (descLower.includes(token)) { hits += 0.3; descHit = true; break; }
-  }
-  if (!descHit) {
-    for (const token of expanded) {
-      if (descLower.includes(token)) { hits += 0.3 * BRIDGE_WEIGHT; break; }
-    }
-  }
-  totalWeight += 0.3;
 
-  // Check original triggers (weight: 2.0 — highest, user-defined)
+  // Triggers (1.0)
   if (cap.triggers) {
     for (const trigger of cap.triggers) {
-      const triggerLower = trigger.toLowerCase();
-      let triggerHit = false;
-      for (const token of original) {
-        if (triggerLower === token || triggerLower.includes(token)) {
-          hits += 2.0;
-          triggerHit = true;
+      const tl = trigger.toLowerCase();
+      for (const token of allTokens) {
+        if (tl === token || tl.includes(token)) credit(token, 1.0);
+      }
+    }
+  }
+
+  // Tags (0.8) — each tag can only be claimed by one token
+  const claimedTags = new Set<number>();
+  for (const token of allTokens) {
+    for (let i = 0; i < tagLowers.length; i++) {
+      if (!claimedTags.has(i) && tokenMatches(token, tagLowers[i])) {
+        credit(token, 0.8);
+        claimedTags.add(i);
+        break;
+      }
+    }
+  }
+
+  // Example queries (0.6) — best-matching query per token
+  if (cap.exampleQueries.length > 0) {
+    for (const token of allTokens) {
+      for (const query of cap.exampleQueries) {
+        if (query.toLowerCase().includes(token)) {
+          credit(token, 0.6);
           break;
         }
       }
-      if (!triggerHit) {
-        for (const token of expanded) {
-          if (triggerLower === token || triggerLower.includes(token)) {
-            hits += 2.0 * BRIDGE_WEIGHT;
-            break;
-          }
-        }
-      }
-      totalWeight += 2.0;
     }
   }
 
-  return totalWeight > 0 ? Math.min(1, hits / (totalWeight * 0.5)) : 0;
+  // Name (0.4)
+  for (const token of allTokens) {
+    if (nameLower.includes(token)) credit(token, 0.4);
+  }
+
+  // Description (0.2)
+  for (const token of allTokens) {
+    if (descLower.includes(token)) credit(token, 0.2);
+  }
+
+  if (tokenScore.size === 0) return 0;
+
+  // Normalization denominator:
+  // - Latin queries: number of original tokens (each word = 1 unit)
+  // - CJK queries: ceil(bigram_count / 2) + latin_word_count
+  //   CJK bigrams overlap (sliding window), so 2 bigrams ≈ 1 concept.
+  //   "代码审查" → 3 bigrams → ceil(3/2) = 2 concepts (代码, 审查). ✓
+  //   "代码库新人上手" → 6 bigrams → ceil(6/2) = 3 concepts. ✓
+  //   This is more stable than using expanded.length, which varies with
+  //   bridge coverage and can be larger than the actual concept count.
+  const hasCJK = original.some(t => /[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/.test(t));
+  const latinOriginal = original.filter(t => /^[a-z0-9][a-z0-9-]*$/.test(t));
+  let queryCount: number;
+  if (hasCJK) {
+    const bigramCount = original.filter(t =>
+      /^[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]{2}$/.test(t)
+    ).length;
+    queryCount = Math.max(1, Math.ceil(bigramCount / 2) + latinOriginal.length);
+  } else {
+    queryCount = Math.max(1, original.length);
+  }
+
+  const totalScore = [...tokenScore.values()].reduce((a, b) => a + b, 0);
+  return Math.min(1, totalScore / queryCount);
 }
 
 /**
@@ -182,9 +262,17 @@ export function tagMatch(
     : capabilities;
 
   // Score all capabilities
+  const hasLangHint = queryHasLangHint([...original, ...expanded]);
   const scored: MatchResult[] = [];
   for (const cap of filtered) {
-    const score = scoreCapability(original, expanded, cap);
+    let score = scoreCapability(original, expanded, cap);
+    if (score < MIN_MATCH_SCORE) continue;
+
+    // Penalize language-specialized capabilities on generic queries
+    if (!hasLangHint && getLangSpecialty(cap)) {
+      score *= LANG_SPECIALTY_PENALTY;
+    }
+
     if (score >= MIN_MATCH_SCORE) {
       scored.push({
         capability: cap,

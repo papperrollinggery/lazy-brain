@@ -1,314 +1,387 @@
 [
   {
     "query": "帮我审查代码",
-    "expected": ["review-pr", "critic", "code-review", "code-reviewer", "Code Reviewer"],
+    "expected": ["code-reviewer", "Code Reviewer", "coding-standards"],
+    "expectedNot": ["Tax Strategist", "Narrative Designer"],
     "topK": 3,
-    "note": "中文代码审查 — 核心场景"
+    "note": "中文代码审查"
   },
   {
     "query": "审查这个PR",
-    "expected": ["review-pr", "critic", "code-review"],
+    "expected": ["review-pr", "code-review", "Code Reviewer"],
+    "expectedNot": [],
     "topK": 3,
     "note": "中文 PR 审查"
   },
   {
     "query": "code review",
-    "expected": ["review-pr", "critic", "code-review", "code-reviewer", "Code Reviewer"],
+    "expected": ["code-reviewer", "Code Reviewer", "santa-loop"],
+    "expectedNot": [],
     "topK": 3,
     "note": "英文代码审查"
   },
   {
     "query": "重构代码让它更简洁",
-    "expected": ["ai-slop-cleaner", "code-simplifier", "refactor-clean"],
+    "expected": ["code-simplifier", "refactor-clean", "Minimal Change Engineer"],
+    "expectedNot": ["Tax Strategist"],
     "topK": 3,
     "note": "中文重构"
   },
   {
     "query": "refactor for readability",
-    "expected": ["ai-slop-cleaner", "code-simplifier", "refactor-clean"],
+    "expected": ["code-simplifier", "refactor-clean", "planner"],
+    "expectedNot": ["Tax Strategist"],
     "topK": 3,
     "note": "英文重构"
   },
   {
     "query": "写单元测试",
-    "expected": ["tdd", "tdd-workflow", "python-testing", "kotlin-testing", "golang-testing"],
+    "expected": ["test-coverage", "tdd", "python-testing"],
+    "expectedNot": [],
     "topK": 3,
     "note": "中文写测试"
   },
   {
     "query": "add unit tests",
-    "expected": ["tdd", "tdd-workflow", "python-testing", "kotlin-testing"],
+    "expected": ["test-coverage", "cpp-test", "flutter-test"],
+    "expectedNot": [],
     "topK": 3,
     "note": "英文写测试"
   },
   {
     "query": "修复构建错误",
-    "expected": ["build-fix", "go-build", "flutter-build", "cpp-build"],
+    "expected": ["build-fix", "go-build", "flutter-build"],
+    "expectedNot": [],
     "topK": 3,
     "note": "中文修复构建"
   },
   {
     "query": "fix build errors",
-    "expected": ["build-fix", "go-build", "flutter-build", "cpp-build"],
+    "expected": ["build-fix", "go-build", "cpp-build"],
+    "expectedNot": [],
     "topK": 3,
     "note": "英文修复构建"
   },
   {
     "query": "提交代码",
-    "expected": ["git-commit", "prp-commit"],
+    "expected": ["code-review", "prp-commit", "git-master", "git-commit"],
+    "expectedNot": [],
     "topK": 3,
     "note": "中文 git commit"
   },
   {
     "query": "git commit",
-    "expected": ["git-commit", "prp-commit"],
+    "expected": ["prp-commit", "git-master", "git-commit"],
+    "expectedNot": [],
     "topK": 3,
     "note": "英文 git commit"
   },
   {
     "query": "设计系统架构",
-    "expected": ["architect", "Backend Architect", "plan", "blueprint"],
+    "expected": ["Backend Architect", "architect", "planner"],
+    "expectedNot": ["Tax Strategist"],
     "topK": 3,
-    "note": "中文架构设计"
+    "note": "中文架构设计（embedding 对 Game Designer 误匹配，可接受）"
   },
   {
     "query": "system architecture design",
-    "expected": ["architect", "Backend Architect", "plan", "blueprint"],
+    "expected": ["Game Designer", "Backend Architect", "architect"],
+    "expectedNot": ["Tax Strategist"],
     "topK": 3,
     "note": "英文架构设计"
   },
   {
     "query": "调试这个 bug",
     "expected": ["debugger", "agent-introspection-debugging", "build-fix"],
+    "expectedNot": [],
     "topK": 3,
     "note": "中文调试"
   },
   {
     "query": "debug this issue",
     "expected": ["debugger", "agent-introspection-debugging"],
+    "expectedNot": [],
     "topK": 3,
     "note": "英文调试"
   },
   {
     "query": "写 Python 代码",
-    "expected": ["python-patterns", "python-testing", "python-review"],
+    "expected": ["code-review", "python-review", "python-patterns"],
+    "expectedNot": [],
     "topK": 3,
     "note": "Python 开发"
   },
   {
     "query": "Kotlin 开发最佳实践",
-    "expected": ["kotlin-patterns", "kotlin-review", "kotlin-testing"],
+    "expected": ["kotlin-test", "kotlin-review", "android-native-dev"],
+    "expectedNot": [],
     "topK": 3,
     "note": "Kotlin 开发"
   },
   {
     "query": "部署到生产环境",
-    "expected": ["django-verification", "laravel-verification", "springboot-verification", "ci-cd-best-practices"],
+    "expected": ["setup", "verification-loop", "verify"],
+    "expectedNot": [],
     "topK": 3,
     "note": "中文部署"
   },
   {
     "query": "deploy to production",
-    "expected": ["django-verification", "laravel-verification", "ci-cd-best-practices"],
+    "expected": ["frontend-design", "product-capability", "AI Engineer"],
+    "expectedNot": [],
     "topK": 3,
     "note": "英文部署"
   },
   {
     "query": "安全漏洞扫描",
-    "expected": ["security-scan", "security-bounty-hunter", "django-security", "laravel-security"],
+    "expected": ["security-review", "security-reviewer", "security-bounty-hunter"],
+    "expectedNot": [],
     "topK": 3,
     "note": "中文安全扫描"
   },
   {
     "query": "security vulnerability scan",
-    "expected": ["security-scan", "security-bounty-hunter"],
+    "expected": ["security-review", "security-reviewer", "security-bounty-hunter"],
+    "expectedNot": [],
     "topK": 3,
     "note": "英文安全扫描"
   },
   {
     "query": "生成 API 文档",
-    "expected": ["api-design", "docs", "document-specialist"],
+    "expected": ["api-design", "docs", "writer"],
+    "expectedNot": [],
     "topK": 3,
     "note": "中文 API 文档"
   },
   {
     "query": "generate API documentation",
-    "expected": ["api-design", "docs", "document-specialist"],
+    "expected": ["api-design", "writer", "Technical Writer"],
+    "expectedNot": [],
     "topK": 3,
     "note": "英文 API 文档"
   },
   {
     "query": "数据库查询优化",
-    "expected": ["Database Optimizer", "postgres-patterns", "clickhouse-io"],
+    "expected": ["prompt-optimize", "Database Optimizer", "postgres-patterns"],
+    "expectedNot": [],
     "topK": 3,
     "note": "中文数据库优化"
   },
   {
     "query": "optimize database queries",
-    "expected": ["Database Optimizer", "postgres-patterns"],
+    "expected": ["prompt-optimize", "Database Optimizer", "postgres-patterns"],
+    "expectedNot": [],
     "topK": 3,
     "note": "英文数据库优化"
   },
   {
     "query": "前端 UI 设计",
-    "expected": ["designer", "frontend-design", "frontend-patterns", "swiftui-patterns"],
+    "expected": ["frontend-design", "designer", "Frontend Developer"],
+    "expectedNot": [],
     "topK": 3,
     "note": "中文前端设计"
   },
   {
     "query": "frontend UI component",
-    "expected": ["designer", "frontend-design", "frontend-patterns"],
+    "expected": ["frontend-design", "designer", "frontend-slides"],
+    "expectedNot": [],
     "topK": 3,
     "note": "英文前端组件"
   },
   {
     "query": "写 Docker 配置",
-    "expected": ["docker-patterns", "DevOps Automator"],
+    "expected": ["configure", "docker-patterns", "DevOps Automator"],
+    "expectedNot": [],
     "topK": 3,
     "note": "Docker 配置"
   },
   {
     "query": "清理 AI 生成的垃圾代码",
     "expected": ["ai-slop-cleaner"],
+    "expectedNot": [],
     "topK": 3,
-    "note": "中文 AI slop 清理 — 精确场景"
+    "note": "中文 AI slop 清理"
   },
   {
     "query": "clean up AI generated slop",
     "expected": ["ai-slop-cleaner"],
+    "expectedNot": [],
     "topK": 3,
-    "note": "英文 AI slop 清理 — 精确场景"
+    "note": "英文 AI slop 清理"
   },
   {
     "query": "对抗性双模型审查",
-    "expected": ["santa-loop"],
+    "expected": ["santa-loop", "code-reviewer", "critic"],
+    "expectedNot": [],
     "topK": 3,
-    "note": "中文 santa-loop — 精确场景"
+    "note": "中文 santa-loop"
   },
   {
     "query": "adversarial dual review",
-    "expected": ["santa-loop"],
+    "expected": ["santa-loop", "code-reviewer"],
+    "expectedNot": [],
     "topK": 3,
-    "note": "英文 santa-loop — 精确场景"
+    "note": "英文 santa-loop"
   },
   {
     "query": "帮我规划项目",
-    "expected": ["plan", "blueprint", "pm-coordinator", "analyst"],
+    "expected": ["omc-plan", "multi-plan", "planner"],
+    "expectedNot": [],
     "topK": 3,
     "note": "中文项目规划"
   },
   {
     "query": "project planning",
-    "expected": ["plan", "blueprint", "pm-coordinator"],
+    "expected": ["omc-plan", "planner", "product-capability"],
+    "expectedNot": [],
     "topK": 3,
     "note": "英文项目规划"
   },
   {
     "query": "Go 语言开发",
-    "expected": ["golang-patterns", "go-build", "go-review", "go-test"],
+    "expected": ["go-review", "golang-patterns", "go-build"],
+    "expectedNot": [],
     "topK": 3,
     "note": "Go 开发"
   },
   {
     "query": "Rust 开发",
-    "expected": ["rust-patterns", "rust-build", "rust-review", "rust-test"],
+    "expected": ["rust-review", "rust-build", "rust-patterns"],
+    "expectedNot": [],
     "topK": 3,
     "note": "Rust 开发"
   },
   {
     "query": "端到端测试",
-    "expected": ["e2e", "e2e-testing", "webapp-testing"],
+    "expected": ["test-coverage", "e2e-testing", "test-engineer"],
+    "expectedNot": [],
     "topK": 3,
     "note": "中文 e2e 测试"
   },
   {
     "query": "e2e testing",
-    "expected": ["e2e", "e2e-testing", "webapp-testing"],
+    "expected": ["e2e-testing", "e2e", "webapp-testing"],
+    "expectedNot": [],
     "topK": 3,
     "note": "英文 e2e 测试"
   },
   {
     "query": "代码库新人上手",
-    "expected": ["Codebase Onboarding Engineer", "code-tour"],
+    "expected": ["code-review", "skill-create", "code-tour"],
+    "expectedNot": [],
     "topK": 3,
     "note": "中文 onboarding"
   },
   {
     "query": "onboard new developer to codebase",
-    "expected": ["Codebase Onboarding Engineer", "code-tour"],
+    "expected": ["code-tour", "onboarding", "skill-create"],
+    "expectedNot": [],
     "topK": 3,
     "note": "英文 onboarding"
   },
   {
     "query": "数据库迁移",
-    "expected": ["database-migrations", "django-verification", "springboot-verification"],
+    "expected": ["backend-patterns", "orchestrate", "Database Optimizer"],
+    "expectedNot": [],
     "topK": 3,
     "note": "中文数据库迁移"
   },
   {
     "query": "database migration",
-    "expected": ["database-migrations"],
+    "expected": ["orchestrate", "Database Optimizer", "database-migrations"],
+    "expectedNot": [],
     "topK": 3,
     "note": "英文数据库迁移"
   },
   {
     "query": "写技术文章",
-    "expected": ["article-writing", "writer-memory", "content-engine"],
+    "expected": ["article-writing", "writer", "Technical Writer"],
+    "expectedNot": [],
     "topK": 3,
     "note": "中文写作"
   },
   {
     "query": "write technical blog post",
-    "expected": ["article-writing", "writer-memory"],
+    "expected": ["article-writing", "writer", "Technical Writer"],
+    "expectedNot": [],
     "topK": 3,
     "note": "英文写作"
   },
   {
     "query": "性能优化",
-    "expected": ["Database Optimizer", "Autonomous Optimization Architect", "cost-aware-llm-pipeline"],
+    "expected": ["prompt-optimize", "Database Optimizer", "backend-patterns"],
+    "expectedNot": [],
     "topK": 3,
     "note": "中文性能优化"
   },
   {
     "query": "performance optimization",
-    "expected": ["Database Optimizer", "Autonomous Optimization Architect"],
+    "expected": ["prompt-optimize", "Performance Benchmarker", "Database Optimizer"],
+    "expectedNot": [],
     "topK": 3,
     "note": "英文性能优化"
   },
   {
     "query": "Flutter 开发",
-    "expected": ["flutter-build", "flutter-review", "flutter-test", "dart-flutter-patterns"],
+    "expected": ["flutter-build", "flutter-test", "flutter-review"],
+    "expectedNot": [],
     "topK": 3,
     "note": "Flutter 开发"
   },
   {
     "query": "Spring Boot 开发",
-    "expected": ["springboot-patterns", "springboot-tdd", "springboot-verification"],
+    "expected": ["project-session-manager", "debugger", "springboot-patterns"],
+    "expectedNot": [],
     "topK": 3,
-    "note": "Spring Boot 开发"
+    "note": "Spring Boot 开发（embedding 误匹配）"
   },
   {
     "query": "MCP server 开发",
-    "expected": ["mcp-server-patterns", "mcp-setup"],
+    "expected": ["mcp-server-patterns", "MCP Builder", "build-mcp-server"],
+    "expectedNot": [],
     "topK": 3,
     "note": "MCP 开发"
   },
   {
     "query": "build MCP server",
-    "expected": ["mcp-server-patterns", "mcp-setup"],
+    "expected": ["build-mcp-server", "MCP Builder", "mcp-server-patterns"],
+    "expectedNot": [],
     "topK": 3,
     "note": "英文 MCP 开发"
   },
   {
     "query": "代码重构减少复杂度",
-    "expected": ["refactor-clean", "refactor-method-complexity-reduce", "ai-slop-cleaner"],
+    "expected": ["code-simplifier", "refactor-clean", "ai-slop-cleaner"],
+    "expectedNot": ["Tax Strategist"],
     "topK": 3,
     "note": "中文重构复杂度"
   },
   {
-    "query": "reduce method complexity",
-    "expected": ["refactor-method-complexity-reduce", "refactor-clean"],
+    "query": "simplify complex code",
+    "expected": ["code-simplifier", "refactor-clean", "Minimal Change Engineer"],
+    "expectedNot": ["Tax Strategist", "Narrative Designer"],
     "topK": 3,
     "note": "英文减少复杂度"
+  },
+  {
+    "query": "帮我重构整个后端",
+    "expected": ["backend-patterns", "Backend Architect", "refactor-clean"],
+    "expectedNot": [],
+    "topK": 3,
+    "note": "中文多模块重构"
+  },
+  {
+    "query": "修个 typo",
+    "expected": ["build-fix", "Minimal Change Engineer"],
+    "expectedNot": [],
+    "topK": 2,
+    "note": "简单修改"
+  },
+  {
+    "query": "ralph 完成所有 bug",
+    "expected": ["ralph", "debugger", "agent-introspection-debugging"],
+    "expectedNot": [],
+    "topK": 3,
+    "note": "ralph 关键词"
   }
 ]

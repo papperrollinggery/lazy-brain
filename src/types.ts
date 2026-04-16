@@ -70,6 +70,10 @@ export interface Capability {
 
   /** External metadata (stars, reviews, url) */
   meta?: CapabilityMeta;
+
+  // ─── User-evolved tags ───
+  /** Tags learned from user behavior (降权 0.6x，上限 5 个） */
+  evolvedTags?: string[];
 }
 
 // ─── Link (Graph Edge) ──────────────────────────────────────────────────────
@@ -152,6 +156,8 @@ export interface Recommendation {
   external: MatchResult[];
   /** Warnings or info messages */
   warnings?: string[];
+  /** Predicted next steps (from current session task chains) */
+  nextSteps?: string[];
 }
 
 // ─── Wiki Card ────────────────────────────────────────────────────────────────
@@ -204,11 +210,17 @@ export interface SecretaryTask {
   after?: string;
 }
 
+export type ExecutionMode = 'regular' | 'ralplan' | 'team' | 'ralph';
+
 export interface SecretaryResponse {
   /** 是否需要工具（模糊讨论/闲聊 = false） */
   needsTool: boolean;
   /** 一句话意图摘要 */
   intent: string;
+  /** 执行模式建议 */
+  mode?: ExecutionMode;
+  /** 为什么选这个模式 */
+  modeReason?: string;
   /** 编排后的任务列表 */
   tasks: SecretaryTask[];
   /** 推荐置信度 0-1 */
@@ -247,6 +259,12 @@ export interface UserConfig {
   embeddingApiKey?: string;
   /** Embedding model name */
   embeddingModel?: string;
+  /** Secretary API base URL (独立配置，SiliconFlow 免费) */
+  secretaryApiBase?: string;
+  /** Secretary API key */
+  secretaryApiKey?: string;
+  /** Secretary model name */
+  secretaryModel?: string;
   /** Enable external capability discovery */
   externalDiscovery: boolean;
   /** Current platform (auto-detected or manual) */
@@ -262,10 +280,13 @@ export interface UserConfig {
 export interface HistoryEntry {
   timestamp: string;
   query: string;
-  matched: string;    // Capability name (deprecated, use id)
-  id?: string;        // Capability id (stable)
+  matched: string;
+  id?: string;
   accepted: boolean;
   layer: MatchLayer;
+  sessionId?: string;
+  candidateList?: string[];
+  chosenInstead?: string;
 }
 
 // ─── User Profile (distilled from history) ─────────────────────────────────
@@ -288,6 +309,15 @@ export interface TaskChain {
   count: number;
 }
 
+export interface CorrectionSignal {
+  /** 被拒绝的工具 */
+  rejected: string;
+  /** 用户选择的替代工具 */
+  chosen: string;
+  /** 同 session 内被拒绝 + 选 B 的次数 */
+  count: number;
+}
+
 export interface UserProfile {
   /** 蒸馏时间 */
   distilledAt: string;
@@ -301,6 +331,8 @@ export interface UserProfile {
   preferredLayer: MatchLayer;
   /** 能力信号：高级工具占比 */
   advancedToolRatio: number;
+  /** 纠正信号：被拒工具 → 替代工具 */
+  corrections?: CorrectionSignal[];
 }
 
 // ─── Scanner ────────────────────────────────────────────────────────────────

@@ -27,7 +27,9 @@ export class OpenAICompatibleProvider implements LLMProvider {
     if (systemPrompt) {
       messages.push({ role: 'system', content: systemPrompt });
     }
-    messages.push({ role: 'user', content: prompt });
+    // Qwen 模型需要 /no_think 前缀关闭思考模式
+    const noThinkPrefix = this.model.toLowerCase().includes('qwen') ? '/no_think\n\n' : '';
+    messages.push({ role: 'user', content: noThinkPrefix + prompt });
 
     const res = await fetch(`${this.apiBase}/chat/completions`, {
       method: 'POST',

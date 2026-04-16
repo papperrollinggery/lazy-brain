@@ -24,11 +24,42 @@ import { Graph } from '../graph/graph.js';
 import { tagMatch } from './tag-layer.js';
 import { semanticMatch, mergeTagAndSemantic, reciprocalRankFusion } from './semantic-layer.js';
 
+/**
+ * Language/framework keywords that make a capability specialized.
+ * When the top result is lang-specialized on a generic query, it is demoted
+ * below non-specialized candidates in the post-merge step.
+ */
+const LANG_KEYWORDS = new Set([
+  'cpp', 'c++', 'c#', 'kotlin', 'python', 'go', 'golang', 'rust',
+  'flutter', 'dart', 'swift', 'java', 'ruby', 'php', 'scala',
+  'django', 'spring', 'springboot', 'laravel', 'rails', 'react', 'vue',
+  'angular', 'svelte', 'nextjs', 'nuxt', 'fastapi', 'flask', 'express',
+  'kubernetes', 'docker', 'terraform', 'android', 'ios', 'macos', 'windows',
+  'linux', 'webassembly', 'wasm', 'solidity', 'blockchain', 'mcp',
+  'postgres', 'mysql', 'mongodb', 'redis', 'clickhouse',
+  'gradle', 'maven', 'webpack', 'vite', 'bun', 'deno',
+  'nestjs', 'pytorch', 'wechat', 'supabase', 'planetscale',
+]);
+
+/**
+ * Check if a capability is language/framework-specialized.
+ * Returns the matching language keyword, or undefined if generic.
+ */
+function getLangSpecialty(cap: Capability): string | undefined {
+  const nameLower = cap.name.toLowerCase();
+  const tagsLower = cap.tags.map(t => t.toLowerCase());
+  for (const kw of LANG_KEYWORDS) {
+    if (nameLower.includes(kw) || tagsLower.some(t => t.includes(kw))) return kw;
+  }
+  return undefined;
+}
+
 export interface MatchOptions {
   graph: Graph;
   config: UserConfig;
   history?: HistoryEntry[];
   embeddingProvider?: EmbeddingProvider;
+  profile?: import('../types.js').UserProfile;
 }
 
 /**
@@ -38,7 +69,7 @@ export async function match(
   query: string,
   options: MatchOptions,
 ): Promise<Recommendation> {
-  const { graph, config, history, embeddingProvider } = options;
+  const { graph, config, history, embeddingProvider, profile } = options;
   const allNodes = graph.getAllNodes().filter(n => n.status !== 'disabled');
   const platform = config.platform;
 
@@ -57,7 +88,7 @@ export async function match(
   // ─── Layer 0: Alias exact match ───────────────────────────────────────
   const aliasResult = matchAlias(query, config.aliases, allNodes);
   if (aliasResult) {
-    return buildRecommendation([aliasResult], graph, platform);
+    return buildRecommendation([aliasResult], graph, platform, history);
   }
 
   // ─── Layer 1: Tag + example query match ───────────────────────────────
@@ -95,13 +126,34 @@ export async function match(
     }
   }
 
+  // ─── Post-merge lang-specialty penalty ─────────────────────────────────
+  // If the top result is a language/framework-specialized cap and the second
+  // is generic, demote it to just below the second candidate.  This corrects
+  // cases where a framework-specific cap scores slightly above a generic one
+  // due to example-query inflation but the query itself has no lang hint.
+  if (results.length >= 2) {
+    const topSpec = getLangSpecialty(results[0].capability);
+    const secondSpec = getLangSpecialty(results[1].capability);
+    if (topSpec && !secondSpec) {
+      const secondScore = results[1].score;
+      results[0] = { ...results[0], score: Math.max(0.01, secondScore - 0.01) };
+      results.sort((a, b) => b.score - a.score);
+    }
+  }
+
   // ─── History boost (after merge, so boost survives embedding path) ────
   if (history && history.length > 0) {
     results = applyHistoryBoost(results, history);
   }
 
+  // ─── Correction penalty ──────────────────────────────────────────────
+  if (profile?.corrections && profile.corrections.length > 0) {
+    results = applyCorrectionPenalty(results, profile.corrections);
+  }
+
   // ─── Build enriched recommendation via graph traversal ────────────────
-  return buildRecommendation(results, graph, platform);
+  const sessionId = process.env.CLAUDE_SESSION_ID ?? 'unknown';
+  return buildRecommendation(results, graph, platform, history, sessionId);
 }
 
 // ─── Alias Matching ───────────────────────────────────────────────────────
@@ -157,12 +209,38 @@ function applyHistoryBoost(
   return boosted.sort((a, b) => b.score - a.score);
 }
 
+/** 对被拒工具降权 0.8x（基于纠正信号） */
+const CORRECTION_PENALTY = 0.8;
+
+function applyCorrectionPenalty(
+  results: MatchResult[],
+  corrections: import('../types.js').CorrectionSignal[],
+): MatchResult[] {
+  const rejectedTools = new Set<string>();
+  for (const c of corrections) {
+    if (c.count >= 3) rejectedTools.add(c.rejected);
+  }
+
+  if (rejectedTools.size === 0) return results;
+
+  return results.map(r => {
+    const name = r.capability.name;
+    const id = r.capability.id;
+    if (rejectedTools.has(name) || rejectedTools.has(id)) {
+      return { ...r, score: r.score * CORRECTION_PENALTY };
+    }
+    return r;
+  });
+}
+
 // ─── Graph Enrichment ─────────────────────────────────────────────────────
 
 function buildRecommendation(
   matches: MatchResult[],
   graph: Graph,
   platform?: Platform,
+  history?: HistoryEntry[],
+  sessionId?: string,
 ): Recommendation {
   const comparisons: Recommendation['comparisons'] = [];
   const compositions: Recommendation['compositions'] = [];
@@ -227,11 +305,36 @@ function buildRecommendation(
     }
   }
 
+  // ─── Next steps prediction (from current session) ───────────────────
+  const nextSteps = getNextSteps(matches, history, sessionId);
+
   return {
     matches,
     comparisons,
     compositions,
     upgrades,
     external: external.slice(0, 3),
+    ...(nextSteps.length > 0 ? { nextSteps } : {}),
   };
+}
+
+function getNextSteps(matches: MatchResult[], history?: HistoryEntry[], sessionId?: string): string[] {
+  if (!history || history.length === 0 || !sessionId) return [];
+  if (matches.length === 0) return [];
+
+  const topTool = matches[0].capability.name;
+  const sessionHistory = history
+    .filter(e => e.sessionId === sessionId && e.accepted)
+    .map(e => e.matched);
+
+  if (sessionHistory.length === 0) return [];
+
+  // Find where topTool appears and get the next tool in sequence
+  for (let i = 0; i < sessionHistory.length - 1; i++) {
+    if (sessionHistory[i] === topTool) {
+      return sessionHistory.slice(i + 1, i + 3);
+    }
+  }
+
+  return [];
 }

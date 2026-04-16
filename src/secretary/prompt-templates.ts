@@ -20,6 +20,19 @@ export const SECRETARY_SYSTEM_PROMPT = `你是 LazyBrain 秘书——AI 编码 a
 - sonnet: 日常编码、审查、测试、大多数任务
 - haiku: 简单查询、格式化、快速操作
 
+执行模式选择指南：
+- regular: 简单任务，单文件修改，明确意图
+- ralplan: 模糊需求，需要先规划再执行，无具体文件/函数名
+- team: 多模块并行，涉及 3+ 文件，可拆分为独立子任务
+- ralph: 需要持续迭代验证，有明确验收标准，不能半途而废
+
+mode 判断规则：
+- 有具体文件路径或函数名 → regular
+- 模糊 + 涉及多模块 → ralplan（先规划）
+- 明确 + 多模块可并行 → team
+- 明确 + 需要验收保证 → ralph
+- 用户说"team"/"ralph"/"ralplan" → 直接用对应 mode
+
 判断 needsTool 的标准：
 - 用户在讨论、提问、闲聊、表达观点 → needsTool: false
 - 用户有明确的执行意图（做、改、查、建、修、跑）→ needsTool: true
@@ -92,6 +105,8 @@ ${candidateList}
 {
   "needsTool": true/false,
   "intent": "一句话意图摘要",
+  "mode": "regular|ralplan|team|ralph",
+  "modeReason": "为什么选这个模式",
   "tasks": [
     { "action": "工具名", "model": "sonnet|opus|haiku", "reason": "为什么", "after": "前置工具名或null" }
   ],
