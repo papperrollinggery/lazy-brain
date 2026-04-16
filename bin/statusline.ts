@@ -7,6 +7,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { LAZYBRAIN_DIR, STATUS_PATH } from '../src/constants.js';
+import { readOmcMode } from '../src/utils/omc-state.js';
 
 const lastMatchPath = join(LAZYBRAIN_DIR, 'last-match.json');
 
@@ -33,9 +34,19 @@ function getCompileStatus(): string | null {
   return null;
 }
 
+const OMC_MODE_LABELS: Record<string, string> = {
+  ralph: 'Ralph',
+  ultrawork: 'Ultrawork',
+  autopilot: 'Autopilot',
+  hud: 'OMC',
+};
+
 function getLabel(): string {
   const model = getModel();
-  const suffix = model ? ` · ${model}` : '';
+  const omcMode = readOmcMode();
+  const omcSuffix = omcMode ? ` · ${OMC_MODE_LABELS[omcMode] ?? omcMode}` : '';
+  const modelSuffix = model ? ` · ${model}` : '';
+  const suffix = omcSuffix + modelSuffix;
 
   // 编译/扫描状态优先
   const compileStatus = getCompileStatus();
