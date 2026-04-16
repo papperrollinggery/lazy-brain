@@ -20,7 +20,7 @@
 import { existsSync, mkdirSync, writeFileSync, readFileSync, unlinkSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { LAZYBRAIN_DIR, GRAPH_PATH, GRAPH_VERSION, STATUS_PATH } from '../src/constants.js';
+import { LAZYBRAIN_DIR, GRAPH_PATH, GRAPH_VERSION, STATUS_PATH, HISTORY_PATH } from '../src/constants.js';
 import { Graph } from '../src/graph/graph.js';
 import { match } from '../src/matcher/matcher.js';
 import { scan } from '../src/scanner/scanner.js';
@@ -809,23 +809,121 @@ function cmdList() {
 // ─── Stats ────────────────────────────────────────────────────────────────
 
 function cmdStats() {
-  if (!existsSync(GRAPH_PATH)) {
-    console.error('No graph found.');
-    process.exit(1);
+  const config = loadConfig();
+
+  // ─── Graph stats ───────────────────────────────────────────────────────
+  if (existsSync(GRAPH_PATH)) {
+    const graph = Graph.load(GRAPH_PATH);
+    const s = graph.stats();
+    console.log('\n📊 LazyBrain 图谱统计:');
+    console.log(`   节点: ${s.nodes} | 链接: ${s.links} | 分类: ${s.categories}`);
+    console.log('   类型分布:');
+    for (const [k, v] of Object.entries(s.byKind)) {
+      console.log(`     ${k}: ${v}`);
+    }
+    console.log('   状态分布:');
+    for (const [k, v] of Object.entries(s.byStatus)) {
+      if (v > 0) console.log(`     ${k}: ${v}`);
+    }
+  } else {
+    console.log('\n📊 LazyBrain 图谱: (未初始化，运行 `lazybrain scan` 先)');
   }
-  const graph = Graph.load(GRAPH_PATH);
-  const s = graph.stats();
-  console.log(`\nLazyBrain Graph Stats:`);
-  console.log(`  Nodes: ${s.nodes}`);
-  console.log(`  Links: ${s.links}`);
-  console.log(`  Categories: ${s.categories}`);
-  console.log(`  By kind:`);
-  for (const [k, v] of Object.entries(s.byKind)) {
-    console.log(`    ${k}: ${v}`);
+
+  // ─── History stats ─────────────────────────────────────────────────────
+  if (existsSync(HISTORY_PATH)) {
+    const lines = readFileSync(HISTORY_PATH, 'utf-8').trim().split('\n').filter(Boolean);
+    const total = lines.length;
+
+    const reasonCount: Record<string, number> = {};
+    const acceptedCount = { matched: 0, secretary: 0, total: 0 };
+    const layerCount: Record<string, number> = {};
+    const recentDates = new Set<string>();
+    const todayStr = new Date().toISOString().slice(0, 10);
+
+    for (const line of lines) {
+      try {
+        const e = JSON.parse(line);
+        // reason breakdown
+        reasonCount[e.reason ?? 'matched'] = (reasonCount[e.reason ?? 'matched'] ?? 0) + 1;
+        // acceptance
+        if (e.accepted) {
+          acceptedCount.total++;
+          if (e.layer === 'llm') acceptedCount.secretary++;
+          else acceptedCount.matched++;
+        }
+        // layer
+        layerCount[e.layer ?? 'tag'] = (layerCount[e.layer ?? 'tag'] ?? 0) + 1;
+        // date tracking
+        const date = e.timestamp?.slice(0, 10);
+        if (date) recentDates.add(date);
+      } catch {}
+    }
+
+    const acceptRate = total > 0 ? Math.round((acceptedCount.total / total) * 100) : 0;
+    const secretaryRate = acceptedCount.total > 0
+      ? Math.round((acceptedCount.secretary / acceptedCount.total) * 100) : 0;
+
+    console.log('\n📋 LazyBrain 历史 (history.jsonl):');
+    console.log(`   总查询: ${total} | 接受率: ${acceptRate}% | 覆盖天数: ${recentDates.size}`);
+    console.log('   激活结果:');
+    const reasonLabels: Record<string, string> = {
+      matched: '✅ 匹配注入', no_match: '❌ 无匹配', low_score: '⚠️ 分数太低',
+      secretary_no_tool: '🔇 Secretary无需工具', secretary_rejected: '🔇 Secretary拒绝',
+      no_graph: '🚫 无图', error: '💥 异常',
+    };
+    for (const [r, cnt] of Object.entries(reasonCount).sort((a, b) => b[1] - a[1])) {
+      const label = reasonLabels[r] ?? r;
+      console.log(`     ${label}: ${cnt}`);
+    }
+    if (acceptedCount.total > 0) {
+      console.log(`   匹配来源: tag/alias层 ${acceptedCount.matched} | secretary层 ${acceptedCount.secretary}`);
+    }
+  } else {
+    console.log('\n📋 LazyBrain 历史: (无 history.jsonl，重启 Claude Code 后开始记录)');
   }
-  console.log(`  By status:`);
-  for (const [k, v] of Object.entries(s.byStatus)) {
-    console.log(`    ${k}: ${v}`);
+
+  // ─── Usage stats ───────────────────────────────────────────────────────
+  const USAGE_PATH = join(LAZYBRAIN_DIR, 'usage.jsonl');
+  if (existsSync(USAGE_PATH)) {
+    const lines = readFileSync(USAGE_PATH, 'utf-8').trim().split('\n').filter(Boolean);
+    let totalInput = 0, totalOutput = 0, totalCost = 0;
+    const taskTypes: Record<string, number> = {};
+    for (const line of lines) {
+      try {
+        const e = JSON.parse(line);
+        totalInput += e.inputTokens ?? 0;
+        totalOutput += e.outputTokens ?? 0;
+        totalCost += e.costUsd ?? 0;
+        if (e.taskType) taskTypes[e.taskType] = (taskTypes[e.taskType] ?? 0) + 1;
+      } catch {}
+    }
+    const totalTokens = totalInput + totalOutput;
+    console.log('\n💰 LazyBrain Token 统计 (usage.jsonl):');
+    console.log(`   Session: ${lines.length} | 总Token: ${(totalTokens / 1000).toFixed(1)}k | 总成本: $${totalCost.toFixed(4)}`);
+    const topTasks = Object.entries(taskTypes).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    if (topTasks.length > 0) {
+      console.log('   任务类型 Top5:');
+      for (const [t, cnt] of topTasks) {
+        console.log(`     ${t}: ${cnt}`);
+      }
+    }
+  } else {
+    console.log('\n💰 LazyBrain Token: (Stop hook 触发后开始记录，重启 Claude Code 生效)');
+  }
+
+  // ─── Config summary ────────────────────────────────────────────────────
+  console.log('\n⚙️  当前配置:');
+  console.log(`   策略: ${config.strategy} | 模式: ${config.mode} | 引擎: ${config.engine}`);
+  console.log(`   自动阈值: ${config.autoThreshold} | 平台: ${config.platform}`);
+  if (config.compileApiBase) {
+    console.log(`   Compile API: ✅ 已配置 (${config.compileModel})`);
+  } else {
+    console.log('   Compile API: ❌ 未配置 (--offline 模式运行)');
+  }
+  if (config.secretaryApiBase) {
+    console.log(`   Secretary API: ✅ 已配置 (${config.secretaryModel})`);
+  } else {
+    console.log('   Secretary API: ❌ 未配置 (不启用 Secretary 层)');
   }
 }
 
