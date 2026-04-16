@@ -285,6 +285,17 @@ async function main() {
       }
     }
 
+    // Log session end to history (used by distillProfile for session completeness)
+    appendHistory({
+      timestamp: new Date().toISOString(),
+      query: '',
+      matched: '',
+      accepted: true,
+      layer: 'tag',
+      sessionId,
+      reason: 'stop',
+    });
+
     // Update last-match to reflect session end
     writeLastMatch(null, 0);
     output({ continue: true });
@@ -319,7 +330,7 @@ async function main() {
   }
 
   try {
-    const graph = Graph.loadMetaOnly(GRAPH_PATH);
+    const graph = Graph.load(GRAPH_PATH);
     const config = loadConfig();
 
     const embeddingProvider = (config.engine === 'embedding' || config.engine === 'hybrid') && config.embeddingApiKey
@@ -413,6 +424,10 @@ async function main() {
     // ─── Layer 2: Secretary (score 0.4-0.85, or <0.4 with API) ───
     const secretaryApiBase = config.secretaryApiBase ?? config.embeddingApiBase ?? config.compileApiBase;
     const secretaryApiKey = config.secretaryApiKey ?? config.embeddingApiKey ?? config.compileApiKey;
+    // Warn if base is set but key is missing — otherwise Secretary silently skipped
+    if (secretaryApiBase && !secretaryApiKey) {
+      process.stderr.write('[LazyBrain] WARNING: secretaryApiBase configured but secretaryApiKey missing. Secretary layer disabled.\n');
+    }
     if (secretaryApiBase && secretaryApiKey) {
       if (config.mode === 'ask') {
         renderParchment({ type: 'thinking', topTool: top.capability.name, score: top.score });
@@ -513,7 +528,8 @@ async function main() {
         output({ continue: true });
         return;
       } else {
-        // Secretary failed
+        // Secretary failed (network/parse error) — mark fallback as accepted=false
+        // so distillProfile acceptRate isn't inflated by failed Secretary sessions
         if (config.mode === 'ask') {
           renderParchment({ type: 'secretary_dead', code: 'null', fallbackTool: top.capability.name, fallbackScore: top.score });
         }
@@ -535,16 +551,18 @@ async function main() {
         ? formatWikiCard(card, top.score, secondary, histStats2.count > 0 ? { historyCount: histStats2.count, historyAcceptRate: histStats2.acceptRate, nextSteps: result.nextSteps, proposals: proposals2, strategy: config.strategy } : { nextSteps: result.nextSteps, proposals: proposals2, strategy: config.strategy })
         : formatFallback(top, secondary, result.nextSteps, proposals2, config.strategy);
 
+      // Fallback path: Secretary failed or skipped, using local result.
+      // accepted=false so acceptRate isn't inflated by Secretary failures.
       appendHistory({
         timestamp: new Date().toISOString(),
         query: prompt,
         matched: top.capability.name,
         id: top.capability.id,
-        accepted: true,
+        accepted: false,
         layer: top.layer,
         sessionId: process.env.CLAUDE_SESSION_ID ?? 'unknown',
         candidateList: result.matches.slice(0, 3).map(m => m.capability.name),
-        reason: 'matched',
+        reason: 'secretary_fallback',
       });
 
       writeLastMatch(top.capability.name, top.score, top.historyBoost);
