@@ -68,64 +68,11 @@ export class Graph {
 
   // ─── Load / Save ────────────────────────────────────────────────────────
 
-  /** Load graph without embeddings — fast path for hook */
-  static loadMetaOnly(path: string = GRAPH_PATH): Graph {
-    const g = new Graph();
-    if (!existsSync(path)) return g;
-    const raw: CapabilityGraph = JSON.parse(readFileSync(path, 'utf-8'));
-    for (const node of raw.nodes) {
-      const validNode: Capability = {
-        id: node.id ?? `unknown-${g.nodes.size}`,
-        kind: node.kind ?? 'skill',
-        name: node.name ?? 'Unnamed',
-        description: node.description ?? '',
-        origin: node.origin ?? 'unknown',
-        status: node.status ?? 'installed',
-        compatibility: Array.isArray(node.compatibility) ? node.compatibility : ['universal'],
-        filePath: node.filePath,
-        tags: Array.isArray(node.tags) ? node.tags : [],
-        exampleQueries: Array.isArray(node.exampleQueries) ? node.exampleQueries : [],
-        category: node.category ?? 'other',
-        scenario: node.scenario,
-        meta: node.meta,
-        embedding: undefined,
-        triggers: Array.isArray(node.triggers) ? node.triggers : undefined,
-        aliases: Array.isArray(node.aliases) ? node.aliases : undefined,
-        tier: node.tier,
-        evolvedTags: Array.isArray(node.evolvedTags) ? node.evolvedTags : undefined,
-      };
-      g.nodes.set(validNode.id, validNode);
-    }
-    for (const link of raw.links ?? []) {
-      g.addLinkInternal(link);
-    }
-    g.compileModel = raw.compileModel;
-    g.compiledAt = raw.compiledAt;
-    return g;
-  }
-
   static load(path: string = GRAPH_PATH): Graph {
     const g = new Graph();
     if (!existsSync(path)) return g;
 
     return withFileLock(path, () => {
-      const embPath = path.replace('.json', '.embeddings.bin');
-      const indexPath = path.replace('.json', '.embeddings.index.json');
-      let embMap = new Map<string, number[]>();
-
-      if (existsSync(embPath) && existsSync(indexPath)) {
-        try {
-          const nodeIds: string[] = JSON.parse(readFileSync(indexPath, 'utf-8'));
-          const buffer = readFileSync(embPath);
-          const floats = new Float32Array(buffer.buffer, buffer.byteOffset, buffer.byteLength / 4);
-          const dim = floats.length / nodeIds.length;
-
-          for (let i = 0; i < nodeIds.length; i++) {
-            embMap.set(nodeIds[i], Array.from(floats.slice(i * dim, (i + 1) * dim)));
-          }
-        } catch {}
-      }
-
       const raw: CapabilityGraph = JSON.parse(readFileSync(path, 'utf-8'));
       for (const node of raw.nodes) {
         const validNode: Capability = {
@@ -142,7 +89,6 @@ export class Graph {
           category: node.category ?? 'other',
           scenario: node.scenario,
           meta: node.meta,
-          embedding: embMap.get(node.id ?? '') ?? (Array.isArray(node.embedding) ? node.embedding : undefined),
           triggers: Array.isArray(node.triggers) ? node.triggers : undefined,
           aliases: Array.isArray(node.aliases) ? node.aliases : undefined,
           tier: node.tier,
@@ -164,48 +110,16 @@ export class Graph {
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 
     withFileLock(path, () => {
-      const embPath = path.replace('.json', '.embeddings.bin');
-      const indexPath = path.replace('.json', '.embeddings.index.json');
-
-      const embNodeIds: string[] = [];
-      const vectors: number[][] = [];
-      const metaNodes: Capability[] = [];
-
-      for (const node of this.nodes.values()) {
-        if (node.embedding && node.embedding.length > 0) {
-          embNodeIds.push(node.id);
-          vectors.push(node.embedding);
-        }
-        const { embedding, ...rest } = node;
-        metaNodes.push(rest as Capability);
-      }
-
+      const nodes = [...this.nodes.values()];
       const data: CapabilityGraph = {
         version: GRAPH_VERSION,
         compiledAt: this.compiledAt ?? new Date().toISOString(),
         compileModel: this.compileModel,
-        nodes: metaNodes,
+        nodes,
         links: this.getAllLinks(),
-        categories: [...new Set(metaNodes.map(n => n.category))].sort(),
+        categories: [...new Set(nodes.map(n => n.category))].sort(),
       };
       writeFileSync(path, JSON.stringify(data));
-
-      if (vectors.length > 0) {
-        const dim = vectors[0].length;
-        const buffer = new Float32Array(vectors.length * dim);
-        for (let i = 0; i < vectors.length; i++) {
-          buffer.set(vectors[i], i * dim);
-        }
-        writeFileSync(embPath, Buffer.from(buffer.buffer));
-        writeFileSync(indexPath, JSON.stringify(embNodeIds));
-      } else {
-        if (existsSync(embPath)) {
-          try { unlinkSync(embPath); } catch {}
-        }
-        if (existsSync(indexPath)) {
-          try { unlinkSync(indexPath); } catch {}
-        }
-      }
     });
   }
 

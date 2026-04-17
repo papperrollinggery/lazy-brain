@@ -120,7 +120,7 @@ export async function match(
     }
   }
 
-  // ─── History boost (after merge, so boost survives embedding path) ────
+  // ─── History boost (after merge) ────────────────────────────────
   if (history && history.length > 0) {
     results = applyHistoryBoost(results, history);
   }

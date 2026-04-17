@@ -4,7 +4,6 @@ export type {
   CapabilityKind,
   CapabilityMeta,
   Confidence,
-  EmbeddingProvider,
   HistoryEntry,
   LLMProvider,
   LLMProviderConfig,
