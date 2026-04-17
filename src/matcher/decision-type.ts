@@ -13,7 +13,7 @@ export interface DecisionRecommendation {
   note: string;
 }
 
-const DECISION_RULES: Array<{
+export const DECISION_RULES: Array<{
   type: Exclude<DecisionType, null>;
   patterns: RegExp[];
   reason: string;
@@ -29,14 +29,14 @@ const DECISION_RULES: Array<{
   },
   {
     type: 'complex_impl',
-    patterns: [/实现|重构|改造|迁移|重构/i, /\bimplement\w*|refactor\w*|restructur\w*|migrat\w*/i],
+    patterns: [/实现|重构|改造|迁移/i, /\bimplement\w*|refactor\w*|restructur\w*|migrat\w*/i],
     reason: '涉及复杂实现或重构，query 较长表明任务复杂',
     tools: ['planner', 'architect', 'team', 'executor'],
     note: '建议先用 planner 做任务拆解，再决定是否需要 team',
   },
   {
     type: 'ambiguous',
-    patterns: [/怎么办|设计|想想|建议|怎么办/i, /\bhow\s+(to|should)|think|design|suggest\w*/i],
+    patterns: [/怎么办|设计|想想|建议/i, /\bhow\s+(to|should)|think|design|suggest\w*/i],
     reason: '需求模糊或不明确，需要澄清或探索',
     tools: ['deep-interview', 'analyst', 'critic'],
     note: '建议先用 deep-interview 澄清需求，避免过早进入实现',
@@ -58,11 +58,10 @@ const DECISION_RULES: Array<{
 ];
 
 export function detectDecisionType(query: string): DecisionType {
-  const lower = query.toLowerCase();
   const len = query.length;
 
   for (const rule of DECISION_RULES) {
-    const matched = rule.patterns.some(p => p.test(query) || p.test(lower));
+    const matched = rule.patterns.some(p => p.test(query));
     if (!matched) continue;
 
     if (rule.type === 'complex_impl' && len < 60) {
@@ -70,7 +69,7 @@ export function detectDecisionType(query: string): DecisionType {
     }
 
     if (rule.type === 'ambiguous') {
-      const hasSpecifics = /[.]\w{2,4}\s+\d+|filename|src\/|\.ts|\.py|\.js|\.go/.test(query);
+      const hasSpecifics = /src\/|\.(ts|py|js|go|java|rs|cpp|md)(\s|:|$)|line\s+\d+/i.test(query);
       if (hasSpecifics) continue;
     }
 
@@ -80,7 +79,7 @@ export function detectDecisionType(query: string): DecisionType {
   return null;
 }
 
-export function buildRecommendation(
+export function buildDecisionRecommendation(
   type: DecisionType,
 ): DecisionRecommendation | null {
   if (!type) return null;
