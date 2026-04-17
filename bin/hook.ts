@@ -25,6 +25,8 @@ import { loadProfile, isProfileStale, distillAndSave } from '../src/history/prof
 import { trackSessionUsage } from '../src/history/usage.js';
 import { evolveCapabilities } from '../src/evolution/evolve.js';
 import { generateProposals } from '../src/utils/token-estimate.js';
+import { detectDuplicates, buildDuplicateIndex, findCapabilityByNameOrId, compareCapabilities } from '../src/graph/duplicate-detector.js';
+import type { DuplicatePair } from '../src/graph/duplicate-detector.js';
 import type { WikiCard, SecretaryResponse, ProposalOption } from '../src/types.js';
 import type { TeamComposition } from '../src/matcher/team-recommender.js';
 
@@ -262,6 +264,36 @@ function renderParchment(scene: ParchmentScene): void {
   process.stderr.write('\n' + buildParchment(scene) + '\n');
 }
 
+function buildDuplicateWarning(
+  capId: string,
+  capName: string,
+  dupIndex: Map<string, DuplicatePair[]>,
+): string {
+  const pairs = dupIndex.get(capId);
+  if (!pairs || pairs.length === 0) return '';
+
+  const lines: string[] = [];
+  lines.push('');
+  lines.push('## ⚠ 检测到同类工具');
+  lines.push('');
+  lines.push(`**${capName}** 被推荐，但系统里还装了类似工具：`);
+
+  for (const pair of pairs) {
+    const other = pair.a.id === capId ? pair.b : pair.a;
+    lines.push(`- **${other.name}**（来自 ${other.origin}）— ${pair.reason}`);
+  }
+
+  lines.push('');
+  lines.push('> 建议：');
+  lines.push('> - 如果确定用 ' + capName + '：忽略');
+  lines.push('> - 如果不确定：`lazybrain compare <a> <b>`');
+  lines.push('');
+  lines.push('---');
+  lines.push('');
+
+  return lines.join('\n');
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 function cleanupPid(): void {
@@ -355,6 +387,8 @@ async function main() {
     const graph = Graph.load(GRAPH_PATH);
     const config = loadConfig();
 
+    const dupIndex = buildDuplicateIndex(detectDuplicates(graph));
+
     const history = loadRecentHistory(50);
     let profile: import('../src/types.js').UserProfile | undefined = undefined;
     try { profile = loadProfile() ?? undefined; } catch {}
@@ -425,7 +459,9 @@ async function main() {
       });
 
       writeLastMatch(top.capability.name, top.score, top.historyBoost);
-      output({ continue: true, additionalSystemPrompt: prependThinkingHint(text, thinkingHint) });
+      const dupWarning1 = buildDuplicateWarning(top.capability.id, top.capability.name, dupIndex);
+      const finalText1 = dupWarning1 ? prependThinkingHint(text, thinkingHint) + dupWarning1 : prependThinkingHint(text, thinkingHint);
+      output({ continue: true, additionalSystemPrompt: finalText1 });
       return;
     }
 
@@ -538,7 +574,9 @@ async function main() {
           });
 
           writeLastMatch(primaryAction!, secretaryResult.confidence);
-          output({ continue: true, additionalSystemPrompt: prependThinkingHint(text, thinkingHint) });
+          const dupWarning2 = buildDuplicateWarning(primaryNode.id, primaryAction!, dupIndex);
+          const finalText2 = dupWarning2 ? prependThinkingHint(text, thinkingHint) + dupWarning2 : prependThinkingHint(text, thinkingHint);
+          output({ continue: true, additionalSystemPrompt: finalText2 });
           return;
         }
 
@@ -594,7 +632,9 @@ async function main() {
       });
 
       writeLastMatch(top.capability.name, top.score, top.historyBoost);
-      output({ continue: true, additionalSystemPrompt: prependThinkingHint(text, thinkingHint) });
+      const dupWarning3 = buildDuplicateWarning(top.capability.id, top.capability.name, dupIndex);
+      const finalText3 = dupWarning3 ? prependThinkingHint(text, thinkingHint) + dupWarning3 : prependThinkingHint(text, thinkingHint);
+      output({ continue: true, additionalSystemPrompt: finalText3 });
       return;
     }
 
