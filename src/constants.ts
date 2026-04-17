@@ -24,8 +24,6 @@ export const OMC_STATE_DIR = join(homedir(), '.omc', 'state');
 export const STATUS_PATH = join(LAZYBRAIN_DIR, 'status.json');
 export const HOOK_ACTIVE_PATH = join(LAZYBRAIN_DIR, '.hook-pid');
 export const SECRETARY_CB_PATH = join(LAZYBRAIN_DIR, '.secretary-cb.json');
-export const EMBEDDING_INDEX_PATH = join(LAZYBRAIN_DIR, 'index.bin');
-export const MODELS_DIR = join(LAZYBRAIN_DIR, 'models');
 
 /** Resolve Claude config dir (mirrors ~/.claude/hooks/lib/config-dir.mjs) */
 export function getClaudeConfigDir(): string {
@@ -158,18 +156,16 @@ export const DEFAULT_CONFIG: UserConfig = {
   scanPaths: [],
   mode: 'select',
   autoThreshold: DEFAULT_AUTO_THRESHOLD,
-  engine: 'tag', // 'tag' = local only, 'llm' = always call Secretary
+  engine: 'tag',
   strategy: 'ask',
   compileApiBase: 'https://api.siliconflow.cn/v1',
   compileModel: 'Qwen/Qwen3-235B-A22B-Instruct-2507',
-  embeddingApiBase: 'https://api.siliconflow.cn/v1',
-  embeddingModel: 'BAAI/bge-m3',
   secretaryApiBase: 'https://api.siliconflow.cn/v1',
   secretaryModel: 'Qwen/Qwen2.5-7B-Instruct',
   externalDiscovery: false,
-  platform: 'claude-code',
-  language: 'auto',
-  platforms: { 'claude-code': true, 'openclaw': false, 'workbuddy': false },
+  platform: 'claude-code' as const,
+  language: 'auto' as const,
+  platforms: { 'claude-code': true, 'openclaw': false, 'workbuddy': false, 'cursor': false, 'kiro': false, 'codex': false, 'opencode': false, 'droid': false, 'universal': false },
 };
 
 // ─── Graph Version ──────────────────────────────────────────────────────────
@@ -186,9 +182,6 @@ export const SECRETARY_CONTEXT_SIZE = 20;
 export const SECRETARY_CONTEXT_TOKENS = 1200;
 export const SECRETARY_CIRCUIT_BREAKER_THRESHOLD = 3;
 export const SECRETARY_CIRCUIT_BREAKER_PAUSE_MS = 600000;
-
-// ─── Tag RRF Boost (for reciprocal rank fusion) ───────────────────────────────
-export const TAG_RRF_BOOST = 1.0;
 
 // ─── Capability Model Hints ─────────────────────────────────────────────────
 

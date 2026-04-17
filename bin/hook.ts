@@ -415,8 +415,8 @@ async function main() {
     // ─── Low confidence (< 0.4) with API — try Secretary below, log if it rejects ───
 
     // ─── Layer 2: Secretary (score 0.4-0.85, or <0.4 with API) ───
-    const secretaryApiBase = config.secretaryApiBase ?? config.embeddingApiBase ?? config.compileApiBase;
-    const secretaryApiKey = config.secretaryApiKey ?? config.embeddingApiKey ?? config.compileApiKey;
+    const secretaryApiBase = config.secretaryApiBase ?? config.compileApiBase;
+    const secretaryApiKey = config.secretaryApiKey ?? config.compileApiKey;
     // Warn if base is set but key is missing — otherwise Secretary silently skipped
     if (secretaryApiBase && !secretaryApiKey) {
       process.stderr.write('[LazyBrain] WARNING: secretaryApiBase configured but secretaryApiKey missing. Secretary layer disabled.\n');
@@ -442,8 +442,8 @@ async function main() {
       }
 
       const secretaryResult = await askSecretary(prompt, candidates, {
-        apiBase: config.secretaryApiBase ?? config.embeddingApiBase ?? config.compileApiBase ?? '',
-        apiKey: config.secretaryApiKey ?? config.embeddingApiKey ?? config.compileApiKey ?? '',
+        apiBase: config.secretaryApiBase ?? config.compileApiBase ?? '',
+        apiKey: config.secretaryApiKey ?? config.compileApiKey ?? '',
         model: config.secretaryModel ?? 'Qwen/Qwen2.5-7B-Instruct',
         historyHints,
         profile,

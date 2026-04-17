@@ -82,9 +82,6 @@ async function main() {
     case 'hook':
       cmdHook();
       break;
-    case 'migrate':
-      await cmdMigrate();
-      break;
     case '--version':
     case '-v':
       console.log('lazybrain 0.1.0');
@@ -591,7 +588,6 @@ const ZH_TAG_MAP: Record<string, string[]> = {
   'generate': ['生成', '创建', '产出'],
   'analyze': ['分析', '评估', '诊断'],
   'optimize': ['优化', '改进', '提升'],
-  'migrate': ['迁移', '升级'],
   'rollback': ['回滚', '撤销', '恢复'],
   'schedule': ['调度', '定时', '计划'],
   'notify': ['通知', '提醒', '告警'],
@@ -1194,32 +1190,6 @@ function cmdHook() {
   }
 }
 
-// ─── Migrate ──────────────────────────────────────────────────────────────
-
-async function cmdMigrate() {
-  const { statSync } = await import('node:fs');
-  if (!existsSync(GRAPH_PATH)) {
-    console.error('No graph found. Run lazybrain compile first.');
-    process.exit(1);
-  }
-  const before = statSync(GRAPH_PATH).size;
-  console.log(`Loading graph (${(before / 1024 / 1024).toFixed(1)} MB)...`);
-  const graph = Graph.load(GRAPH_PATH);
-  const nodes = graph.getAllNodes();
-  const withEmb = nodes.filter(n => n.embedding && n.embedding.length > 0).length;
-  console.log(`Nodes: ${nodes.length}, with embedding: ${withEmb}`);
-  console.log('Saving in split format (meta + embeddings.bin)...');
-  graph.save(GRAPH_PATH);
-  const after = statSync(GRAPH_PATH).size;
-  const embPath = GRAPH_PATH.replace('.json', '.embeddings.bin');
-  const embSize = existsSync(embPath) ? statSync(embPath).size : 0;
-  console.log(`Done:`);
-  console.log(`  graph.json: ${(after / 1024 / 1024).toFixed(1)} MB (was ${(before / 1024 / 1024).toFixed(1)} MB)`);
-  if (embSize > 0) {
-    console.log(`  graph.embeddings.bin: ${(embSize / 1024 / 1024).toFixed(1)} MB`);
-  }
-}
-
 // ─── Help ─────────────────────────────────────────────────────────────────
 
 function printHelp() {
@@ -1244,7 +1214,6 @@ Usage:
   lazybrain config show              Show config
   lazybrain wiki                     Generate wiki articles
   lazybrain distill                  Distill user profile from history
-  lazybrain migrate                  Migrate graph.json to split format (meta + embeddings.bin)
   lazybrain --version                Show version
 `);
 }

@@ -58,10 +58,6 @@ export interface Capability {
   /** One-line scenario description: when to use this */
   scenario?: string;
 
-  // ─── Optional: embedding vector ───
-  /** 384-dim embedding vector (only when embedding mode is enabled) */
-  embedding?: number[];
-
   // ─── Frontmatter-extracted ───
   /** Original trigger keywords from SKILL.md frontmatter */
   triggers?: string[];
@@ -271,12 +267,6 @@ export interface UserConfig {
   compileApiBase?: string;
   /** LLM API key */
   compileApiKey?: string;
-  /** Embedding API base URL */
-  embeddingApiBase?: string;
-  /** Embedding API key */
-  embeddingApiKey?: string;
-  /** Embedding model name */
-  embeddingModel?: string;
   /** Secretary API base URL (独立配置，SiliconFlow 免费) */
   secretaryApiBase?: string;
   /** Secretary API key */
@@ -418,15 +408,4 @@ export interface LLMResponse {
 
 export interface LLMProvider {
   complete(prompt: string, systemPrompt?: string): Promise<LLMResponse>;
-}
-
-// ─── Embedding Provider ─────────────────────────────────────────────────────
-
-export interface EmbeddingProvider {
-  /** Generate embedding vector for a single text */
-  embed(text: string): Promise<number[]>;
-  /** Generate embeddings for multiple texts (batch) */
-  embedBatch(texts: string[]): Promise<number[][]>;
-  /** Dimension of the output vectors */
-  readonly dimensions: number;
 }
