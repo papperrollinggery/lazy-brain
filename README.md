@@ -76,20 +76,13 @@ When you type a prompt, LazyBrain routes it through five matching layers in orde
                     │ Low confidence
                     ▼
   ┌─────────────────────────────────────────────────┐
-  │  Layer 2: Embedding Similarity                  │
-  │  bge-m3 semantic vectors + RRF fusion            │
-  │  ~100ms, requires API key                       │
-  └─────────────────┬───────────────────────────────┘
-                    │ Still unsure?
-                    ▼
-  ┌─────────────────────────────────────────────────┐
-  │  Layer 3: Secretary (LLM fallback)              │
+  │  Layer 2: Secretary (LLM fallback)              │
   │  LLM second-pass judgment for ambiguous cases   │
   │  ~2s, requires API key                          │
   └─────────────────────────────────────────────────┘
 ```
 
-**Offline capable**: Layers 0–1 work without any network connection (74.5% top-3 accuracy). Layers 2–3 require API keys but boost accuracy to near-perfect levels.
+**Offline capable**: Layers 0–1 work without any network connection (76.4% top-3 accuracy). Layer 2 requires an API key and further boosts accuracy.
 
 ## Evolution: It Gets Smarter Over Time
 
@@ -165,13 +158,7 @@ lazybrain config set compileApiBase https://api.siliconflow.cn/v1
 lazybrain config set compileApiKey  <your-key>
 lazybrain config set compileModel   Qwen/Qwen3-235B-A22B-Instruct-2507
 
-# Recommended: Embedding for semantic search (SiliconFlow bge-m3, free tier)
-lazybrain config set embeddingApiKey  <your-key>
-lazybrain config set embeddingApiBase https://api.siliconflow.cn/v1
-lazybrain config set embeddingModel   BAAI/bge-m3
-lazybrain config set engine           hybrid   # tag | embedding | hybrid
-
-# Optional: Secretary LLM (falls back to compile key if not set)
+# Optional: Secretary LLM (SiliconFlow free tier, falls back to compile key)
 lazybrain config set secretaryApiKey  <your-key>
 lazybrain config set secretaryModel   Qwen/Qwen2.5-7B-Instruct
 
@@ -231,8 +218,7 @@ lazybrain config set <key> <val>     # Set config value
 ```
 ~/.lazybrain/
 ├── config.json           # Configuration
-├── graph.json            # Knowledge graph (366 nodes, 11666 links)
-├── graph.embeddings.bin  # Embedding vectors cache
+├── graph.json            # Knowledge graph (390 nodes)
 ├── history.jsonl         # Usage history
 ├── profile.json          # Distilled user profile
 ├── last-match.json       # Latest match result
@@ -249,7 +235,6 @@ src/
 ├── matcher/          # Five-layer matching engine
 │   ├── alias-layer.ts     # Layer 0: manual + auto aliases
 │   ├── tag-layer.ts       # Layer 1: keyword + CJK bigram
-│   ├── semantic-layer.ts  # Layer 2: embedding + RRF fusion
 │   └── matcher.ts         # Orchestrator + history boost + corrections
 ├── secretary/        # Layer 3: LLM second-pass judgment
 ├── history/          # Usage tracking & profile distillation
@@ -262,8 +247,8 @@ src/
 
 | Mode | Top-1 | Top-3 |
 |------|-------|-------|
-| Full pipeline (tag + embedding) | 100% | 100% |
-| Tag-only (offline) | — | 74.5% |
+| Full pipeline (tag + Secretary) | 69% | 76% |
+| Tag-only (offline) | 69% | 76% |
 
 Tested on 55 queries (33 Chinese, 22 English) across 366 tools.
 

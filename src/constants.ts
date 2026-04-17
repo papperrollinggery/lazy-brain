@@ -158,7 +158,7 @@ export const DEFAULT_CONFIG: UserConfig = {
   scanPaths: [],
   mode: 'select',
   autoThreshold: DEFAULT_AUTO_THRESHOLD,
-  engine: 'tag',
+  engine: 'tag', // 'tag' = local only, 'llm' = always call Secretary
   strategy: 'ask',
   compileApiBase: 'https://api.siliconflow.cn/v1',
   compileModel: 'Qwen/Qwen3-235B-A22B-Instruct-2507',

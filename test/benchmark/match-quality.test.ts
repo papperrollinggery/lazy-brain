@@ -18,9 +18,6 @@ import { Graph } from '../../src/graph/graph.js';
 import { match } from '../../src/matcher/matcher.js';
 import { loadConfig } from '../../src/config/config.js';
 import { GRAPH_PATH } from '../../src/constants.js';
-import { createEmbeddingProvider } from '../../src/indexer/embeddings/provider.js';
-import type { EmbeddingProvider } from '../../src/types.js';
-
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 interface GoldenCase {
@@ -41,7 +38,6 @@ const goldenSet: GoldenCase[] = JSON.parse(
 
 let graph: Graph;
 let config: ReturnType<typeof loadConfig>;
-let embeddingProvider: EmbeddingProvider | undefined;
 
 beforeAll(() => {
   try {
@@ -52,17 +48,6 @@ beforeAll(() => {
     );
   }
   config = loadConfig();
-
-  if (config.engine === 'embedding' || config.engine === 'hybrid') {
-    const apiKey = config.embeddingApiKey ?? process.env.LAZYBRAIN_EMBEDDING_KEY ?? '';
-    if (apiKey) {
-      embeddingProvider = createEmbeddingProvider({
-        apiBase: config.embeddingApiBase ?? 'https://api.siliconflow.cn/v1',
-        apiKey,
-        model: config.embeddingModel ?? 'BAAI/bge-m3',
-      });
-    }
-  }
 });
 
 const tagOnlyStats = { total: 0, hits: 0 };
@@ -79,11 +64,9 @@ function checkMatch(name: string, expected: string[]): boolean {
 describe('matching quality — individual cases', () => {
   for (const c of goldenSet) {
     it(`[${c.note}] "${c.query}"`, async () => {
-      const rec = await match(c.query, { graph, config, embeddingProvider });
+      const rec = await match(c.query, { graph, config });
       const topNames = rec.matches.slice(0, c.topK).map(r => r.capability.name);
-      const top1Name = topNames[0];
-
-      // Check top-1
+      const top1Name = topNames[0] ?? '';
       const top1Matched = checkMatch(top1Name, c.expected);
 
       // Check expectedNot (top-1 不应该出现的工具)
@@ -113,7 +96,7 @@ describe('matching quality — aggregate', { timeout: 120000 }, () => {
     const misses: Array<{ query: string; got: string[]; expected: string[] }> = [];
 
     for (const c of goldenSet) {
-      const rec = await match(c.query, { graph, config, embeddingProvider });
+      const rec = await match(c.query, { graph, config });
       const names = rec.matches.map(r => r.capability.name);
       const top1 = names.slice(0, 1);
       const top3 = names.slice(0, 3);
@@ -158,7 +141,7 @@ describe('matching quality — aggregate', { timeout: 120000 }, () => {
     let top3Hits = 0;
 
     for (const c of chineseCases) {
-      const rec = await match(c.query, { graph, config, embeddingProvider });
+      const rec = await match(c.query, { graph, config });
       const names = rec.matches.map(r => r.capability.name);
       const top1 = names.slice(0, 1);
       const top3 = names.slice(0, 3);

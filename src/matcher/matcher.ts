@@ -1,11 +1,10 @@
 /**
  * LazyBrain — Matcher (Multi-Layer Orchestrator)
  *
- * Orchestrates matching across layers:
+ * Matching layers:
  *   Layer 0: Alias exact match
  *   Layer 1: Tag + example query match (primary)
- *   Layer 2: Embedding cosine similarity (optional fallback)
- *   Layer 3: LLM real-time rerank (optional, paid)
+ *   Layer 2: Secretary LLM rerank (low-confidence fallback)
  *
  * Then enriches results via graph traversal.
  */
@@ -17,12 +16,10 @@ import type {
   UserConfig,
   Platform,
   HistoryEntry,
-  EmbeddingProvider,
 } from '../types.js';
 import { MAX_RESULTS, HISTORY_BOOST_CAP } from '../constants.js';
 import { Graph } from '../graph/graph.js';
 import { tagMatch } from './tag-layer.js';
-import { semanticMatch, mergeTagAndSemantic, reciprocalRankFusion } from './semantic-layer.js';
 
 /**
  * Language/framework keywords that make a capability specialized.
@@ -58,7 +55,6 @@ export interface MatchOptions {
   graph: Graph;
   config: UserConfig;
   history?: HistoryEntry[];
-  embeddingProvider?: EmbeddingProvider;
   profile?: import('../types.js').UserProfile;
 }
 
@@ -69,7 +65,7 @@ export async function match(
   query: string,
   options: MatchOptions,
 ): Promise<Recommendation> {
-  const { graph, config, history, embeddingProvider, profile } = options;
+  const { graph, config, history, profile } = options;
   const allNodes = graph.getAllNodes().filter(n => n.status !== 'disabled');
   const platform = config.platform;
 
@@ -106,25 +102,6 @@ export async function match(
         r.confidence = 'low';
       }
       results = [...results, ...tier2Results].slice(0, MAX_RESULTS);
-    }
-  }
-
-  // ─── Layer 2: Embedding (if enabled) ─────────────────────────────────
-  if (
-    (config.engine === 'embedding' || config.engine === 'hybrid') &&
-    embeddingProvider
-  ) {
-    // Embedding layer uses primary nodes only (tier 0+1) to avoid tier-2 noise
-    const embeddingNodes = results.length >= 3 ? primaryNodes : allNodes;
-    const semanticResults = await semanticMatch(query, embeddingNodes, {
-      provider: embeddingProvider,
-      topK: MAX_RESULTS,
-    });
-
-    if (config.engine === 'hybrid' && semanticResults.length > 0) {
-      results = reciprocalRankFusion(results, semanticResults);
-    } else if (config.engine === 'embedding') {
-      results = semanticResults.length > 0 ? semanticResults : results;
     }
   }
 
