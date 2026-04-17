@@ -233,6 +233,8 @@ export interface SecretaryResponse {
   plan: string;
   /** 推理过程 */
   reasoning: string;
+  /** 预测的下一步可选工具（从历史 task chains 推断） */
+  nextSteps?: string[];
 }
 
 export interface ProposalOption {
@@ -247,7 +249,7 @@ export interface ProposalOption {
 // ─── User Config ────────────────────────────────────────────────────────────
 
 export type MatchMode = 'auto' | 'select' | 'ask';
-export type MatchEngine = 'tag' | 'embedding' | 'llm' | 'hybrid';
+export type MatchEngine = 'tag' | 'llm';
 export type RoutingStrategy = 'always-main' | 'optimal' | 'ask';
 
 export interface UserConfig {

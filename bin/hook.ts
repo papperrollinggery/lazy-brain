@@ -17,7 +17,6 @@ import { GRAPH_PATH, CAPABILITY_MODEL_HINTS, LAZYBRAIN_DIR, HOOK_ACTIVE_PATH } f
 import { Graph } from '../src/graph/graph.js';
 import { match } from '../src/matcher/matcher.js';
 import { loadConfig } from '../src/config/config.js';
-import { createEmbeddingProvider } from '../src/indexer/embeddings/provider.js';
 import { askSecretary, buildHistoryHints } from '../src/secretary/secretary.js';
 import { loadRecentHistory, appendHistory } from '../src/history/history.js';
 import { loadProfile, isProfileStale, distillAndSave } from '../src/history/profile.js';
@@ -335,18 +334,10 @@ async function main() {
     const graph = Graph.load(GRAPH_PATH);
     const config = loadConfig();
 
-    const embeddingProvider = (config.engine === 'embedding' || config.engine === 'hybrid') && config.embeddingApiKey
-      ? createEmbeddingProvider({
-          apiBase: config.embeddingApiBase ?? 'https://api.siliconflow.cn/v1',
-          apiKey: config.embeddingApiKey,
-          model: config.embeddingModel ?? 'BAAI/bge-m3',
-        })
-      : undefined;
-
     const history = loadRecentHistory(50);
     let profile: import('../src/types.js').UserProfile | undefined = undefined;
     try { profile = loadProfile() ?? undefined; } catch {}
-    const result = await match(prompt, { graph, config, embeddingProvider, history, profile });
+    const result = await match(prompt, { graph, config, history, profile });
 
     if (result.matches.length === 0) {
       if (config.mode === 'ask') renderParchment({ type: 'no_match' });
@@ -497,7 +488,7 @@ async function main() {
 
         const primaryNode = primaryAction ? graph.findByName(primaryAction) : null;
         if (primaryNode) {
-          const text = formatSecretaryInjection(secretaryResult, graph, history ?? []);
+          const text = formatSecretaryInjection(secretaryResult, graph, history ?? [], result.nextSteps);
 
           appendHistory({
             timestamp: new Date().toISOString(),
@@ -533,7 +524,7 @@ async function main() {
         // Secretary failed (network/parse error) — mark fallback as accepted=false
         // so distillProfile acceptRate isn't inflated by failed Secretary sessions
         if (config.mode === 'ask') {
-          renderParchment({ type: 'secretary_dead', code: 'null', fallbackTool: top.capability.name, fallbackScore: top.score });
+          renderParchment({ type: 'secretary_dead', code: 'network', fallbackTool: top.capability.name, fallbackScore: top.score });
         }
       }
     }
@@ -636,54 +627,62 @@ function formatSecretaryInjection(
   resp: SecretaryResponse,
   graph: import('../src/graph/graph.js').Graph,
   history: import('../src/types.js').HistoryEntry[],
+  nextSteps?: string[],
 ): string {
   const lines: string[] = [];
-  lines.push('<lazybrain-recommendation>');
 
-  lines.push(`<intent>${resp.intent}</intent>`);
+  // Intent
+  lines.push(`**意图**: ${resp.intent}`);
 
-  // Mode proposal: 非 regular 模式注入 XML 块
+  // Mode proposal (non-regular)
   if (resp.mode && resp.mode !== 'regular') {
-    lines.push('<mode-proposal>');
-    lines.push(`  推荐模式: ${resp.mode.toUpperCase()}`);
-    if (resp.modeReason) lines.push(`  理由: ${resp.modeReason}`);
-    lines.push('  编排方案:');
-    for (const task of resp.tasks.slice(0, 4)) {
-      lines.push(`    • ${task.action}(${task.model ?? 'sonnet'}) — ${task.reason}`);
+    lines.push('');
+    lines.push(`**推荐模式**: ${resp.mode.toUpperCase()} — ${resp.modeReason ?? ''}`);
+    lines.push('');
+    lines.push('| 步骤 | 工具 | 模型 | 说明 |');
+    lines.push('|------|------|------|------|');
+    for (const t of resp.tasks.slice(0, 4)) {
+      lines.push(`| ${resp.tasks.indexOf(t) + 1} | /${t.action} | ${t.model ?? 'sonnet'} | ${t.reason} |`);
     }
-    lines.push('  请用户确认执行模式，或输入其他方式。');
-    lines.push('</mode-proposal>');
   }
 
-  if (resp.tasks.length > 0) {
-    lines.push('<tasks>');
-    for (let i = 0; i < resp.tasks.length; i++) {
-      const t = resp.tasks[i];
-      const modelHint = t.model ? ` (${t.model})` : '';
-      const dep = t.after ? ` [after: ${t.after}]` : '';
-      lines.push(`  ${i + 1}. 调用 Skill tool skill="${t.action}"${modelHint}${dep} — ${t.reason}`);
-    }
-    lines.push('</tasks>');
+  // Top tools
+  lines.push('');
+  lines.push('**推荐工具**');
+  lines.push('');
+  lines.push('| 工具 | 置信度 | 说明 |');
+  lines.push('|------|--------|------|');
+  for (let i = 0; i < resp.tasks.length; i++) {
+    const t = resp.tasks[i];
+    const pct = Math.round((resp.confidence - i * 0.05) * 100);
+    lines.push(`| /${t.action} | ${Math.max(pct, 60)}% | ${t.reason.slice(0, 40)} |`);
   }
 
-  // Context: history + reasoning
-  const ctxLines: string[] = [];
+  // Reasoning
+  if (resp.reasoning) {
+    lines.push('');
+    lines.push(`**分析**: ${resp.reasoning}`);
+  }
+
+  // Next steps
+  if (nextSteps && nextSteps.length > 0) {
+    lines.push('');
+    lines.push(`**下一步**: ${nextSteps.map(s => `/${s}`).join(' → ')}`);
+  }
+
+  // Recommendation
+  lines.push('');
   if (resp.tasks.length > 0) {
     const primaryStats = getHistoryStats(history, resp.tasks[0].action);
-    if (primaryStats.count > 0) {
-      ctxLines.push(`用户历史: ${resp.tasks[0].action} 使用 ${primaryStats.count} 次，接受率 ${Math.round(primaryStats.acceptRate * 100)}%`);
-    }
-  }
-  if (resp.reasoning) ctxLines.push(`分析: ${resp.reasoning}`);
-  if (resp.plan) ctxLines.push(`方案: ${resp.plan}`);
-
-  if (ctxLines.length > 0) {
-    lines.push('<context>');
-    for (const l of ctxLines) lines.push(`  ${l}`);
-    lines.push('</context>');
+    const histLine = primaryStats.count > 0
+      ? `（历史使用 ${primaryStats.count} 次，接受率 ${Math.round(primaryStats.acceptRate * 100)}%，来源: history.jsonl）`
+      : '';
+    lines.push(`> 使用 /${resp.tasks[0].action} ${histLine}`);
   }
 
-  lines.push('</lazybrain-recommendation>');
+  lines.push('');
+  lines.push('> **说明**: 置信度 = tag 匹配分 + 历史加权；估算 tokens = prompt 估算，仅供参考。');
+
   return lines.join('\n');
 }
 
@@ -694,29 +693,44 @@ function formatFallback(
   proposals?: ProposalOption[],
   strategy?: string,
 ): string {
-  const lines = [
-    `[LazyBrain] 推荐: ${top.capability.kind}/${top.capability.name} (${Math.round(top.score * 100)}%)`,
-  ];
-  if (top.capability.scenario) lines.push(`  适用场景: ${top.capability.scenario}`);
-  if (secondary.length > 0) {
-    lines.push(`  备选: ${secondary.map(m => `/${m.name}`).join(', ')}`);
+  const pct = Math.round(top.score * 100);
+  const lines: string[] = [];
+  lines.push(`**LazyBrain 推荐**`);
+  lines.push('');
+  lines.push('| 工具 | 置信度 |');
+  lines.push('|------|--------|');
+  lines.push(`| /${top.capability.name} | ${pct}% |`);
+  for (const s of secondary.slice(0, 2)) {
+    lines.push(`| /${s.name} | ${Math.round(s.score * 100)}% |`);
   }
+
+  if (top.capability.scenario) {
+    lines.push('');
+    lines.push(`**适用场景**: ${top.capability.scenario}`);
+  }
+
   if (nextSteps && nextSteps.length > 0) {
-    lines.push(`  下一步: ${nextSteps.map(s => `/${s}`).join(' → ')}`);
+    lines.push('');
+    lines.push(`**下一步**: ${nextSteps.map(s => `/${s}`).join(' → ')}`);
   }
+
   if (proposals && proposals.length > 0) {
-    lines.push(`  方案:`);
+    lines.push('');
+    lines.push('**执行方案**');
+    lines.push('');
+    lines.push('| 方案 | 模型 | 估算 tokens |');
+    lines.push('|------|------|------------|');
     for (const p of proposals) {
       const tokenLabel = p.estimatedTokens >= 1000
         ? `${(p.estimatedTokens / 1000).toFixed(1)}k`
         : `${p.estimatedTokens}`;
-      lines.push(`    ${p.id}. ${p.label} (${tokenLabel} tokens)`);
-    }
-    if (proposals.length > 1 && strategy !== 'ask') {
-      const best = proposals.reduce((a, b) => a.savings > b.savings ? a : b);
-      lines.push(`    → 推荐 ${best.id} (节省 ${Math.round(best.savings * 100)}% token)`);
+      lines.push(`| ${p.label} | ${p.model} | ~${tokenLabel} |`);
     }
   }
+
+  lines.push('');
+  lines.push('> **说明**: 置信度 = tag 匹配分 + 历史加权；估算 tokens = prompt 估算，仅供参考。');
+
   return lines.join('\n');
 }
 
@@ -730,87 +744,85 @@ function formatWikiCard(
   const pct = Math.round(score * 100);
   const lines: string[] = [];
 
-  // ─── Intent analysis ───
-  lines.push('<lazybrain-recommendation>');
+  // Header
+  lines.push('**LazyBrain 推荐**');
+  lines.push('');
 
-  // Intent block: what LazyBrain understood
-  const intentParts: string[] = [];
-  if (cap.scenario) intentParts.push(cap.scenario);
-  if (opts?.reasoning) intentParts.push(opts.reasoning);
-  if (intentParts.length > 0) {
-    lines.push('<intent>');
-    for (const p of intentParts) lines.push(`  ${p}`);
-    lines.push('</intent>');
+  // Tool table: top + secondary
+  lines.push('| 工具 | 置信度 | 说明 |');
+  lines.push('|------|--------|------|');
+  lines.push(`| /${cap.name} | ${pct}% | ${cap.scenario ?? cap.description.slice(0, 40)} |`);
+  for (const m of secondaryMatches.slice(0, 2)) {
+    lines.push(`| /${m.name} | ${Math.round(m.score * 100)}% | — |`);
   }
 
-  // Action block: direct instruction to Claude
-  lines.push('<action>');
-  lines.push(`  调用 Skill tool，参数 skill="${cap.name}"。`);
-  lines.push(`  置信度 ${pct}%${opts?.historyCount ? `，用户历史使用 ${opts.historyCount} 次` : ''}${opts?.historyAcceptRate !== undefined ? `，接受率 ${Math.round(opts.historyAcceptRate * 100)}%` : ''}.`);
-  lines.push('</action>');
-
-  // Context block: why this tool
-  const ctxLines: string[] = [];
+  // Composes / depends
+  const contextLines: string[] = [];
   if (card.composesWith.length > 0) {
-    const combos = card.composesWith.slice(0, 2).map(c => `/${cap.name} + /${c.capability.name} (${c.reason})`).join('; ');
-    ctxLines.push(`推荐组合: ${combos}`);
+    const combos = card.composesWith.slice(0, 2)
+      .map(c => `/${cap.name} + /${c.capability.name}`)
+      .join(', ');
+    contextLines.push(`**推荐组合**: ${combos}`);
   }
   if (card.dependsOn.length > 0) {
     const deps = card.dependsOn.slice(0, 2).map(d => `/${d.capability.name}`).join(', ');
-    ctxLines.push(`前置条件: ${deps}`);
+    contextLines.push(`**前置条件**: ${deps}`);
   }
-  if (opts?.secretaryPlan) {
-    ctxLines.push(`分析: ${opts.secretaryPlan}`);
+
+  // History stats
+  if (opts?.historyCount && opts.historyCount > 0) {
+    const histLine = opts.historyAcceptRate !== undefined
+      ? `历史使用 ${opts.historyCount} 次，接受率 ${Math.round(opts.historyAcceptRate * 100)}%`
+      : `历史使用 ${opts.historyCount} 次`;
+    contextLines.push(`**历史**（来自 history.jsonl）: ${histLine}`);
   }
+
+  // Next steps
   if (opts?.nextSteps && opts.nextSteps.length > 0) {
-    ctxLines.push(`下一步: ${opts.nextSteps.map(s => `/${s}`).join(' → ')}`);
-  }
-  if (ctxLines.length > 0) {
-    lines.push('<context>');
-    for (const l of ctxLines) lines.push(`  ${l}`);
-    lines.push('</context>');
+    contextLines.push(`**下一步**: ${opts.nextSteps.map(s => `/${s}`).join(' → ')}`);
   }
 
-  // Alternatives block
-  const altParts: string[] = [];
-  if (card.similarTo.length > 0) {
-    for (const c of card.similarTo.slice(0, 2)) {
-      if (c.diff) altParts.push(`/${c.capability.name} — ${c.diff}`);
-    }
-  }
-  if (secondaryMatches.length > 0) {
-    for (const m of secondaryMatches) {
-      if (!altParts.find(a => a.startsWith(`/${m.name}`))) {
-        altParts.push(`/${m.name} (${Math.round(m.score * 100)}%)`);
-      }
-    }
-  }
-  if (altParts.length > 0) {
-    lines.push('<alternatives>');
-    for (const a of altParts) lines.push(`  ${a}`);
-    lines.push('</alternatives>');
+  if (contextLines.length > 0) {
+    lines.push('');
+    lines.push(...contextLines);
   }
 
+  // Similar tools (if any, not already in table)
+  const similar = card.similarTo.slice(0, 2);
+  if (similar.length > 0) {
+    lines.push('');
+    lines.push('**相近工具**');
+    lines.push('');
+    lines.push('| 工具 | 差异 |');
+    lines.push('|------|------|');
+    for (const c of similar) {
+      lines.push(`| /${c.capability.name} | ${c.diff ?? '—'} |`);
+    }
+  }
+
+  // Execution proposals
   if (opts?.proposals && opts.proposals.length > 0) {
-    lines.push('<proposals>');
+    lines.push('');
+    lines.push('**执行方案**');
+    lines.push('');
+    lines.push('| 方案 | 模型 | 估算 tokens |');
+    lines.push('|------|------|------------|');
     for (const p of opts.proposals) {
-      const savingsLabel = Math.round(p.savings * 100);
       const tokenLabel = p.estimatedTokens >= 1000
         ? `${(p.estimatedTokens / 1000).toFixed(1)}k`
         : `${p.estimatedTokens}`;
-      lines.push(`  <option id="${p.id}" label="${p.label}" model="${p.model}" tokens="${tokenLabel}" savings="${savingsLabel}%">`);
-      lines.push(`    ${p.reason}`);
-      lines.push('  </option>');
+      lines.push(`| ${p.label} | ${p.model} | ~${tokenLabel} |`);
     }
-    // 'optimal' = auto-recommend cheapest; 'ask' = let user decide
-    if (opts?.proposals && opts.proposals.length > 1 && opts.strategy !== 'ask') {
-      const best = opts.proposals.reduce((a, b) => a.savings > b.savings ? a : b);
-      lines.push(`  <recommend id="${best.id}" reason="节省 ${Math.round(best.savings * 100)}% token，${best.reason.split('，')[1] ?? best.reason}"/>`);
+    if (opts.proposals.length > 1 && opts.strategy !== 'ask') {
+      const best = opts.proposals.reduce((a, b) => a.estimatedTokens < b.estimatedTokens ? a : b);
+      lines.push('');
+      lines.push(`> 推荐: ${best.label}（~${best.estimatedTokens} tokens）`);
     }
-    lines.push('</proposals>');
   }
 
-  lines.push('</lazybrain-recommendation>');
+  lines.push('');
+  lines.push('> **说明**: 置信度 = tag 匹配分 + 历史加权；估算 tokens = prompt 估算，仅供参考。');
+
   return lines.join('\n');
 }
 
