@@ -206,6 +206,25 @@ lazybrain hook uninstall             # Uninstall hook
 lazybrain hook status                # Check hook status
 ```
 
+#### SessionStart Dashboard
+
+LazyBrain can display a usage dashboard at the start of each session. To enable, add a SessionStart hook in `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "command": "node",
+        "args": ["${CLAUDE_CONFIG_DIR}/../../.local/lib/node_modules/lazybrain/dist/bin/hook.js"]
+      }
+    ]
+  }
+}
+```
+
+The dashboard shows your tool usage stats, recent recommendations, and newly discovered tools.
+
 ### Config
 
 ```bash

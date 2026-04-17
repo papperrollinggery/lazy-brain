@@ -29,6 +29,8 @@ import { detectDuplicates, buildDuplicateIndex, findCapabilityByNameOrId, compar
 import type { DuplicatePair } from '../src/graph/duplicate-detector.js';
 import type { WikiCard, SecretaryResponse, ProposalOption } from '../src/types.js';
 import type { TeamComposition } from '../src/matcher/team-recommender.js';
+import { buildSessionStats } from '../src/stats/session-stats.js';
+import { formatDashboard } from '../src/stats/session-dashboard.js';
 
 interface EmbeddingConfig {
   apiBase: string;
@@ -356,6 +358,22 @@ async function main() {
     return;
   }
 
+  // ─── SessionStart Hook: Dashboard ──────────────────────────────────────
+  if (input.hook_event_name === 'SessionStart') {
+    try {
+      if (existsSync(GRAPH_PATH)) {
+        const graph = Graph.load(GRAPH_PATH);
+        const dupPairs = detectDuplicates(graph);
+        const stats = buildSessionStats(graph, dupPairs);
+        const dashboard = formatDashboard(stats);
+        output({ continue: true, additionalSystemPrompt: dashboard });
+        return;
+      }
+    } catch {}
+    output({ continue: true });
+    return;
+  }
+
   const prompt = input.prompt?.trim();
   if (!prompt || prompt.length < 3) {
     output({ continue: true });
@@ -443,8 +461,8 @@ async function main() {
           ? allProposals
           : allProposals; // 'ask' shows all, no recommend tag
       const text = card
-        ? formatWikiCard(card, top.score, secondary, { historyCount: histStats.count || undefined, historyAcceptRate: histStats.count > 0 ? histStats.acceptRate : undefined, nextSteps: result.nextSteps, proposals, strategy: config.strategy, decisionHint: result.decisionHint })
-        : formatFallback(top, secondary, result.nextSteps, undefined, undefined, result.decisionHint);
+        ? formatWikiCard(card, top.score, secondary, { historyCount: histStats.count || undefined, historyAcceptRate: histStats.count > 0 ? histStats.acceptRate : undefined, nextSteps: result.nextSteps, proposals, strategy: config.strategy, decisionHint: result.decisionHint }, config.mode === 'ask')
+        : formatFallback(top, secondary, result.nextSteps, undefined, undefined, result.decisionHint, config.mode === 'ask');
 
       appendHistory({
         timestamp: new Date().toISOString(),
@@ -559,7 +577,7 @@ async function main() {
 
         const primaryNode = primaryAction ? graph.findByName(primaryAction) : null;
         if (primaryNode) {
-          const text = formatSecretaryInjection(secretaryResult, graph, history ?? [], result.nextSteps, result.decisionHint);
+          const text = formatSecretaryInjection(secretaryResult, graph, history ?? [], result.nextSteps, result.decisionHint, config.mode === 'ask');
 
           appendHistory({
             timestamp: new Date().toISOString(),
@@ -614,8 +632,8 @@ async function main() {
         ? generateProposals(prompt, top.score)
         : undefined;
       const text = card
-        ? formatWikiCard(card, top.score, secondary, histStats2.count > 0 ? { historyCount: histStats2.count, historyAcceptRate: histStats2.acceptRate, nextSteps: result.nextSteps, proposals: proposals2, strategy: config.strategy, decisionHint: result.decisionHint } : { nextSteps: result.nextSteps, proposals: proposals2, strategy: config.strategy, decisionHint: result.decisionHint })
-        : formatFallback(top, secondary, result.nextSteps, proposals2, config.strategy, result.decisionHint);
+        ? formatWikiCard(card, top.score, secondary, histStats2.count > 0 ? { historyCount: histStats2.count, historyAcceptRate: histStats2.acceptRate, nextSteps: result.nextSteps, proposals: proposals2, strategy: config.strategy, decisionHint: result.decisionHint } : { nextSteps: result.nextSteps, proposals: proposals2, strategy: config.strategy, decisionHint: result.decisionHint }, config.mode === 'ask')
+        : formatFallback(top, secondary, result.nextSteps, proposals2, config.strategy, result.decisionHint, config.mode === 'ask');
 
       // Fallback path: Secretary failed or skipped, using local result.
       // accepted=false so acceptRate isn't inflated by Secretary failures.
@@ -750,7 +768,14 @@ function formatSecretaryInjection(
   history: import('../src/types.js').HistoryEntry[],
   nextSteps?: string[],
   decisionHint?: { type: string; reason: string; suggestedTools: string[]; note: string },
+  compact = false,
 ): string {
+  if (compact) {
+    const topTool = resp.tasks[0]?.action ?? '';
+    const topScore = resp.confidence;
+    const secondary = resp.tasks.slice(1, 3).map(t => ({ name: t.action, score: resp.confidence - 0.05 }));
+    return formatCompactRecommendation(topTool, topScore, secondary, decisionHint);
+  }
   const lines: string[] = [];
 
   if (decisionHint) {
@@ -812,6 +837,26 @@ function formatSecretaryInjection(
   return lines.join('\n');
 }
 
+function formatCompactRecommendation(
+  topTool: string,
+  topScore: number,
+  secondary: Array<{ name: string; score: number }>,
+  decisionHint?: { type: string },
+): string {
+  const parts: string[] = [];
+  parts.push(`🧠 LazyBrain: /${topTool} (${Math.round(topScore * 100)}%)`);
+  if (secondary.length > 0) {
+    const secondaryStr = secondary.slice(0, 2)
+      .map(s => `/${s.name} (${Math.round(s.score * 100)}%)`)
+      .join(', ');
+    parts.push(secondaryStr);
+  }
+  if (decisionHint?.type) {
+    parts.push(`[${decisionHint.type} 决策]`);
+  }
+  return parts.join(' · ');
+}
+
 function formatFallback(
   top: { capability: { kind: string; name: string; scenario?: string }; score: number },
   secondary: Array<{ name: string; score: number }>,
@@ -819,7 +864,11 @@ function formatFallback(
   proposals?: ProposalOption[],
   strategy?: string,
   decisionHint?: { type: string; reason: string; suggestedTools: string[]; note: string },
+  compact = false,
 ): string {
+  if (compact) {
+    return formatCompactRecommendation(top.capability.name, top.score, secondary, decisionHint);
+  }
   const pct = Math.round(top.score * 100);
   const lines: string[] = [];
 
@@ -871,7 +920,11 @@ function formatWikiCard(
   score: number,
   secondaryMatches: Array<{ name: string; score: number }>,
   opts?: { reasoning?: string; historyCount?: number; historyAcceptRate?: number; secretaryPlan?: string; nextSteps?: string[]; proposals?: ProposalOption[]; strategy?: string; decisionHint?: { type: string; reason: string; suggestedTools: string[]; note: string } },
+  compact = false,
 ): string {
+  if (compact) {
+    return formatCompactRecommendation(card.capability.name, score, secondaryMatches, opts?.decisionHint);
+  }
   const cap = card.capability;
   const pct = Math.round(score * 100);
   const lines: string[] = [];
