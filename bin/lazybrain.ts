@@ -881,7 +881,7 @@ function cmdStats() {
       console.log(`   发现 ${pairs.length} 对疑似重复：`);
       for (let i = 0; i < pairs.length; i++) {
         const pair = pairs[i];
-        console.log(`     ${i + 1}. [${pair.a.kind}] ${pair.a.name} (${pair.a.origin}) ⚠ ${pair.b.name} (${pair.b.origin}) — {${pair.reason}}`);
+        console.log(`     ${i + 1}. [${pair.a.kind}] ${pair.a.name} (${pair.a.origin}) ⚠ ${pair.b.name} (${pair.b.origin}) — ${pair.reason}`);
       }
     }
   }
