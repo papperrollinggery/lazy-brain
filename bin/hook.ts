@@ -17,6 +17,7 @@ import { GRAPH_PATH, CAPABILITY_MODEL_HINTS, LAZYBRAIN_DIR, HOOK_ACTIVE_PATH } f
 import { Graph } from '../src/graph/graph.js';
 import { match } from '../src/matcher/matcher.js';
 import { recommendTeam } from '../src/matcher/team-recommender.js';
+import { detectThinkingNeed } from '../src/matcher/thinking-trigger.js';
 import { loadConfig } from '../src/config/config.js';
 import { askSecretary, buildHistoryHints } from '../src/secretary/secretary.js';
 import { loadRecentHistory, appendHistory } from '../src/history/history.js';
@@ -371,6 +372,8 @@ async function main() {
 
     const result = await match(prompt, { graph, config, history, profile });
 
+    const thinkingHint = detectThinkingNeed(prompt);
+
     if (result.matches.length === 0) {
       if (config.mode === 'ask') renderParchment({ type: 'no_match' });
       writeLastMatch(null, 0);
@@ -422,7 +425,7 @@ async function main() {
       });
 
       writeLastMatch(top.capability.name, top.score, top.historyBoost);
-      output({ continue: true, additionalSystemPrompt: text });
+      output({ continue: true, additionalSystemPrompt: prependThinkingHint(text, thinkingHint) });
       return;
     }
 
@@ -535,7 +538,7 @@ async function main() {
           });
 
           writeLastMatch(primaryAction!, secretaryResult.confidence);
-          output({ continue: true, additionalSystemPrompt: text });
+          output({ continue: true, additionalSystemPrompt: prependThinkingHint(text, thinkingHint) });
           return;
         }
 
@@ -591,7 +594,7 @@ async function main() {
       });
 
       writeLastMatch(top.capability.name, top.score, top.historyBoost);
-      output({ continue: true, additionalSystemPrompt: text });
+      output({ continue: true, additionalSystemPrompt: prependThinkingHint(text, thinkingHint) });
       return;
     }
 
@@ -673,6 +676,32 @@ function renderDecisionHint(
   lines.push('---');
   lines.push('');
   return lines;
+}
+
+function renderThinkingHintBlock(
+  reason: string,
+  skills: Array<{ name: string; why: string }>,
+): string[] {
+  const lines: string[] = [];
+  lines.push('## 💭 思考工具提醒');
+  lines.push('');
+  lines.push(reason);
+  lines.push('');
+  for (const s of skills.slice(0, 2)) {
+    lines.push(`- **${s.name}** — ${s.why}`);
+  }
+  lines.push('');
+  lines.push('> 主模型直接决策可能遗漏角度。建议先用思考工具理清。');
+  lines.push('');
+  lines.push('---');
+  lines.push('');
+  return lines;
+}
+
+function prependThinkingHint(text: string, hint?: { triggered: boolean; reason: string; suggestedSkills: Array<{ name: string; why: string }> }): string {
+  if (!hint?.triggered) return text;
+  const block = renderThinkingHintBlock(hint.reason, hint.suggestedSkills);
+  return block.join('\n') + text;
 }
 
 function formatSecretaryInjection(
