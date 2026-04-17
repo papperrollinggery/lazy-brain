@@ -158,6 +158,13 @@ export interface Recommendation {
   warnings?: string[];
   /** Predicted next steps (from current session task chains) */
   nextSteps?: string[];
+  /** Decision type hint (analysis, complex_impl, ambiguous, research, team_task) */
+  decisionHint?: {
+    type: string;
+    reason: string;
+    suggestedTools: string[];
+    note: string;
+  };
 }
 
 // ─── Wiki Card ────────────────────────────────────────────────────────────────
