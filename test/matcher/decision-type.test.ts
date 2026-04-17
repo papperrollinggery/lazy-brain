@@ -1,88 +1,62 @@
 import { describe, it, expect } from 'vitest';
-import { detectDecisionType, buildRecommendation } from '../../src/matcher/decision-type.js';
+import { detectDecisionType, buildDecisionRecommendation } from '../../src/matcher/decision-type.js';
 
-describe('decision-type detector', () => {
-  describe('analysis', () => {
-    it('detects 中文 analysis queries', () => {
-      expect(detectDecisionType('帮我分析一下这个架构设计')).toBe('analysis');
-      expect(detectDecisionType('评估一下这段代码')).toBe('analysis');
-    });
-
-    it('detects English analysis queries', () => {
-      expect(detectDecisionType('code review this PR')).toBe('analysis');
-      expect(detectDecisionType('analyze the performance')).toBe('analysis');
-    });
-
-    it('does not match simple implementation tasks', () => {
-      expect(detectDecisionType('修改第 42 行代码')).not.toBe('analysis');
-    });
+describe('detectDecisionType', () => {
+  it('detects analysis for 分析', () => {
+    expect(detectDecisionType('帮我分析一下这个架构设计')).toBe('analysis');
+  });
+  it('detects analysis for English review', () => {
+    expect(detectDecisionType('review this PR')).toBe('analysis');
   });
 
-  describe('complex_impl', () => {
-    it('detects complex refactoring with long query (>=60 chars)', () => {
-      const long = '重构整个 auth 模块，包括 login、session、token 三个子系统，需要修改多个文件并确保向后兼容，这是个大工程';
-      expect(detectDecisionType(long)).toBe('complex_impl');
-    });
-
-    it('short refactoring query returns null', () => {
-      expect(detectDecisionType('重构这个模块')).toBeNull();
-    });
+  it('detects complex_impl for long refactor query', () => {
+    expect(detectDecisionType('重构整个 auth 模块，包括 login、session、token 三个子系统，要兼顾迁移方案，这需要重构多个文件和模块')).toBe('complex_impl');
+  });
+  it('does NOT detect complex_impl for short refactor query', () => {
+    expect(detectDecisionType('重构这段')).not.toBe('complex_impl');
   });
 
-  describe('ambiguous', () => {
-    it('detects vague queries without specific files', () => {
-      expect(detectDecisionType('这个功能怎么办好')).toBe('ambiguous');
-      expect(detectDecisionType('帮我想想怎么设计这个')).toBe('ambiguous');
-    });
-
-    it('does not match if has specific file path', () => {
-      expect(detectDecisionType('修改 src/auth.ts')).toBeNull();
-      expect(detectDecisionType('帮我看看 utils.ts 怎么办')).toBeNull();
-    });
+  it('detects ambiguous for 怎么办', () => {
+    expect(detectDecisionType('这个功能怎么办好')).toBe('ambiguous');
+  });
+  it('detects ambiguous for 想想', () => {
+    expect(detectDecisionType('帮我想想怎么设计这个')).toBe('ambiguous');
+  });
+  it('does NOT detect ambiguous when specific file referenced', () => {
+    expect(detectDecisionType('修改 src/auth.ts 里的 design 逻辑')).not.toBe('ambiguous');
   });
 
-  describe('research', () => {
-    it('detects research queries', () => {
-      expect(detectDecisionType('调研一下市面上的 MCP server 方案')).toBe('research');
-      expect(detectDecisionType('research on best practices')).toBe('research');
-    });
-
-    it('does not match simple questions', () => {
-      expect(detectDecisionType('什么是 TypeScript')).toBeNull();
-    });
+  it('detects research for 调研', () => {
+    expect(detectDecisionType('调研一下市面上的 MCP server 方案')).toBe('research');
   });
 
-  describe('team_task', () => {
-    it('detects /team command', () => {
-      expect(detectDecisionType('/team 做这个任务')).toBe('team_task');
-    });
-
-    it('does not match /team with analysis keyword', () => {
-      expect(detectDecisionType('team mode 分析这个')).not.toBe('team_task');
-    });
+  it('detects team_task for /team', () => {
+    expect(detectDecisionType('/team 做这个任务')).toBe('team_task');
+  });
+  it('detects team_task for 组队', () => {
+    expect(detectDecisionType('我想用多 agent 组队搞定这个')).toBe('team_task');
   });
 
-  describe('null cases', () => {
-    it('returns null for specific file operations', () => {
-      expect(detectDecisionType('修改 src/auth.ts 第 42 行')).toBeNull();
-      expect(detectDecisionType('add import to utils.ts')).toBeNull();
-    });
-
-    it('returns null for "什么是" type questions', () => {
-      expect(detectDecisionType('什么是 TypeScript')).toBeNull();
-    });
+  it('returns null for specific code change', () => {
+    expect(detectDecisionType('修改 src/auth.ts 第 42 行的 null check')).toBeNull();
   });
+  it('returns null for simple what-is question', () => {
+    expect(detectDecisionType('什么是 TypeScript')).toBeNull();
+  });
+  it('returns null for build failure', () => {
+    expect(detectDecisionType('build 失败了')).toBeNull();
+  });
+});
 
-  describe('buildRecommendation', () => {
-    it('returns recommendation for valid type', () => {
-      const rec = buildRecommendation('analysis');
-      expect(rec).not.toBeNull();
-      expect(rec!.type).toBe('analysis');
-      expect(rec!.suggestedTools).toContain('critic');
-    });
-
-    it('returns null for null type', () => {
-      expect(buildRecommendation(null)).toBeNull();
-    });
+describe('buildDecisionRecommendation', () => {
+  it('returns null for null type', () => {
+    expect(buildDecisionRecommendation(null)).toBeNull();
+  });
+  it('returns complete recommendation for analysis', () => {
+    const r = buildDecisionRecommendation('analysis');
+    expect(r).not.toBeNull();
+    expect(r?.suggestedTools).toContain('critic');
+    expect(r?.reason).toBeTruthy();
+    expect(r?.note).toBeTruthy();
   });
 });

@@ -20,7 +20,7 @@ import type {
 import { MAX_RESULTS, HISTORY_BOOST_CAP } from '../constants.js';
 import { Graph } from '../graph/graph.js';
 import { tagMatch } from './tag-layer.js';
-import { detectDecisionType } from './decision-type.js';
+import { detectDecisionType, buildDecisionRecommendation } from './decision-type.js';
 
 /**
  * Language/framework keywords that make a capability specialized.
@@ -85,20 +85,7 @@ export async function match(
   // ─── Layer 0: Alias exact match ───────────────────────────────────────
   const aliasResult = matchAlias(query, config.aliases, allNodes);
   if (aliasResult) {
-    const rec = buildRecommendation([aliasResult], graph, platform, history);
-    const decisionType = detectDecisionType(query);
-    if (decisionType) {
-      const rule = DECISION_RULES.find(r => r.type === decisionType);
-      if (rule) {
-        rec.decisionHint = {
-          type: decisionType,
-          reason: rule.reason,
-          suggestedTools: rule.tools,
-          note: rule.note,
-        };
-      }
-    }
-    return rec;
+    return buildRecommendation([aliasResult], graph, platform, history);
   }
 
   // ─── Layer 1: Tag + example query match ───────────────────────────────
@@ -151,56 +138,18 @@ export async function match(
   const sessionId = process.env.CLAUDE_SESSION_ID ?? 'unknown';
   const rec = buildRecommendation(results, graph, platform, history, sessionId);
   if (decisionType && rec) {
-    const rule = DECISION_RULES.find(r => r.type === decisionType);
-    if (rule) {
+    const hint = buildDecisionRecommendation(decisionType);
+    if (hint) {
       rec.decisionHint = {
-        type: decisionType,
-        reason: rule.reason,
-        suggestedTools: rule.tools,
-        note: rule.note,
+        type: hint.type as string,
+        reason: hint.reason,
+        suggestedTools: hint.suggestedTools,
+        note: hint.note,
       };
     }
   }
   return rec;
 }
-
-const DECISION_RULES: Array<{
-  type: string;
-  reason: string;
-  tools: string[];
-  note: string;
-}> = [
-  {
-    type: 'analysis',
-    reason: '用户请求分析或评估某个内容',
-    tools: ['critic', 'ralplan', 'code-reviewer'],
-    note: '建议先用 critic 预审，再根据反馈决定下一步',
-  },
-  {
-    type: 'complex_impl',
-    reason: '涉及复杂实现或重构，query 较长表明任务复杂',
-    tools: ['planner', 'architect', 'team', 'executor'],
-    note: '建议先用 planner 做任务拆解，再决定是否需要 team',
-  },
-  {
-    type: 'ambiguous',
-    reason: '需求模糊或不明确，需要澄清或探索',
-    tools: ['deep-interview', 'analyst', 'critic'],
-    note: '建议先用 deep-interview 澄清需求，避免过早进入实现',
-  },
-  {
-    type: 'research',
-    reason: '用户想要调研或了解某个领域',
-    tools: ['explore', 'deep-dive', 'document-specialist'],
-    note: '建议用 explore 做初步调研，再深入具体方向',
-  },
-  {
-    type: 'team_task',
-    reason: '用户明确要求多 agent 协作',
-    tools: ['team', 'ralplan'],
-    note: '建议用 team 命令启动多 agent 协作模式',
-  },
-];
 
 // ─── Alias Matching ───────────────────────────────────────────────────────
 

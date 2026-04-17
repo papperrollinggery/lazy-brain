@@ -374,7 +374,7 @@ async function main() {
           ? allProposals
           : allProposals; // 'ask' shows all, no recommend tag
       const text = card
-        ? formatWikiCard(card, top.score, secondary, { historyCount: histStats.count || undefined, historyAcceptRate: histStats.count > 0 ? histStats.acceptRate : undefined, nextSteps: result.nextSteps, proposals, strategy: config.strategy })
+        ? formatWikiCard(card, top.score, secondary, { historyCount: histStats.count || undefined, historyAcceptRate: histStats.count > 0 ? histStats.acceptRate : undefined, nextSteps: result.nextSteps, proposals, strategy: config.strategy, decisionHint: result.decisionHint })
         : formatFallback(top, secondary, result.nextSteps, undefined, undefined, result.decisionHint);
 
       appendHistory({
@@ -488,7 +488,7 @@ async function main() {
 
         const primaryNode = primaryAction ? graph.findByName(primaryAction) : null;
         if (primaryNode) {
-          const text = formatSecretaryInjection(secretaryResult, graph, history ?? [], result.nextSteps);
+          const text = formatSecretaryInjection(secretaryResult, graph, history ?? [], result.nextSteps, result.decisionHint);
 
           appendHistory({
             timestamp: new Date().toISOString(),
@@ -541,7 +541,7 @@ async function main() {
         ? generateProposals(prompt, top.score)
         : undefined;
       const text = card
-        ? formatWikiCard(card, top.score, secondary, histStats2.count > 0 ? { historyCount: histStats2.count, historyAcceptRate: histStats2.acceptRate, nextSteps: result.nextSteps, proposals: proposals2, strategy: config.strategy } : { nextSteps: result.nextSteps, proposals: proposals2, strategy: config.strategy })
+        ? formatWikiCard(card, top.score, secondary, histStats2.count > 0 ? { historyCount: histStats2.count, historyAcceptRate: histStats2.acceptRate, nextSteps: result.nextSteps, proposals: proposals2, strategy: config.strategy, decisionHint: result.decisionHint } : { nextSteps: result.nextSteps, proposals: proposals2, strategy: config.strategy, decisionHint: result.decisionHint })
         : formatFallback(top, secondary, result.nextSteps, proposals2, config.strategy, result.decisionHint);
 
       // Fallback path: Secretary failed or skipped, using local result.
@@ -623,13 +623,38 @@ function writeLastMatch(tool: string | null, score: number, historyBoost?: numbe
   } catch {}
 }
 
+function renderDecisionHint(
+  hint: { type: string; reason: string; suggestedTools: string[]; note: string },
+): string[] {
+  const lines: string[] = [];
+  lines.push(`## 🧠 决策类型：${hint.type}`);
+  lines.push('');
+  lines.push(hint.reason);
+  lines.push('');
+  lines.push('**建议考虑的工具组合**：');
+  for (const tool of hint.suggestedTools.slice(0, 4)) {
+    lines.push(`- /${tool}`);
+  }
+  lines.push('');
+  lines.push(`> ${hint.note}`);
+  lines.push('');
+  lines.push('---');
+  lines.push('');
+  return lines;
+}
+
 function formatSecretaryInjection(
   resp: SecretaryResponse,
   graph: import('../src/graph/graph.js').Graph,
   history: import('../src/types.js').HistoryEntry[],
   nextSteps?: string[],
+  decisionHint?: { type: string; reason: string; suggestedTools: string[]; note: string },
 ): string {
   const lines: string[] = [];
+
+  if (decisionHint) {
+    lines.push(...renderDecisionHint(decisionHint));
+  }
 
   // Intent
   lines.push(`**意图**: ${resp.intent}`);
@@ -698,19 +723,7 @@ function formatFallback(
   const lines: string[] = [];
 
   if (decisionHint) {
-    lines.push(`## 🧠 决策类型：${decisionHint.type}`);
-    lines.push('');
-    lines.push(decisionHint.reason);
-    lines.push('');
-    lines.push('**建议考虑的工具组合**：');
-    for (const tool of decisionHint.suggestedTools.slice(0, 4)) {
-      lines.push(`- /${tool}`);
-    }
-    lines.push('');
-    lines.push(`> ${decisionHint.note}`);
-    lines.push('');
-    lines.push('---');
-    lines.push('');
+    lines.push(...renderDecisionHint(decisionHint));
   }
 
   lines.push(`**LazyBrain 推荐**`);
@@ -756,11 +769,15 @@ function formatWikiCard(
   card: WikiCard,
   score: number,
   secondaryMatches: Array<{ name: string; score: number }>,
-  opts?: { reasoning?: string; historyCount?: number; historyAcceptRate?: number; secretaryPlan?: string; nextSteps?: string[]; proposals?: ProposalOption[]; strategy?: string },
+  opts?: { reasoning?: string; historyCount?: number; historyAcceptRate?: number; secretaryPlan?: string; nextSteps?: string[]; proposals?: ProposalOption[]; strategy?: string; decisionHint?: { type: string; reason: string; suggestedTools: string[]; note: string } },
 ): string {
   const cap = card.capability;
   const pct = Math.round(score * 100);
   const lines: string[] = [];
+
+  if (opts?.decisionHint) {
+    lines.push(...renderDecisionHint(opts.decisionHint));
+  }
 
   // Header
   lines.push('**LazyBrain 推荐**');
