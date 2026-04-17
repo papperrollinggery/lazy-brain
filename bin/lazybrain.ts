@@ -34,6 +34,7 @@ import { createProgressBar } from '../src/utils/progress.js';
 import { loadRecentHistory } from '../src/history/history.js';
 import { distillAndSave, loadProfile } from '../src/history/profile.js';
 import { evolveCapabilities } from '../src/evolution/evolve.js';
+import { detectDuplicates, findCapabilityByNameOrId, compareCapabilities } from '../src/graph/duplicate-detector.js';
 import type { Capability, RawCapability, UserConfig } from '../src/types.js';
 
 const args = process.argv.slice(2);
@@ -85,6 +86,12 @@ async function main() {
       break;
     case 'team':
       cmdTeam();
+      break;
+    case 'dups':
+      cmdDups();
+      break;
+    case 'compare':
+      cmdCompare();
       break;
     case '--version':
     case '-v':
@@ -861,6 +868,23 @@ function cmdStats() {
   } else {
     console.log('   Secretary API: ❌ 未配置 (不启用 Secretary 层)');
   }
+
+  // ─── Duplicate detection ─────────────────────────────────────────────────
+  if (existsSync(GRAPH_PATH)) {
+    const graph = Graph.load(GRAPH_PATH);
+    const pairs = detectDuplicates(graph);
+    if (pairs.length === 0) {
+      console.log('\n重复工具检测：');
+      console.log('   ✓ 未检测到重复工具');
+    } else {
+      console.log('\n重复工具检测：');
+      console.log(`   发现 ${pairs.length} 对疑似重复：`);
+      for (let i = 0; i < pairs.length; i++) {
+        const pair = pairs[i];
+        console.log(`     ${i + 1}. [${pair.a.kind}] ${pair.a.name} (${pair.a.origin}) ⚠ ${pair.b.name} (${pair.b.origin}) — {${pair.reason}}`);
+      }
+    }
+  }
 }
 
 // ─── Alias ────────────────────────────────────────────────────────────────
@@ -1110,6 +1134,64 @@ function cmdTeam() {
   console.log('\n> **组合理由**：' + composition.overallReason);
   console.log('\n> 建议命令：`' + composition.suggestedCommand + '`');
   console.log('\n> 如果想默认 executor：`/team 3:executor "<task>"`');
+}
+
+// ─── Dups ─────────────────────────────────────────────────────────────────
+
+function cmdDups() {
+  if (!existsSync(GRAPH_PATH)) {
+    console.error('No graph found. Run `lazybrain scan && lazybrain compile` first.');
+    process.exit(1);
+  }
+  const graph = Graph.load(GRAPH_PATH);
+  const pairs = detectDuplicates(graph);
+
+  if (pairs.length === 0) {
+    console.log('✓ 未检测到重复工具');
+    return;
+  }
+
+  console.log(`发现 ${pairs.length} 对疑似重复：\n`);
+  for (let i = 0; i < pairs.length; i++) {
+    const pair = pairs[i];
+    console.log(`  ${i + 1}. [${pair.a.kind}] ${pair.a.name} (${pair.a.origin}) ⚠ ${pair.b.name} (${pair.b.origin})`);
+    console.log(`     原因: ${pair.reason}`);
+    console.log(`     相似度: ${Math.round(pair.similarity * 100)}%`);
+    console.log();
+  }
+}
+
+// ─── Compare ───────────────────────────────────────────────────────────────
+
+function cmdCompare() {
+  const aQuery = args[1];
+  const bQuery = args[2];
+
+  if (!aQuery || !bQuery) {
+    console.error('Usage: lazybrain compare <capability-a> <capability-b>');
+    console.error('  capability format: <name> or <origin>:<name>');
+    process.exit(1);
+  }
+
+  if (!existsSync(GRAPH_PATH)) {
+    console.error('No graph found. Run `lazybrain scan && lazybrain compile` first.');
+    process.exit(1);
+  }
+
+  const graph = Graph.load(GRAPH_PATH);
+  const a = findCapabilityByNameOrId(graph, aQuery);
+  const b = findCapabilityByNameOrId(graph, bQuery);
+
+  if (!a) {
+    console.error(`Capability not found: "${aQuery}"`);
+    process.exit(1);
+  }
+  if (!b) {
+    console.error(`Capability not found: "${bQuery}"`);
+    process.exit(1);
+  }
+
+  console.log(compareCapabilities(a, b));
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────
