@@ -24,7 +24,7 @@ interface OmcStateFile {
 }
 
 /** Mode priority (highest first) */
-const MODE_FILES: Array<[Omit<Parameters<typeof join>[2], string>, OmcMode]> = [
+const MODE_FILES: Array<[string, OmcMode]> = [
   ['ralph-state.json', 'ralph'],
   ['ultrawork-state.json', 'ultrawork'],
   ['autopilot-state.json', 'autopilot'],

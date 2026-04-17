@@ -9,7 +9,6 @@
  * historical usage patterns, not accurate predictions.
  */
 
-import { loadUsageEntries } from '../history/usage.js';
 import { COST_PER_1M } from '../history/usage.js';
 
 const CHARS_PER_TOKEN = 4; // Chinese roughly 1-2 chars/token, English ~4

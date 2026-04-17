@@ -40,7 +40,7 @@ Requirements for exampleQueries:
 - At least 5 queries, each >= 8 characters
 - Must be natural language queries users might say
 - Bad example: ["code-review"] (just tool name)
-- Good example: ["帮我审查这段代码", "review this PR", "检查代码质量", "code review before merge", "看看有没有bug"]${hasCJK ? '\n- At least 3 Chinese queries (users may search Chinese tools in English)' : '\n- At least 1 query in another language'}`}
+- Good example: ["帮我审查这段代码", "review this PR", "检查代码质量", "code review before merge", "看看有没有bug"]${hasCJK ? '\n- At least 3 Chinese queries (users may search Chinese tools in English)' : '\n- At least 1 query in another language'}
 
 Allowed categories: ${CATEGORIES.join(', ')}`;
 }
