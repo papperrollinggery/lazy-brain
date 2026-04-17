@@ -23,6 +23,7 @@ import { askSecretary, buildHistoryHints } from '../src/secretary/secretary.js';
 import { loadRecentHistory, appendHistory } from '../src/history/history.js';
 import { loadProfile, isProfileStale, distillAndSave } from '../src/history/profile.js';
 import { trackSessionUsage } from '../src/history/usage.js';
+import { writeRecommendation } from '../src/history/tool-usage-tracker.js';
 import { evolveCapabilities } from '../src/evolution/evolve.js';
 import { generateProposals } from '../src/utils/token-estimate.js';
 import { detectDuplicates, buildDuplicateIndex, findCapabilityByNameOrId, compareCapabilities } from '../src/graph/duplicate-detector.js';
@@ -499,6 +500,8 @@ async function main() {
       writeLastMatch(top.capability.name, top.score, top.historyBoost);
       const dupWarning1 = buildDuplicateWarning(top.capability.id, top.capability.name, dupIndex);
       const finalText1 = dupWarning1 ? prependThinkingHint(text, thinkingHint) + dupWarning1 : prependThinkingHint(text, thinkingHint);
+      const recTools = [top.capability.name, ...secondary.map(s => s.name)];
+      writeRecommendation({ sessionId: input.session_id ?? process.env.CLAUDE_SESSION_ID ?? 'unknown', timestamp: new Date().toISOString(), query: prompt, recommended: recTools });
       output({ continue: true, additionalSystemPrompt: finalText1 });
       return;
     }
@@ -614,6 +617,8 @@ async function main() {
           writeLastMatch(primaryAction!, secretaryResult.confidence);
           const dupWarning2 = buildDuplicateWarning(primaryNode.id, primaryAction!, dupIndex);
           const finalText2 = dupWarning2 ? prependThinkingHint(text, thinkingHint) + dupWarning2 : prependThinkingHint(text, thinkingHint);
+          const secretaryTools = [primaryAction!, ...secretaryResult.tasks.slice(1, 3).map(t => t.action)];
+          writeRecommendation({ sessionId: input.session_id ?? process.env.CLAUDE_SESSION_ID ?? 'unknown', timestamp: new Date().toISOString(), query: prompt, recommended: secretaryTools });
           output({ continue: true, additionalSystemPrompt: finalText2 });
           return;
         }
@@ -672,6 +677,8 @@ async function main() {
       writeLastMatch(top.capability.name, top.score, top.historyBoost);
       const dupWarning3 = buildDuplicateWarning(top.capability.id, top.capability.name, dupIndex);
       const finalText3 = dupWarning3 ? prependThinkingHint(text, thinkingHint) + dupWarning3 : prependThinkingHint(text, thinkingHint);
+      const fallbackTools = [top.capability.name, ...secondary.map(s => s.name)];
+      writeRecommendation({ sessionId: input.session_id ?? process.env.CLAUDE_SESSION_ID ?? 'unknown', timestamp: new Date().toISOString(), query: prompt, recommended: fallbackTools });
       output({ continue: true, additionalSystemPrompt: finalText3 });
       return;
     }

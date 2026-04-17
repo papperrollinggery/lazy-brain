@@ -34,6 +34,7 @@ import { createProgressBar } from '../src/utils/progress.js';
 import { loadRecentHistory } from '../src/history/history.js';
 import { distillAndSave, loadProfile } from '../src/history/profile.js';
 import { evolveCapabilities } from '../src/evolution/evolve.js';
+import { generateReport, computeWeeklyStats, formatWeeklyReport } from '../src/history/accuracy-report.js';
 import { detectDuplicates, findCapabilityByNameOrId, compareCapabilities } from '../src/graph/duplicate-detector.js';
 import { createServer, isServerRunning, getServerPort, getServerPid, DEFAULT_PORT } from '../src/server/server.js';
 import { spawn } from 'node:child_process';
@@ -97,6 +98,9 @@ async function main() {
       break;
     case 'server':
       await cmdServer();
+      break;
+    case 'report':
+      cmdReport();
       break;
     case '--version':
     case '-v':
@@ -1379,6 +1383,62 @@ async function cmdServer() {
 
   // Keep process alive
   await new Promise<void>(() => {});
+}
+
+function cmdReport() {
+  const sessionIdx = args.indexOf('--session');
+  const sessionId = sessionIdx !== -1 ? args[sessionIdx + 1] : undefined;
+  const showWeek = args.includes('--week');
+  const showTopMissed = args.includes('--top-missed');
+  const showTopUnexpected = args.includes('--top-unexpected');
+
+  if (sessionId) {
+    const report = generateReport(sessionId);
+    console.log(`\nLazyBrain 准确率报告 — Session ${sessionId}`);
+    console.log(`推荐工具：${report.recommendedTools.join(', ') || '（无）'}`);
+    console.log(`实际使用：${report.actuallyUsedTools.join(', ') || '（无）'}`);
+    console.log(`匹配：${report.matches.join(', ') || '（无）'}`);
+    console.log(`错过：${report.missed.join(', ') || '（无）'}`);
+    console.log(`意外：${report.unexpected.join(', ') || '（无）'}`);
+    console.log(`准确率：${Math.round(report.accuracyScore * 100)}%`);
+    return;
+  }
+
+  if (showTopMissed || showTopUnexpected) {
+    const stats = computeWeeklyStats(7);
+    if (showTopMissed) {
+      console.log('\n最常被忽略的推荐（最近 7 天）：');
+      if (stats.topMissed.length === 0) {
+        console.log('  （暂无数据）');
+      } else {
+        for (let i = 0; i < stats.topMissed.length; i++) {
+          const m = stats.topMissed[i];
+          console.log(`  ${i + 1}. ${m.tool} — 推荐 ${m.recommended} 次，采纳 ${m.adopted} 次（${Math.round(m.rate * 100)}%）`);
+        }
+      }
+    }
+    if (showTopUnexpected) {
+      console.log('\n系统盲点（最近 7 天）：');
+      if (stats.topUnexpected.length === 0) {
+        console.log('  （暂无数据）');
+      } else {
+        for (let i = 0; i < stats.topUnexpected.length; i++) {
+          const u = stats.topUnexpected[i];
+          console.log(`  ${i + 1}. ${u.tool} — 用户调 ${u.count} 次，系统从未推荐`);
+        }
+      }
+    }
+    return;
+  }
+
+  if (showWeek) {
+    const stats = computeWeeklyStats(7);
+    console.log(formatWeeklyReport(stats));
+    return;
+  }
+
+  const stats = computeWeeklyStats(7);
+  console.log(formatWeeklyReport(stats));
 }
 
 // ─── Help ─────────────────────────────────────────────────────────────────
