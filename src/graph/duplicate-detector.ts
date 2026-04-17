@@ -149,7 +149,7 @@ export function formatDuplicatePairs(pairs: DuplicatePair[]): string {
   for (let i = 0; i < pairs.length; i++) {
     const pair = pairs[i];
     const { a, b, reason } = pair;
-    lines.push(`    ${i + 1}. [${a.kind}] ${a.name} (${a.origin}) ⚠ ${b.name} (${b.origin}) — {${reason}}`);
+    lines.push(`    ${i + 1}. [${a.kind}] ${a.name} (${a.origin}) ⚠ ${b.name} (${b.origin}) — ${reason}`);
   }
 
   return lines.join('\n');
