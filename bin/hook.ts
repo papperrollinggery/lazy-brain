@@ -26,11 +26,31 @@ import { trackSessionUsage } from '../src/history/usage.js';
 import { evolveCapabilities } from '../src/evolution/evolve.js';
 import { generateProposals } from '../src/utils/token-estimate.js';
 import { detectDuplicates, buildDuplicateIndex, findCapabilityByNameOrId, compareCapabilities } from '../src/graph/duplicate-detector.js';
+import { isServerRunning, getServerPort } from '../src/server/server.js';
 import type { DuplicatePair } from '../src/graph/duplicate-detector.js';
 import type { WikiCard, SecretaryResponse, ProposalOption } from '../src/types.js';
 import type { TeamComposition } from '../src/matcher/team-recommender.js';
 import { buildSessionStats } from '../src/stats/session-stats.js';
 import { formatDashboard } from '../src/stats/session-dashboard.js';
+
+// ─── Server HTTP Client (optional fast path) ─────────────────────────────────
+
+async function tryMatchViaServer(prompt: string): Promise<import('../src/types.js').Recommendation | null> {
+  if (!isServerRunning()) return null;
+  const port = getServerPort();
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/match`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: prompt }),
+      signal: AbortSignal.timeout(500),
+    });
+    if (!res.ok) return null;
+    return await res.json() as import('../src/types.js').Recommendation;
+  } catch {
+    return null;
+  }
+}
 
 interface EmbeddingConfig {
   apiBase: string;
