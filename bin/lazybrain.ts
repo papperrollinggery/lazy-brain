@@ -23,6 +23,7 @@ import { fileURLToPath } from 'node:url';
 import { LAZYBRAIN_DIR, GRAPH_PATH, GRAPH_VERSION, STATUS_PATH, HISTORY_PATH } from '../src/constants.js';
 import { Graph } from '../src/graph/graph.js';
 import { match } from '../src/matcher/matcher.js';
+import { recommendTeam } from '../src/matcher/team-recommender.js';
 import { scan } from '../src/scanner/scanner.js';
 import { compile, makeCapabilityId } from '../src/compiler/compiler.js';
 import { createLLMProvider } from '../src/compiler/llm-provider.js';
@@ -81,6 +82,9 @@ async function main() {
       break;
     case 'hook':
       cmdHook();
+      break;
+    case 'team':
+      cmdTeam();
       break;
     case '--version':
     case '-v':
@@ -1070,6 +1074,42 @@ function cmdWiki() {
   const result = generateWiki(graph);
   console.log(`Wiki generated: ${result.articlesWritten} articles`);
   console.log(`  Index: ${result.indexPath}`);
+}
+
+// ─── Team ─────────────────────────────────────────────────────────────────
+
+function cmdTeam() {
+  const query = args.slice(1).join(' ');
+  if (!query) {
+    console.error('Usage: lazybrain team "<query>"');
+    process.exit(1);
+  }
+
+  if (!existsSync(GRAPH_PATH)) {
+    console.error('No graph found. Run `lazybrain scan && lazybrain compile` first.');
+    process.exit(1);
+  }
+
+  const graph = Graph.load(GRAPH_PATH);
+  const composition = recommendTeam(query, graph, 5);
+
+  if (!composition || composition.members.length === 0) {
+    console.log(`No team composition found for "${query}".`);
+    return;
+  }
+
+  const agentCount = graph.getAllNodes().filter(n => n.kind === 'agent').length;
+  console.log(`\n## 🎯 Team 组合建议\n`);
+  console.log(`检测到你想用 /team，基于任务**${query}**，从 ${agentCount} 个 agent 里筛选出：\n`);
+  console.log('| # | Agent | 领域 | 理由 |');
+  console.log('|---|-------|------|------|');
+  for (let i = 0; i < composition.members.length; i++) {
+    const m = composition.members[i];
+    console.log(`| ${i + 1} | **${m.agent.name}** | ${m.category} | ${m.reason} |`);
+  }
+  console.log('\n> **组合理由**：' + composition.overallReason);
+  console.log('\n> 建议命令：`' + composition.suggestedCommand + '`');
+  console.log('\n> 如果想默认 executor：`/team 3:executor "<task>"`');
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────

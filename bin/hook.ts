@@ -16,6 +16,7 @@ import { join } from 'node:path';
 import { GRAPH_PATH, CAPABILITY_MODEL_HINTS, LAZYBRAIN_DIR, HOOK_ACTIVE_PATH } from '../src/constants.js';
 import { Graph } from '../src/graph/graph.js';
 import { match } from '../src/matcher/matcher.js';
+import { recommendTeam } from '../src/matcher/team-recommender.js';
 import { loadConfig } from '../src/config/config.js';
 import { askSecretary, buildHistoryHints } from '../src/secretary/secretary.js';
 import { loadRecentHistory, appendHistory } from '../src/history/history.js';
@@ -24,6 +25,7 @@ import { trackSessionUsage } from '../src/history/usage.js';
 import { evolveCapabilities } from '../src/evolution/evolve.js';
 import { generateProposals } from '../src/utils/token-estimate.js';
 import type { WikiCard, SecretaryResponse, ProposalOption } from '../src/types.js';
+import type { TeamComposition } from '../src/matcher/team-recommender.js';
 
 interface EmbeddingConfig {
   apiBase: string;
@@ -58,7 +60,8 @@ type ParchmentScene =
   | { type: 'sleeping' }
   | { type: 'omc_yield'; keyword: string }
   | { type: 'new_tools'; count: number }
-  | { type: 'mode_proposal'; mode: string; agents: string[]; reason: string };
+  | { type: 'mode_proposal'; mode: string; agents: string[]; reason: string }
+  | { type: 'team_composition'; query: string; composition: TeamComposition };
 
 const PARCHMENT_WIDTH = 36;
 
@@ -232,6 +235,23 @@ function buildParchment(scene: ParchmentScene): string {
       lines.push(row('❓ 确认执行？输入 y 继续'));
       lines.push(bottom);
       break;
+
+    case 'team_composition':
+      lines.push(row('(⊙‿⊙)  发现大任务！'));
+      lines.push(divider());
+      lines.push(row('🎯 Team 组合建议'));
+      lines.push(row(`基于任务: ${scene.query.slice(0, 20)}${scene.query.length > 20 ? '...' : ''}`));
+      lines.push(divider());
+      for (let i = 0; i < scene.composition.members.length; i++) {
+        const m = scene.composition.members[i];
+        lines.push(row(`${i + 1}. ${m.agent.name} (${m.category})`));
+        lines.push(row(`   ${m.reason}`));
+      }
+      lines.push(divider());
+      lines.push(row(`💡 ${scene.composition.overallReason}`));
+      lines.push(row(`🔧 ${scene.composition.suggestedCommand}`));
+      lines.push(bottom);
+      break;
   }
 
   return lines.join('\n');
@@ -337,6 +357,18 @@ async function main() {
     const history = loadRecentHistory(50);
     let profile: import('../src/types.js').UserProfile | undefined = undefined;
     try { profile = loadProfile() ?? undefined; } catch {}
+
+    // ─── Team Composition Detection ─────────────────────────────────────────
+    const TEAM_KEYWORDS = ['/team', 'team模式', '组队', '多 agent', 'multi-agent', '多agent'];
+    const isTeamQuery = TEAM_KEYWORDS.some(kw => prompt.toLowerCase().includes(kw.toLowerCase()));
+
+    if (isTeamQuery && config.mode === 'ask') {
+      const composition = recommendTeam(prompt, graph, 5);
+      if (composition && composition.members.length > 0) {
+        renderParchment({ type: 'team_composition', query: prompt, composition });
+      }
+    }
+
     const result = await match(prompt, { graph, config, history, profile });
 
     if (result.matches.length === 0) {
