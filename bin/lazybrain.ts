@@ -35,6 +35,8 @@ import { loadRecentHistory } from '../src/history/history.js';
 import { distillAndSave, loadProfile } from '../src/history/profile.js';
 import { evolveCapabilities } from '../src/evolution/evolve.js';
 import { detectDuplicates, findCapabilityByNameOrId, compareCapabilities } from '../src/graph/duplicate-detector.js';
+import { createServer, isServerRunning, getServerPort, getServerPid, DEFAULT_PORT } from '../src/server/server.js';
+import { spawn } from 'node:child_process';
 import type { Capability, RawCapability, UserConfig } from '../src/types.js';
 
 const args = process.argv.slice(2);
@@ -92,6 +94,9 @@ async function main() {
       break;
     case 'compare':
       cmdCompare();
+      break;
+    case 'server':
+      await cmdServer();
       break;
     case '--version':
     case '-v':
@@ -1312,6 +1317,70 @@ function cmdHook() {
   }
 }
 
+// ─── Server ───────────────────────────────────────────────────────────────
+
+async function cmdServer() {
+  const subCmd = args[1];
+
+  if (subCmd === 'stop') {
+    const pid = getServerPid();
+    if (!pid) {
+      console.log('Server is not running.');
+      return;
+    }
+    try {
+      process.kill(pid, 'SIGTERM');
+      console.log(`Server (pid ${pid}) stopped.`);
+    } catch {
+      console.error(`Failed to stop server (pid ${pid}). It may have already exited.`);
+    }
+    return;
+  }
+
+  if (subCmd === 'status') {
+    if (isServerRunning()) {
+      const port = getServerPort();
+      const pid = getServerPid();
+      console.log(`Server is running on http://127.0.0.1:${port} (pid ${pid})`);
+    } else {
+      console.log('Server is not running.');
+    }
+    return;
+  }
+
+  // Parse port
+  const portIdx = args.indexOf('--port');
+  const port = portIdx !== -1 ? parseInt(args[portIdx + 1], 10) : DEFAULT_PORT;
+
+  if (args.includes('--daemon')) {
+    // Spawn detached child
+    const child = spawn(process.execPath, [process.argv[1], 'server', '--port', String(port)], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    child.unref();
+    console.log(`Server started in background on http://127.0.0.1:${port} (pid ${child.pid})`);
+    return;
+  }
+
+  // Foreground mode
+  const instance = createServer(port);
+  console.log(`LazyBrain server listening on http://127.0.0.1:${port}`);
+  console.log('Press Ctrl+C to stop.');
+
+  process.on('SIGINT', async () => {
+    await instance.close();
+    process.exit(0);
+  });
+  process.on('SIGTERM', async () => {
+    await instance.close();
+    process.exit(0);
+  });
+
+  // Keep process alive
+  await new Promise<void>(() => {});
+}
+
 // ─── Help ─────────────────────────────────────────────────────────────────
 
 function printHelp() {
@@ -1336,6 +1405,11 @@ Usage:
   lazybrain config show              Show config
   lazybrain wiki                     Generate wiki articles
   lazybrain distill                  Distill user profile from history
+  lazybrain server                   Start HTTP API server (foreground)
+  lazybrain server --daemon          Start HTTP API server (background)
+  lazybrain server --port <n>        Custom port (default: 18450)
+  lazybrain server stop              Stop background server
+  lazybrain server status            Check server status
   lazybrain --version                Show version
 `);
 }
@@ -1344,3 +1418,4 @@ main().catch(err => {
   console.error(err);
   process.exit(1);
 });
+
