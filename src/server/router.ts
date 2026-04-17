@@ -6,11 +6,16 @@
  */
 
 import type * as http from 'node:http';
+import { readdirSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { homedir } from 'node:os';
 import type { Graph } from '../graph/graph.js';
 import type { UserConfig } from '../types.js';
 import { match } from '../matcher/matcher.js';
 import { recommendTeam } from '../matcher/team-recommender.js';
 import { detectDuplicates } from '../graph/duplicate-detector.js';
+import { generateReport, computeWeeklyStats } from '../history/accuracy-report.js';
+import { loadRecommendations } from '../history/tool-usage-tracker.js';
 
 // ─── Rate Limiter ────────────────────────────────────────────────────────────
 
@@ -162,6 +167,59 @@ async function handleReload(
   json(res, 200, { ok: true });
 }
 
+function handleReportSummary(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+): void {
+  const url = new URL(req.url ?? '/', 'http://localhost');
+  const days = parseInt(url.searchParams.get('days') ?? '7', 10);
+  const stats = computeWeeklyStats(days);
+  json(res, 200, stats);
+}
+
+function handleReportSessions(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+): void {
+  const url = new URL(req.url ?? '/', 'http://localhost');
+  const limit = parseInt(url.searchParams.get('limit') ?? '20', 10);
+
+  const sessionsDir = join(homedir(), '.claude', 'sessions');
+  let sessionIds: string[] = [];
+  try {
+    if (existsSync(sessionsDir)) {
+      sessionIds = readdirSync(sessionsDir).filter(s => existsSync(join(sessionsDir, s, 'transcript.jsonl')));
+    }
+  } catch {
+    sessionIds = [];
+  }
+
+  sessionIds.sort().reverse();
+  const recent = sessionIds.slice(0, limit);
+
+  const recommendations = loadRecommendations();
+  const bySession = new Map<string, number>();
+  for (const rec of recommendations) {
+    bySession.set(rec.sessionId, (bySession.get(rec.sessionId) ?? 0) + 1);
+  }
+
+  const sessions = recent.map(id => ({
+    sessionId: id,
+    recommendationCount: bySession.get(id) ?? 0,
+  }));
+
+  json(res, 200, { sessions, total: sessionIds.length });
+}
+
+function handleReportSession(
+  _req: http.IncomingMessage,
+  res: http.ServerResponse,
+  id: string,
+): void {
+  const report = generateReport(id);
+  json(res, 200, report);
+}
+
 // ─── Router Factory ──────────────────────────────────────────────────────────
 
 export interface RouterOptions {
@@ -215,6 +273,16 @@ export function createRouter(opts: RouterOptions): http.RequestListener {
     // POST /reload
     if (method === 'POST' && pathname === '/reload') {
       return handleReload(req, res, opts.onReload);
+    }
+    if (method === 'GET' && pathname === '/report/summary') {
+      return handleReportSummary(req, res);
+    }
+    if (method === 'GET' && pathname === '/report/sessions') {
+      return handleReportSessions(req, res);
+    }
+    const sessionReportMatch = pathname.match(/^\/report\/session\/(.+)$/);
+    if (method === 'GET' && sessionReportMatch) {
+      return handleReportSession(req, res, decodeURIComponent(sessionReportMatch[1]));
     }
 
     err(res, 404, `Not found: ${method} ${pathname}`);
