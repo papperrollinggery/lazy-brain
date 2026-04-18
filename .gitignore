@@ -13,6 +13,9 @@ _debug_*.ts
 BRAINSTORM.md
 PLAN.md
 CLAUDE.md
+AGENTS.md
+docs/HANDOFF.md
+docs/contingency-minimax-down.md
 
 # Test coverage
 coverage/
@@ -20,3 +23,5 @@ coverage/
 # Temp files
 *.tmp
 *.log
+*.err
+.budget-check.err
