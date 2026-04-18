@@ -28,8 +28,10 @@ describe('buildSessionStats', () => {
     expect(stats.totalCapabilities).toBe(3);
     expect(typeof stats.totalMatches).toBe('number');
     expect(typeof stats.hitRate).toBe('number');
-    expect(typeof stats.totalSavedTokens).toBe('number');
-    expect(typeof stats.totalSavedCostUSD).toBe('number');
+    expect(typeof stats.savedTokens).toBe('number');
+    expect(typeof stats.savedCostUSD).toBe('number');
+    expect(typeof stats.baselineTokens).toBe('number');
+    expect(typeof stats.actualTokens).toBe('number');
     expect(Array.isArray(stats.recentMatches)).toBe(true);
     expect(typeof stats.newCapsThisWeek).toBe('number');
     expect(typeof stats.duplicatePairs).toBe('number');

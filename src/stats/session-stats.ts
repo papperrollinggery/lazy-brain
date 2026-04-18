@@ -20,8 +20,12 @@ export interface SessionStats {
   totalCapabilities: number;
   totalMatches: number;
   hitRate: number;
-  totalSavedTokens: number;
-  totalSavedCostUSD: number;
+  baselineTokens: number;
+  actualTokens: number;
+  savedTokens: number;
+  baselineCostUSD: number;
+  actualCostUSD: number;
+  savedCostUSD: number;
   recentMatches: Array<{
     timestamp: string;
     query: string;
@@ -106,12 +110,39 @@ export function buildSessionStats(graph: Graph, duplicatePairs: DuplicatePair[] 
   const acceptedMatches = history.filter(h => h.query && h.matched && h.accepted).length;
   const hitRate = totalMatches > 0 ? Math.round((acceptedMatches / totalMatches) * 100) : 0;
 
-  let totalSavedTokens = 0;
-  let totalSavedCostUSD = 0;
+  let baselineTokens = 0;
+  let actualTokens = 0;
+  let baselineCostUSD = 0;
+  let actualCostUSD = 0;
+
   for (const u of usageEntries) {
-    totalSavedTokens += u.inputTokens + u.outputTokens;
-    totalSavedCostUSD += u.costUsd;
+    const entryBaseline = u.inputTokens + u.outputTokens;
+    const entryActual = entryBaseline - u.cacheReadTokens;
+    baselineTokens += entryBaseline;
+    actualTokens += entryActual;
+
+    // Calculate costs using model-specific rates
+    const rates = { input: 3.0, output: 15.0, cacheRead: 0.30 };
+    const model = (u as unknown as { model?: string }).model?.toLowerCase() ?? 'sonnet';
+    if (model.includes('opus')) {
+      rates.input = 15.0; rates.output = 75.0; rates.cacheRead = 1.5;
+    } else if (model.includes('haiku')) {
+      rates.input = 0.80; rates.output = 4.0; rates.cacheRead = 0.08;
+    } else if (model.includes('glm')) {
+      rates.input = 0.07; rates.output = 0.07; rates.cacheRead = 0;
+    }
+
+    baselineCostUSD += (u.inputTokens / 1_000_000) * rates.input
+      + (u.outputTokens / 1_000_000) * rates.output;
+    actualCostUSD += (u.inputTokens / 1_000_000) * rates.input
+      + (u.outputTokens / 1_000_000) * rates.output
+      + (u.cacheReadTokens / 1_000_000) * rates.cacheRead;
   }
+
+  const savedTokens = baselineTokens - actualTokens;
+  const savedCostUSD = Math.round((baselineCostUSD - actualCostUSD) * 100) / 100;
+  actualCostUSD = Math.round(actualCostUSD * 100) / 100;
+  baselineCostUSD = Math.round(baselineCostUSD * 100) / 100;
 
   const weekAgo = getWeekAgo();
   const recentMatches = history
@@ -134,8 +165,12 @@ export function buildSessionStats(graph: Graph, duplicatePairs: DuplicatePair[] 
     totalCapabilities,
     totalMatches,
     hitRate,
-    totalSavedTokens,
-    totalSavedCostUSD: Math.round(totalSavedCostUSD * 100) / 100,
+    baselineTokens,
+    actualTokens,
+    savedTokens,
+    baselineCostUSD,
+    actualCostUSD,
+    savedCostUSD,
     recentMatches,
     newCapsThisWeek,
     duplicatePairs: duplicatePairs.length,
