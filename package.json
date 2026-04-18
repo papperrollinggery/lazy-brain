@@ -1,6 +1,6 @@
 {
   "name": "lazybrain",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Semantic skill router for AI coding agents — your second brain for capabilities",
   "type": "module",
   "bin": {
@@ -40,6 +40,7 @@
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^25.6.0",
+    "husky": "^9.1.7",
     "tsup": "^8.0.0",
     "typescript": "^5.4.0",
     "vitest": "^2.0.0"
