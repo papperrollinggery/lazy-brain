@@ -52,6 +52,43 @@ function getLangSpecialty(cap: Capability): string | undefined {
   return undefined;
 }
 
+function fillExplanation(
+  result: MatchResult,
+  query: string,
+  history?: HistoryEntry[],
+): MatchResult {
+  const { capability } = result;
+  const template = capability.explanation_template;
+  if (!template) return result;
+
+  // query_tags: use matched tags from capability that overlap with query
+  const queryLower = query.toLowerCase();
+  const tagLowers = capability.tags.map(t => t.toLowerCase());
+  const matchedTags = tagLowers.filter(t => t.length > 2 && queryLower.includes(t));
+  const query_tags = matchedTags.length > 0 ? matchedTags.join(', ') : capability.tags.slice(0, 3).join(', ');
+
+  // history_hint: check if this tool was used before
+  const toolHistory = history?.filter(h => h.matched === capability.name || h.id === capability.id);
+  const acceptedCount = toolHistory?.filter(h => h.accepted).length ?? 0;
+  let history_hint = '';
+  if (acceptedCount > 0) {
+    history_hint = `该工具已被你使用过 ${acceptedCount} 次。`;
+  } else if (toolHistory && toolHistory.length > 0) {
+    history_hint = `该工具在历史记录中出现。`;
+  } else {
+    history_hint = `暂无使用记录。`;
+  }
+
+  const tool_name = capability.name;
+
+  const explanation = template
+    .replace('{query_tags}', query_tags)
+    .replace('{history_hint}', history_hint)
+    .replace('{tool_name}', tool_name);
+
+  return { ...result, explanation };
+}
+
 export interface MatchOptions {
   graph: Graph;
   config: UserConfig;
@@ -85,7 +122,8 @@ export async function match(
   // ─── Layer 0: Alias exact match ───────────────────────────────────────
   const aliasResult = matchAlias(query, config.aliases, allNodes);
   if (aliasResult) {
-    return buildRecommendation([aliasResult], graph, platform, history);
+    const withExplanation = fillExplanation(aliasResult, query, history);
+    return buildRecommendation([withExplanation], graph, platform, history);
   }
 
   // ─── Layer 1: Tag + example query match ───────────────────────────────
@@ -135,8 +173,9 @@ export async function match(
   const decisionType = detectDecisionType(query);
 
   // ─── Build enriched recommendation via graph traversal ────────────────
+  const withExplanation = results.map(r => fillExplanation(r, query, history));
   const sessionId = process.env.CLAUDE_SESSION_ID ?? 'unknown';
-  const rec = buildRecommendation(results, graph, platform, history, sessionId);
+  const rec = buildRecommendation(withExplanation, graph, platform, history, sessionId);
   if (decisionType && rec) {
     const hint = buildDecisionRecommendation(decisionType);
     if (hint) {

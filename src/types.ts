@@ -57,6 +57,12 @@ export interface Capability {
   category: string;
   /** One-line scenario description: when to use this */
   scenario?: string;
+  /**
+   * Template for human-readable match explanation.
+   * Variables: {query_tags}, {history_hint}, {tool_name}
+   * Example: '你提到 {query_tags}，这些词在 {tool_name} 的典型用例里。{history_hint}'
+   */
+  explanation_template?: string;
 
   // ─── Frontmatter-extracted ───
   /** Original trigger keywords from SKILL.md frontmatter */
@@ -128,6 +134,8 @@ export interface MatchResult {
   confidence: Confidence;
   /** History boost applied (0-1), only set when boost > 0 */
   historyBoost?: number;
+  /** Human-readable explanation (filled from explanation_template at match time) */
+  explanation?: string;
 }
 
 /**
@@ -290,6 +298,8 @@ export interface UserConfig {
   compilePlatforms?: Platform[];
   /** Platforms to scan (default: only current platform) */
   platforms?: Record<Platform, boolean>;
+  /** Decision card threshold (0-1): score >= threshold shows decision card, below uses compact output */
+  decisionCardThreshold?: number;
 }
 
 // ─── History ────────────────────────────────────────────────────────────────
