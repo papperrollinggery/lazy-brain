@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [v0.1.0] - 2026-04-18
+## [v1.0.0] - 2026-04-19
 
 ### Added
 - Step 1: Cleanup embedding dead code and fixup decision type identification quality
