@@ -33,6 +33,7 @@ import type { WikiCard, SecretaryResponse, ProposalOption } from '../src/types.j
 import type { TeamComposition } from '../src/matcher/team-recommender.js';
 import { buildSessionStats } from '../src/stats/session-stats.js';
 import { formatDashboard } from '../src/stats/session-dashboard.js';
+import { buildSessionSummary, formatSessionSummary } from '../src/stats/session-summary.js';
 
 // ─── Server HTTP Client (optional fast path) ─────────────────────────────────
 
@@ -375,6 +376,12 @@ async function main() {
 
     // Update last-match to reflect session end
     writeLastMatch(null, 0);
+
+    // SessionEnd: output session summary
+    const summary = buildSessionSummary(sessionId);
+    const summaryOutput = formatSessionSummary(summary);
+    process.stderr.write('\n' + summaryOutput + '\n');
+
     output({ continue: true });
     return;
   }

@@ -39,6 +39,7 @@ import { detectDuplicates, findCapabilityByNameOrId, compareCapabilities } from 
 import { createServer, isServerRunning, getServerPort, getServerPid, DEFAULT_PORT } from '../src/server/server.js';
 import { spawn } from 'node:child_process';
 import type { Capability, RawCapability, UserConfig } from '../src/types.js';
+import { buildSessionSummary, formatSessionSummary } from '../src/stats/session-summary.js';
 
 const args = process.argv.slice(2);
 const cmd = args[0];
@@ -101,6 +102,9 @@ async function main() {
       break;
     case 'report':
       cmdReport();
+      break;
+    case 'summary':
+      cmdSummary();
       break;
     case '--version':
     case '-v':
@@ -1441,6 +1445,17 @@ function cmdReport() {
   console.log(formatWeeklyReport(stats));
 }
 
+function cmdSummary() {
+  const sessionId = process.env.CLAUDE_SESSION_ID;
+  if (!sessionId) {
+    console.error('No active session. The summary command requires CLAUDE_SESSION_ID environment variable.');
+    process.exit(1);
+  }
+  const summary = buildSessionSummary(sessionId);
+  const output = formatSessionSummary(summary);
+  console.log(output);
+}
+
 // ─── Help ─────────────────────────────────────────────────────────────────
 
 function printHelp() {
@@ -1470,6 +1485,7 @@ Usage:
   lazybrain server --port <n>        Custom port (default: 18450)
   lazybrain server stop              Stop background server
   lazybrain server status            Check server status
+  lazybrain summary                  Show current session summary
   lazybrain --version                Show version
 `);
 }
