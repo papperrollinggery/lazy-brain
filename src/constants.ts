@@ -126,6 +126,8 @@ export const MAX_RESULTS = 5;
 export const HISTORY_BOOST_CAP = 0.15;
 /** External catalog refresh interval (ms) */
 export const EXTERNAL_CATALOG_TTL = 24 * 60 * 60 * 1000; // 24h
+/** Default decision card threshold (LAZ-40) */
+export const DEFAULT_DECISION_CARD_THRESHOLD = 0.7;
 
 // ─── Functional Categories ──────────────────────────────────────────────────
 
@@ -166,6 +168,7 @@ export const DEFAULT_CONFIG: UserConfig = {
   platform: 'claude-code' as const,
   language: 'auto' as const,
   platforms: { 'claude-code': true, 'openclaw': false, 'workbuddy': false, 'cursor': false, 'kiro': false, 'codex': false, 'opencode': false, 'droid': false, 'universal': false },
+  decisionCardThreshold: DEFAULT_DECISION_CARD_THRESHOLD,
 };
 
 // ─── Graph Version ──────────────────────────────────────────────────────────
