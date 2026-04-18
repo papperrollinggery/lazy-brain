@@ -36,7 +36,7 @@ export function formatDashboard(stats: SessionStats): string {
   lines.push('### 📊 你的工具使用');
   lines.push('| 总能力 | 已匹配 | 推荐命中率 | 累计省 tokens |');
   lines.push('|--------|--------|-----------|--------------|');
-  lines.push(`| ${stats.totalCapabilities}    | ${stats.totalMatches} 次 | ${stats.hitRate}%       | ${formatTokens(stats.totalSavedTokens)} (${formatCost(stats.totalSavedCostUSD)})|`);
+  lines.push(`| ${stats.totalCapabilities}    | ${stats.totalMatches} 次 | ${stats.hitRate}%       | ${formatTokens(stats.savedTokens)} (${formatCost(stats.savedCostUSD)})|`);
   lines.push('');
 
   lines.push('### 🎯 最近推荐（Top 3）');

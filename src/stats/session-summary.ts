@@ -31,10 +31,18 @@ export interface SessionSummary {
   acceptRate: number;
   /** Wrong recommendations we helped avoid (accepted=false) */
   avoidCount: number;
-  /** Total tokens this session */
-  totalTokens: number;
-  /** Total cost USD this session */
-  totalCostUSD: number;
+  /** Baseline tokens (without cache optimization) */
+  baselineTokens: number;
+  /** Actual tokens consumed this session (after cache reads) */
+  actualTokens: number;
+  /** Saved tokens = baselineTokens - actualTokens */
+  savedTokens: number;
+  /** Baseline cost USD (full price, no cache) */
+  baselineCostUSD: number;
+  /** Actual cost USD this session (after cache reads) */
+  actualCostUSD: number;
+  /** Saved cost USD = baselineCostUSD - actualCostUSD */
+  savedCostUSD: number;
   /** Cheapest task in this session */
   cheapestTask: CheapestTask | null;
 }
@@ -94,14 +102,43 @@ export function buildSessionSummary(sessionId: string, options?: SessionSummaryO
   const avoidCount = routed.filter(h => !h.accepted).length;
   const acceptRate = routeCount > 0 ? Math.round((acceptCount / routeCount) * 100) : 0;
 
-  // Token and cost totals for this session
-  let totalTokens = 0;
-  let totalCostUSD = 0;
+  // Baseline = full price tokens (input + output, no cache discount)
+  // Actual = tokens after cache read savings
+  // Saved = baseline - actual = cacheReadTokens (tokens that got cache discount)
+  let baselineTokens = 0;
+  let actualTokens = 0;
+  let baselineCostUSD = 0;
+  let actualCostUSD = 0;
+
   for (const u of sessionUsage) {
-    totalTokens += u.inputTokens + u.outputTokens;
-    totalCostUSD += u.costUsd;
+    const entryBaseline = u.inputTokens + u.outputTokens;
+    const entryActual = entryBaseline - u.cacheReadTokens;
+
+    baselineTokens += entryBaseline;
+    actualTokens += entryActual;
+
+    // Calculate baseline cost at full rates, actual cost uses cached rates
+    const rates = { input: 3.0, output: 15.0, cacheWrite: 3.75, cacheRead: 0.30 };
+    const model = u.model?.toLowerCase() ?? 'sonnet';
+    if (model.includes('opus')) {
+      rates.input = 15.0; rates.output = 75.0; rates.cacheWrite = 18.75; rates.cacheRead = 1.5;
+    } else if (model.includes('haiku')) {
+      rates.input = 0.80; rates.output = 4.0; rates.cacheWrite = 1.0; rates.cacheRead = 0.08;
+    } else if (model.includes('glm')) {
+      rates.input = 0.07; rates.output = 0.07; rates.cacheWrite = 0; rates.cacheRead = 0;
+    }
+
+    baselineCostUSD += (u.inputTokens / 1_000_000) * rates.input
+      + (u.outputTokens / 1_000_000) * rates.output;
+    actualCostUSD += (u.inputTokens / 1_000_000) * rates.input
+      + (u.outputTokens / 1_000_000) * rates.output
+      + (u.cacheReadTokens / 1_000_000) * rates.cacheRead;
   }
-  totalCostUSD = Math.round(totalCostUSD * 100) / 100;
+
+  const savedTokens = baselineTokens - actualTokens;
+  const savedCostUSD = Math.round((baselineCostUSD - actualCostUSD) * 100) / 100;
+  actualCostUSD = Math.round(actualCostUSD * 100) / 100;
+  baselineCostUSD = Math.round(baselineCostUSD * 100) / 100;
 
   // Find cheapest task
   let cheapest: CheapestTask | null = null;
@@ -121,8 +158,12 @@ export function buildSessionSummary(sessionId: string, options?: SessionSummaryO
     acceptCount,
     acceptRate,
     avoidCount,
-    totalTokens,
-    totalCostUSD,
+    baselineTokens,
+    actualTokens,
+    savedTokens,
+    baselineCostUSD,
+    actualCostUSD,
+    savedCostUSD,
     cheapestTask: cheapest,
   };
 }
@@ -133,7 +174,7 @@ export function formatSessionSummary(summary: SessionSummary): string {
   lines.push('本次会话小结：');
   lines.push(`• 路由 ${summary.routeCount} 次，你接受了 ${summary.acceptCount} 次 (${summary.acceptRate}%)`);
   lines.push(`• 替你避开过 ${summary.avoidCount} 次错选`);
-  lines.push(`• 节省估算：~${formatTokens(summary.totalTokens)} tokens / ~$${summary.totalCostUSD.toFixed(summary.totalCostUSD < 1 ? 2 : 1)}`);
+  lines.push(`• 节省估算：~${formatTokens(summary.savedTokens)} tokens / ~$${summary.savedCostUSD.toFixed(summary.savedCostUSD < 1 ? 2 : 1)}`);
 
   if (summary.cheapestTask) {
     const ct = summary.cheapestTask;
