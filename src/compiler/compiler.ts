@@ -46,7 +46,8 @@ Respond with JSON:
   "tags": ["keyword1", "keyword2", ...],       // 8-15 semantic tags (include Chinese if description has CJK)
   "exampleQueries": ["query1", "query2", ...], // 5-8 example user queries that should match this (mix languages)
   "category": "one-of: ${CATEGORIES.join(', ')}",
-  "scenario": "one sentence: when a user should use this"
+  "scenario": "one sentence: when a user should use this",
+  "explanation_template": "Chinese template explaining why this tool matches: {query_tags} {history_hint} {tool_name}"
 }`;
 }
 
@@ -69,7 +70,8 @@ Respond with a JSON array (one object per capability, in order):
     "tags": ["keyword1", "keyword2", ...],
     "exampleQueries": ["query1", "query2", ...],
     "category": "one-of: ${CATEGORIES.join(', ')}",
-    "scenario": "one sentence: when to use this"
+    "scenario": "one sentence: when to use this",
+    "explanation_template": "Chinese template: {query_tags} {history_hint} {tool_name}"
   },
   ...
 ]`;
@@ -198,6 +200,7 @@ export async function compile(
           exampleQueries: string[];
           category: string;
           scenario: string;
+          explanation_template?: string;
         }>(response.content);
 
         if (!enrichment) {
@@ -217,6 +220,7 @@ export async function compile(
           exampleQueries: enrichment?.exampleQueries ?? [],
           category: enrichment?.category ?? 'other',
           scenario: enrichment?.scenario,
+          explanation_template: enrichment?.explanation_template,
           triggers: raw.triggers,
           meta: raw.meta,
           tier: raw.tier,
