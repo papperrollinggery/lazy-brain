@@ -79,8 +79,10 @@ describe('buildSessionSummary', () => {
     expect(summary.acceptCount).toBe(0);
     expect(summary.acceptRate).toBe(0);
     expect(summary.avoidCount).toBe(0);
-    expect(summary.totalTokens).toBe(0);
-    expect(summary.totalCostUSD).toBe(0);
+    expect(summary.actualTokens).toBe(0);
+    expect(summary.actualCostUSD).toBe(0);
+    expect(summary.baselineTokens).toBe(0);
+    expect(summary.savedTokens).toBe(0);
     expect(summary.cheapestTask).toBeNull();
   });
 
@@ -103,8 +105,8 @@ describe('buildSessionSummary', () => {
     appendHistory(makeHistoryEntry({ sessionId: 'test-session', query: 'review code', matched: 'code-reviewer', accepted: true }));
     appendHistory(makeHistoryEntry({ sessionId: 'test-session', query: 'fix bug', matched: 'debugger', accepted: true }));
     appendHistory(makeHistoryEntry({ sessionId: 'test-session', query: 'deploy', matched: 'deploy', accepted: true }));
-    appendUsage(makeUsageEntry({ sessionId: 'test-session', inputTokens: 3000, outputTokens: 1500, costUsd: 0.006 }));
-    appendUsage(makeUsageEntry({ sessionId: 'test-session', inputTokens: 2000, outputTokens: 1000, costUsd: 0.004 }));
+    appendUsage(makeUsageEntry({ sessionId: 'test-session', inputTokens: 3000, outputTokens: 1500, cacheReadTokens: 500 }));
+    appendUsage(makeUsageEntry({ sessionId: 'test-session', inputTokens: 2000, outputTokens: 1000, cacheReadTokens: 300 }));
 
     const summary = buildSessionSummary('test-session', {
       historyPath: HISTORY_FILE,
@@ -114,15 +116,19 @@ describe('buildSessionSummary', () => {
     expect(summary.acceptCount).toBe(3);
     expect(summary.acceptRate).toBe(100);
     expect(summary.avoidCount).toBe(0);
-    expect(summary.totalTokens).toBe(7500);
-    expect(summary.totalCostUSD).toBeCloseTo(0.01);
+    // baseline = 3000+1500 + 2000+1000 = 7500
+    expect(summary.baselineTokens).toBe(7500);
+    // actual = baseline - cacheRead = 7500 - 500 - 300 = 6700
+    expect(summary.actualTokens).toBe(6700);
+    // saved = baseline - actual = 7500 - 6700 = 800
+    expect(summary.savedTokens).toBe(800);
     expect(summary.cheapestTask).not.toBeNull();
   });
 
   it('all rejected: 2 routes, all rejected, 0% rate', () => {
     appendHistory(makeHistoryEntry({ sessionId: 'test-session', query: 'do something', matched: 'tool-a', accepted: false }));
     appendHistory(makeHistoryEntry({ sessionId: 'test-session', query: 'do other', matched: 'tool-b', accepted: false }));
-    appendUsage(makeUsageEntry({ sessionId: 'test-session', costUsd: 0.001, taskType: 'simple-task' }));
+    appendUsage(makeUsageEntry({ sessionId: 'test-session', inputTokens: 1000, outputTokens: 500, cacheReadTokens: 0, taskType: 'simple-task' }));
 
     const summary = buildSessionSummary('test-session', {
       historyPath: HISTORY_FILE,
@@ -132,7 +138,10 @@ describe('buildSessionSummary', () => {
     expect(summary.acceptCount).toBe(0);
     expect(summary.acceptRate).toBe(0);
     expect(summary.avoidCount).toBe(2);
-    expect(summary.totalTokens).toBe(1500);
+    // baseline = 1000+500 = 1500, no cache savings
+    expect(summary.baselineTokens).toBe(1500);
+    expect(summary.actualTokens).toBe(1500);
+    expect(summary.savedTokens).toBe(0);
     expect(summary.cheapestTask).not.toBeNull();
     expect(summary.cheapestTask!.taskType).toBe('simple-task');
   });
@@ -141,7 +150,7 @@ describe('buildSessionSummary', () => {
     appendHistory(makeHistoryEntry({ sessionId: 'test-session', query: 'q1', matched: 't1', accepted: true }));
     appendHistory(makeHistoryEntry({ sessionId: 'test-session', query: 'q2', matched: 't2', accepted: false }));
     appendHistory(makeHistoryEntry({ sessionId: 'test-session', query: 'q3', matched: 't3', accepted: true }));
-    appendUsage(makeUsageEntry({ sessionId: 'test-session', inputTokens: 1000, outputTokens: 500, costUsd: 0.002 }));
+    appendUsage(makeUsageEntry({ sessionId: 'test-session', inputTokens: 1000, outputTokens: 500, cacheReadTokens: 200 }));
 
     const summary = buildSessionSummary('test-session', {
       historyPath: HISTORY_FILE,
@@ -151,6 +160,26 @@ describe('buildSessionSummary', () => {
     expect(summary.acceptCount).toBe(2);
     expect(summary.acceptRate).toBe(67);
     expect(summary.avoidCount).toBe(1);
+    // baseline = 1500, actual = 1500-200 = 1300, saved = 200
+    expect(summary.baselineTokens).toBe(1500);
+    expect(summary.actualTokens).toBe(1300);
+    expect(summary.savedTokens).toBe(200);
+  });
+
+  it('baseline calculation: savedTokens equals cacheReadTokens', () => {
+    appendUsage(makeUsageEntry({ sessionId: 'test-session', inputTokens: 5000, outputTokens: 2000, cacheReadTokens: 1000 }));
+
+    const summary = buildSessionSummary('test-session', {
+      historyPath: HISTORY_FILE,
+      usagePath: USAGE_FILE,
+    });
+    // baseline = 5000+2000 = 7000
+    expect(summary.baselineTokens).toBe(7000);
+    // actual = 7000 - 1000 = 6000
+    expect(summary.actualTokens).toBe(6000);
+    // saved = 7000 - 6000 = 1000 = cacheReadTokens
+    expect(summary.savedTokens).toBe(1000);
+    expect(summary.savedTokens).toBe(summary.baselineTokens - summary.actualTokens);
   });
 });
 
@@ -161,8 +190,12 @@ describe('formatSessionSummary', () => {
       acceptCount: 0,
       acceptRate: 0,
       avoidCount: 0,
-      totalTokens: 0,
-      totalCostUSD: 0,
+      baselineTokens: 0,
+      actualTokens: 0,
+      savedTokens: 0,
+      baselineCostUSD: 0,
+      actualCostUSD: 0,
+      savedCostUSD: 0,
       cheapestTask: null,
     };
     const output = formatSessionSummary(summary);
@@ -178,14 +211,19 @@ describe('formatSessionSummary', () => {
       acceptCount: 3,
       acceptRate: 60,
       avoidCount: 2,
-      totalTokens: 10000,
-      totalCostUSD: 0.05,
+      baselineTokens: 12000,
+      actualTokens: 10000,
+      savedTokens: 2000,
+      baselineCostUSD: 0.15,
+      actualCostUSD: 0.05,
+      savedCostUSD: 0.10,
       cheapestTask: { tokens: 500, model: 'haiku', taskType: 'code-review' },
     };
     const output = formatSessionSummary(summary);
     expect(output).toContain('路由 5 次，你接受了 3 次 (60%)');
     expect(output).toContain('替你避开过 2 次错选');
-    expect(output).toContain('~10.0k tokens');
+    expect(output).toContain('~2.0k tokens');
+    expect(output).toContain('~$0.1');
     expect(output).toContain('最省钱的一次：~0.5k 用 haiku 做 code-review');
   });
 
@@ -195,12 +233,16 @@ describe('formatSessionSummary', () => {
       acceptCount: 1,
       acceptRate: 100,
       avoidCount: 0,
-      totalTokens: 800,
-      totalCostUSD: 0.001,
+      baselineTokens: 1000,
+      actualTokens: 800,
+      savedTokens: 200,
+      baselineCostUSD: 0.005,
+      actualCostUSD: 0.001,
+      savedCostUSD: 0.004,
       cheapestTask: { tokens: 800, model: 'sonnet', taskType: 'debug' },
     };
     const output = formatSessionSummary(summary);
-    expect(output).toContain('~0.8k tokens');
+    expect(output).toContain('~0.2k tokens');
     expect(output).toContain('~0.8k 用 sonnet 做 debug');
   });
 
@@ -210,12 +252,35 @@ describe('formatSessionSummary', () => {
       acceptCount: 8,
       acceptRate: 80,
       avoidCount: 2,
-      totalTokens: 100000,
-      totalCostUSD: 1.5,
+      baselineTokens: 120000,
+      actualTokens: 100000,
+      savedTokens: 20000,
+      baselineCostUSD: 2.0,
+      actualCostUSD: 1.5,
+      savedCostUSD: 0.5,
       cheapestTask: { tokens: 5000, model: 'sonnet', taskType: 'refactor' },
     };
     const output = formatSessionSummary(summary);
-    expect(output).toContain('~100.0k tokens');
-    expect(output).toContain('~$1.5');
+    expect(output).toContain('~20.0k tokens');
+    expect(output).toContain('~$0.5');
+  });
+
+  it('shows real savings when cache read tokens exist', () => {
+    const summary: SessionSummary = {
+      routeCount: 3,
+      acceptCount: 2,
+      acceptRate: 67,
+      avoidCount: 1,
+      baselineTokens: 6000,
+      actualTokens: 4500,
+      savedTokens: 1500,
+      baselineCostUSD: 0.09,
+      actualCostUSD: 0.03,
+      savedCostUSD: 0.06,
+      cheapestTask: null,
+    };
+    const output = formatSessionSummary(summary);
+    expect(output).toContain('~1.5k tokens');
+    expect(output).toContain('~$0.06');
   });
 });
