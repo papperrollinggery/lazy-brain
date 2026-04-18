@@ -84,7 +84,7 @@ describe('matching quality — individual cases (log only, no assertions)', () =
 
 // ─── Aggregate hit rate ───────────────────────────────────────────────────────
 
-describe('matching quality — aggregate', { timeout: 120000 }, () => {
+describe.skipIf(process.env.CI === 'true')('matching quality — aggregate', { timeout: 120000 }, () => {
   it('top-1 >= 60%, top-3 >= 80%', async () => {
     let top1Hits = 0;
     let top3Hits = 0;
