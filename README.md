@@ -206,6 +206,23 @@ lazybrain hook uninstall             # Uninstall hook
 lazybrain hook status                # Check hook status
 ```
 
+### Smoke Test
+
+Validates the full install path from fresh clone to hook interception:
+
+```bash
+./scripts/smoke-test.sh
+```
+
+The smoke test verifies:
+- `npm ci && npm run build` succeeds
+- `lazybrain hook install` correctly modifies `~/.claude/settings.json`
+- `lazybrain scan && lazybrain compile` produces `~/.lazybrain/graph.json`
+- Hook returns non-empty `additionalSystemPrompt` for a test prompt
+- Hook uninstall cleanly removes all traces
+
+See [`scripts/smoke-test.sh`](scripts/smoke-test.sh) for the full test implementation.
+
 #### SessionStart Dashboard
 
 LazyBrain can display a usage dashboard at the start of each session. To enable, add a SessionStart hook in `~/.claude/settings.json`:
