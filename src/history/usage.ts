@@ -225,5 +225,23 @@ export function trackSessionUsage(sessionId: string, transcriptPath: string): Us
   };
 
   writeUsageEntry(entry);
+
+  // Trigger budget state recalculation after each usage entry
+  void recomputeBudgetState();
+
   return entry;
+}
+
+/**
+ * Recompute budget state and write to budget-state.json.
+ * Called after each usage entry is written.
+ */
+async function recomputeBudgetState(): Promise<void> {
+  try {
+    const { computeBudgetState, writeBudgetState } = await import('../budget/state-machine.js');
+    const state = await computeBudgetState();
+    writeBudgetState(state);
+  } catch {
+    // Budget state computation is non-critical; don't fail usage tracking
+  }
 }
