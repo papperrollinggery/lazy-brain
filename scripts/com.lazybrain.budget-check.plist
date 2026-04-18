@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.lazybrain.budget-check</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/jinjungao/multica_workspaces/ca4154c9-bad0-47d3-8676-335d583a8c60/c5e53c1e/workdir/lazy-brain/scripts/check-budget.sh</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StartInterval</key>
+    <integer>3600</integer>
+    <key>StandardOutPath</key>
+    <string>/tmp/com.lazybrain.budget-check.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/com.lazybrain.budget-check.err.log</string>
+</dict>
+</plist>

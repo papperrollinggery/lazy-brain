@@ -3,9 +3,14 @@
 # 用法: ./scripts/check-budget.sh
 # 配 launchd/cron: 每小时跑一次
 
-THRESHOLD_LOW=50      # 低于此值告警
-THRESHOLD_CRIT=20     # 低于此值严重告警
+THRESHOLD_LOW=30       # 低于此值告警
+THRESHOLD_CRIT=10      # 低于此值严重告警
 FEISHU_CHAT="oc_867b7acb1ef1064bbf01c3dc2d20dc58"
+FEISHU_FALLBACK="ou_6041e11032e4162f440d9981d01c7f39"
+BALANCE_FILE="$HOME/.lazybrain/balance.json"
+
+# 确保目录存在
+mkdir -p "$(dirname "$BALANCE_FILE")"
 
 TEXT=$(osascript <<'EOF'
 tell application "Google Chrome"
@@ -49,16 +54,47 @@ TOTAL=$(echo "$TEXT" | awk '
 
 DAILY=$(echo "$TEXT" | grep -A1 "当日使用" | tail -1 | tr -d '$,')
 
+CHECKED_AT=$(date '+%Y-%m-%dT%H:%M:%S%z')
+
+# 写余额快照
+cat > "$BALANCE_FILE" <<EOF
+{
+  "checked_at": "$CHECKED_AT",
+  "remaining_usd": $TOTAL,
+  "daily_used_usd": ${DAILY:-0},
+  "threshold_low": $THRESHOLD_LOW,
+  "threshold_crit": $THRESHOLD_CRIT
+}
+EOF
+
 echo "[$(date '+%F %T')] 剩余 \$$TOTAL | 今日已用 \$${DAILY:-?}"
 
 # 阈值告警
 ALERT=""
+ALERT_TYPE=""
 if (( $(echo "$TOTAL < $THRESHOLD_CRIT" | bc -l) )); then
   ALERT="🚨【预算危急】剩余 \$$TOTAL < \$$THRESHOLD_CRIT，Manager 立刻停止所有派单"
+  ALERT_TYPE="crit"
 elif (( $(echo "$TOTAL < $THRESHOLD_LOW" | bc -l) )); then
-  ALERT="💰【预算告警】剩余 \$$TOTAL < \$$THRESHOLD_LOW，进入极简模式"
+  ALERT="⚠️【预算告警】剩余 \$$TOTAL < \$$THRESHOLD_LOW，进入极简模式"
+  ALERT_TYPE="low"
 fi
 
 if [[ -n "$ALERT" ]]; then
-  hermes chat -q "用 send_message 工具，平台 feishu，目标 $FEISHU_CHAT，内容：'$ALERT'" 2>&1 | tail -3
+  # 尝试 hermes
+  HERMES_OUT=$(hermes chat -q "用 send_message 工具，平台 feishu，目标 $FEISHU_CHAT，内容：'$ALERT'" 2>&1)
+  HERMES_OK=$?
+
+  if [[ $HERMES_OK -eq 0 ]] && echo "$HERMES_OUT" | grep -q "success\|发送"; then
+    echo "[OK] 飞书告警发送成功 (hermes)"
+  else
+    # fallback 到 openclaw
+    echo "[WARN] hermes 不可用，尝试 openclaw fallback..."
+    openclaw agent --channel feishu --to "$FEISHU_FALLBACK" --deliver -m "$ALERT" 2>&1
+    if [[ $? -eq 0 ]]; then
+      echo "[OK] 飞书告警发送成功 (openclaw fallback)"
+    else
+      echo "[ERR] 飞书告警发送失败 (hermes + openclaw 均不可达)"
+    fi
+  fi
 fi

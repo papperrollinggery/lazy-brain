@@ -223,6 +223,27 @@ The smoke test verifies:
 
 See [`scripts/smoke-test.sh`](scripts/smoke-test.sh) for the full test implementation.
 
+### Budget Check (macOS launchd)
+
+The budget check script monitors your sssaicode balance and sends Feishu alerts when funds are low:
+
+```bash
+# Load the launchd agent (runs every hour)
+launchctl load ~/Library/LaunchAgents/com.lazybrain.budget-check.plist
+
+# Verify it's loaded
+launchctl list | grep com.lazybrain.budget-check
+
+# Unload when not needed
+launchctl unload ~/Library/LaunchAgents/com.lazybrain.budget-check.plist
+```
+
+The plist is located at [`scripts/com.lazybrain.budget-check.plist`](scripts/com.lazybrain.budget-check.plist). Copy it to `~/Library/LaunchAgents/` before loading.
+
+Alerts are sent via hermes to Feishu (with openclaw fallback). Balance snapshots are written to `~/.lazybrain/balance.json`.
+
+Thresholds: LOW=$30, CRIT=$10
+
 #### SessionStart Dashboard
 
 LazyBrain can display a usage dashboard at the start of each session. To enable, add a SessionStart hook in `~/.claude/settings.json`:
