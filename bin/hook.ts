@@ -11,7 +11,7 @@
  *   stdout: { continue: true, additionalSystemPrompt?: string }
  */
 
-import { readFileSync, existsSync, writeFileSync, unlinkSync } from 'node:fs';
+import { readFileSync, existsSync, writeFileSync, unlinkSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { GRAPH_PATH, CAPABILITY_MODEL_HINTS, LAZYBRAIN_DIR, HOOK_ACTIVE_PATH } from '../src/constants.js';
 import { Graph } from '../src/graph/graph.js';
@@ -65,6 +65,7 @@ interface HookInput {
   hook_event_name?: string;
   prompt?: string;
   cwd?: string;
+  transcript_path?: string;
 }
 
 interface HookOutput {
@@ -324,6 +325,9 @@ function cleanupPid(): void {
   try { if (existsSync(HOOK_ACTIVE_PATH)) unlinkSync(HOOK_ACTIVE_PATH); } catch {}
 }
 
+// Module-level transcript path — extracted from hook input so output() can write cards inline
+let _transcriptPath = '';
+
 async function main() {
   let input: HookInput = {};
   // Signal statusline that LazyBrain is processing
@@ -334,6 +338,7 @@ async function main() {
   try {
     const raw = readFileSync('/dev/stdin', 'utf-8').trim();
     if (raw) input = JSON.parse(raw) as HookInput;
+    _transcriptPath = input.transcript_path ?? '';
   } catch {
     cleanupPid();
     output({ continue: true });
@@ -343,12 +348,11 @@ async function main() {
   // ─── Stop Hook: Token tracking + evolution ─────────────────────────────
   if (input.hook_event_name === 'Stop') {
     const sessionId = input.session_id ?? 'unknown';
-    const transcriptPath = (input as Record<string, unknown>)['transcript_path'] as string ?? '';
 
     // Track token usage for this session
-    if (transcriptPath) {
+    if (_transcriptPath) {
       try {
-        const entry = trackSessionUsage(sessionId, transcriptPath);
+        const entry = trackSessionUsage(sessionId, _transcriptPath);
         if (entry) {
           // Trigger evolution based on new usage data — evolution errors are non-fatal
           try {
@@ -727,6 +731,22 @@ async function main() {
 
 function output(data: HookOutput) {
   cleanupPid();
+
+  // Inject card as visible assistant message in transcript — no Ctrl+O needed
+  if (data.additionalSystemPrompt && _transcriptPath) {
+    try {
+      const lines = data.additionalSystemPrompt.split('\n');
+      const text = lines
+        .map(l => l.replace(/^│ /, '').replace(/ │$/, '').replace(/^╭─.*─╮$/, '').replace(/^╰.*╯$/, '').replace(/^├.*┤$/, '').trim())
+        .filter(l => l.length > 0)
+        .join('\n');
+      if (text) {
+        const entry = JSON.stringify({ type: 'assistant', content: text });
+        appendFileSync(_transcriptPath, entry + '\n');
+      }
+    } catch {}
+  }
+
   process.stdout.write(JSON.stringify(data) + '\n');
 }
 
