@@ -179,42 +179,40 @@ Recommended mental model:
 - Relation inference for the graph still produces noisy edges; it should be
   denoised before becoming a polished product surface.
 
-## Residual Routing Gaps After V1 Match Tuning
+## Routing Status After V1 Match Tuning
 
-The current V1 routing pass is benchmark-green and ready to ship, but a few
-query families still show residual mismatch in logs and should be the first
-targets in the next session.
+The latest routing pass is fully green on the current golden benchmark and is
+safe to treat as the new baseline.
 
-### Residual non-blocking misses
+### Current benchmark status
 
-- `deploy to production`
-  - still drifts toward unrelated high-score creative capabilities before
-    landing on acceptable matches
-- `generate API documentation`
-  - still prefers `update-docs` / `deepinit` / `update-codemaps` instead of
-    `api-design` / writer-oriented capabilities
-- `performance optimization`
-  - still routes to broad optimization/perf agents instead of the more specific
-    `prompt-optimize | Performance Benchmarker | Database Optimizer`
+- Top-1: `55/55 = 100.0%`
+- Top-3: `55/55 = 100.0%`
+- Chinese Top-1: `33/33 = 100.0%`
+- Chinese Top-3: `33/33 = 100.0%`
+- Tag-only Top-3: `55/55 = 100.0%`
 
-### Tag-only gaps still visible
+### Fixed regressions that should stay protected
 
-These do not block current aggregate quality targets, but they are still weak in
-tag-only mode and should be revisited with tighter query-side mappings:
+- `设计系统架构`
+  - should continue to rank `Backend Architect / architect / Software Architect`
+    above generic planning commands
+- `重构代码让它更简洁`
+  - should continue to surface `refactor-clean / code-simplifier`
+- `提交代码`
+  - should continue to surface `prp-commit / code-review / git-master`
+- `数据库查询优化`
+  - should continue to surface `prompt-optimize / Database Optimizer`
+- `代码库新人上手`
+  - should continue to surface onboarding-aligned capabilities instead of
+    generic docs/search commands
 
-- `写 Docker 配置`
-- `Go 语言开发`
-- `Spring Boot 开发`
-
-### Guardrails for the next routing pass
+### Guardrails for future routing changes
 
 - Keep `category` as a secondary signal only. Do not let category alone trigger
   intent-cluster boosts.
 - Prefer targeted query-side expansions over widening generic planning /
   development / documentation boosts.
-- Protect the fixed regression:
-  - `设计系统架构` should continue to rank `Backend Architect / architect /
-    Software Architect` above generic planning commands.
 - Re-run:
   - `npm run build`
   - `npm test`

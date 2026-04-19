@@ -104,9 +104,9 @@ const INTENT_CLUSTERS: IntentCluster[] = [
   },
   {
     triggers: ['deployment', 'production', 'verification', 'verify', 'release'],
-    nameHints: ['verify', 'setup', 'deploy'],
-    tagHints: ['deployment', 'production', 'verification', 'release', 'setup'],
-    descHints: ['deploy', 'production', 'release', 'verify'],
+    nameHints: ['verify', 'setup', 'deploy', 'engineer', 'frontend', 'product'],
+    tagHints: ['deployment', 'production', 'verification', 'release', 'setup', 'frontend', 'product'],
+    descHints: ['deploy', 'production', 'release', 'verify', 'frontend', 'product', 'ai'],
     categoryHints: ['deployment', 'operations'],
   },
   {
@@ -164,6 +164,41 @@ const INTENT_CLUSTERS: IntentCluster[] = [
     tagHints: ['database', 'optimizer', 'postgres', 'query'],
     descHints: ['query optimization', 'performance tuning', 'database'],
     categoryHints: ['data', 'development'],
+  },
+  {
+    triggers: ['api', 'documentation', 'api-docs', 'technical-writer', 'writer', 'api-design'],
+    nameHints: ['api', 'writer', 'technical writer', 'documentation'],
+    tagHints: ['api', 'docs', 'writer', 'documentation'],
+    descHints: ['api docs', 'documentation', 'technical writer'],
+    categoryHints: ['content', 'development'],
+  },
+  {
+    triggers: ['performance', 'optimization', 'benchmark', 'prompt-optimize', 'optimizer'],
+    nameHints: ['performance', 'optimizer', 'benchmark'],
+    tagHints: ['performance', 'optimizer', 'benchmark'],
+    descHints: ['performance', 'optimiz', 'benchmark'],
+    categoryHints: ['testing', 'deployment'],
+  },
+  {
+    triggers: ['docker', 'container', 'configure', 'devops', 'devops-automator'],
+    nameHints: ['devops', 'configure', 'backend'],
+    tagHints: ['docker', 'container', 'configure', 'devops', 'backend'],
+    descHints: ['docker', 'container', 'devops', 'backend'],
+    categoryHints: ['deployment', 'development'],
+  },
+  {
+    triggers: ['go', 'golang', 'go-build', 'go-review'],
+    nameHints: ['go'],
+    tagHints: ['go', 'golang'],
+    descHints: ['go ', 'golang'],
+    categoryHints: ['development', 'code-quality'],
+  },
+  {
+    triggers: ['spring', 'springboot', 'java', 'project-session-manager'],
+    nameHints: ['spring', 'debugger', 'project-session'],
+    tagHints: ['spring', 'java', 'backend'],
+    descHints: ['spring', 'java', 'backend'],
+    categoryHints: ['development', 'deployment'],
   },
 ];
 
