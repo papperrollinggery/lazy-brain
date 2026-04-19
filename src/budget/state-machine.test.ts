@@ -27,6 +27,15 @@ function makeEntry(costUsd: number, daysAgo: number = 0, month?: string): UsageE
 }
 
 describe('state-machine', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-18T12:00:00Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   describe('determineMode', () => {
     it('returns normal when daily < 70%', () => {
       expect(determineMode(0, DAILY_LIMIT)).toBe('normal');
@@ -170,6 +179,15 @@ describe('state-machine', () => {
 });
 
 describe('state transitions', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-18T12:00:00Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('normal -> caution transition at 70%', () => {
     expect(determineMode(1.39, DAILY_LIMIT)).toBe('normal');
     expect(determineMode(1.4, DAILY_LIMIT)).toBe('caution');

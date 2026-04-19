@@ -25,3 +25,10 @@ coverage/
 *.log
 *.err
 .budget-check.err
+
+# backup dumps
+backup/
+
+# sandbox nested worktree
+lazy-brain/
+
