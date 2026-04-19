@@ -4,6 +4,10 @@
 
 **Semantic Skill Router for AI Coding Assistants**
 
+[![CI](https://github.com/papperrollinggery/lazy-brain/actions/workflows/ci.yml/badge.svg)](https://github.com/papperrollinggery/lazy-brain/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![Node](https://img.shields.io/badge/node-%E2%89%A518-brightgreen.svg)](https://nodejs.org)
+
 > You have dozens of skills installed, but can never remember which one to use.
 > LazyBrain matches your intent to the right tool — automatically.
 
@@ -133,10 +137,21 @@ Each file lists tool name, one-line description, tags, and relationships (depend
 
 ## Quick Start
 
-```bash
-# Install
-npm install -g lazybrain
+**Prerequisites**: Node.js ≥ 18
 
+```bash
+# Install from GitHub (npm package coming soon)
+git clone https://github.com/papperrollinggery/lazy-brain.git
+cd lazy-brain
+npm install
+npm run build
+npm link        # makes the `lazybrain` / `lb` commands global
+
+# Verify
+lazybrain --version
+```
+
+```bash
 # Setup
 lazybrain scan                        # Scan local tools
 lazybrain compile                     # Compile knowledge graph (needs API key)
