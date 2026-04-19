@@ -4,14 +4,14 @@
  * LazyBrain — Claude Code UserPromptSubmit Hook
  *
  * Reads the user's prompt from stdin, matches it against the capability graph,
- * and injects relevant skill context as additionalSystemPrompt.
+ * and injects relevant skill context through hookSpecificOutput.additionalContext.
  *
  * Claude Code hook protocol:
  *   stdin:  { session_id, transcript_path, cwd, hook_event_name, prompt }
- *   stdout: { continue: true, additionalSystemPrompt?: string }
+ *   stdout: { continue: true, hookSpecificOutput?: { hookEventName, additionalContext }, systemMessage?: string }
  */
 
-import { readFileSync, existsSync, writeFileSync, unlinkSync, appendFileSync } from 'node:fs';
+import { readFileSync, existsSync, writeFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { GRAPH_PATH, CAPABILITY_MODEL_HINTS, LAZYBRAIN_DIR, HOOK_ACTIVE_PATH } from '../src/constants.js';
 import { Graph } from '../src/graph/graph.js';
@@ -34,6 +34,12 @@ import type { TeamComposition } from '../src/matcher/team-recommender.js';
 import { buildSessionStats } from '../src/stats/session-stats.js';
 import { formatDashboard } from '../src/stats/session-dashboard.js';
 import { buildSessionSummary, formatSessionSummary } from '../src/stats/session-summary.js';
+import { formatDecisionCard, formatDecisionCardCompact } from '../src/hook/decision-card.js';
+import { formatTeamBridgeContext } from '../src/hook/team-bridge.js';
+import { loadBudgetState } from '../src/budget/state-machine.js';
+import { runPreflight } from '../src/governance/preflight.js';
+import { evaluatePolicy, isHeavyModeQuery, formatGovernanceInjection } from '../src/governance/policy-engine.js';
+import { isMetaPrompt } from '../src/utils/meta-prompt.js';
 
 // ─── Server HTTP Client (optional fast path) ─────────────────────────────────
 
@@ -71,6 +77,15 @@ interface HookInput {
 interface HookOutput {
   continue: boolean;
   additionalSystemPrompt?: string;
+}
+
+interface ClaudeHookOutput {
+  continue: boolean;
+  hookSpecificOutput?: {
+    hookEventName: string;
+    additionalContext?: string;
+  };
+  systemMessage?: string;
 }
 
 // ─── Parchment Pet ─────────────────────────────────────────────────────────────
@@ -278,6 +293,7 @@ function buildParchment(scene: ParchmentScene): string {
       lines.push(divider());
       lines.push(row(`💡 ${scene.composition.overallReason}`));
       lines.push(row(`🔧 ${scene.composition.suggestedCommand}`));
+      lines.push(row(`🚀 OMC: ${scene.composition.omcBridge.command}`));
       lines.push(bottom);
       break;
   }
@@ -286,7 +302,31 @@ function buildParchment(scene: ParchmentScene): string {
 }
 
 function renderParchment(scene: ParchmentScene): void {
-  process.stderr.write('\n' + buildParchment(scene) + '\n');
+  if (process.env.LAZYBRAIN_DEBUG_HOOK === '1') {
+    process.stderr.write('\n' + buildParchment(scene) + '\n');
+  }
+}
+
+function renderDecisionCard(
+  prompt: string,
+  top: import('../src/types.js').MatchResult,
+  matches: import('../src/types.js').MatchResult[],
+  threshold: number,
+): void {
+  const alternates = matches.slice(1, 3);
+  const visible = top.score >= threshold
+    ? formatDecisionCard({
+        query: prompt,
+        topMatch: top,
+        alternates,
+        lookupSavings: Math.max(1, matches.length),
+      })
+    : formatDecisionCardCompact(
+        top.capability.name,
+        top.score,
+        alternates.map(m => ({ name: m.capability.name, score: m.score })),
+      );
+  _visibleNotice = visible;
 }
 
 function buildDuplicateWarning(
@@ -319,16 +359,29 @@ function buildDuplicateWarning(
   return lines.join('\n');
 }
 
+function safeWriteRecommendation(entry: Parameters<typeof writeRecommendation>[0]): void {
+  try {
+    writeRecommendation(entry);
+  } catch (err) {
+    if (process.env.LAZYBRAIN_DEBUG_HOOK === '1') {
+      process.stderr.write(`[LazyBrain] Recommendation tracking error: ${err instanceof Error ? err.message : String(err)}\n`);
+    }
+  }
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 function cleanupPid(): void {
   try { if (existsSync(HOOK_ACTIVE_PATH)) unlinkSync(HOOK_ACTIVE_PATH); } catch {}
 }
 
-// Module-level transcript path — extracted from hook input so output() can write cards inline
+// Module-level hook state used when formatting official Claude Code hook output.
 let _transcriptPath = '';
+let _hookEventName = '';
+let _visibleNotice = '';
 
 async function main() {
+  process.env.LAZYBRAIN_HOOK = '1';
   let input: HookInput = {};
   // Signal statusline that LazyBrain is processing
   try {
@@ -339,6 +392,7 @@ async function main() {
     const raw = readFileSync('/dev/stdin', 'utf-8').trim();
     if (raw) input = JSON.parse(raw) as HookInput;
     _transcriptPath = input.transcript_path ?? '';
+    _hookEventName = input.hook_event_name ?? '';
   } catch {
     cleanupPid();
     output({ continue: true });
@@ -358,12 +412,16 @@ async function main() {
           try {
             evolveCapabilities({ auto: true });
           } catch (evolutionError) {
-            process.stderr.write(`[LazyBrain] Evolution error: ${evolutionError instanceof Error ? evolutionError.message : String(evolutionError)}\n`);
+            if (process.env.LAZYBRAIN_DEBUG_HOOK === '1') {
+              process.stderr.write(`[LazyBrain] Evolution error: ${evolutionError instanceof Error ? evolutionError.message : String(evolutionError)}\n`);
+            }
           }
         }
       } catch (err) {
         // Non-fatal: log but don't block session end
-        process.stderr.write(`[LazyBrain] Usage tracking error: ${err instanceof Error ? err.message : String(err)}\n`);
+        if (process.env.LAZYBRAIN_DEBUG_HOOK === '1') {
+          process.stderr.write(`[LazyBrain] Usage tracking error: ${err instanceof Error ? err.message : String(err)}\n`);
+        }
       }
     }
 
@@ -384,7 +442,9 @@ async function main() {
     // SessionEnd: output session summary
     const summary = buildSessionSummary(sessionId);
     const summaryOutput = formatSessionSummary(summary);
-    process.stderr.write('\n' + summaryOutput + '\n');
+    if (process.env.LAZYBRAIN_DEBUG_HOOK === '1') {
+      process.stderr.write('\n' + summaryOutput + '\n');
+    }
 
     output({ continue: true });
     return;
@@ -412,13 +472,31 @@ async function main() {
     return;
   }
 
+  // ─── Meta / Operator Prompt Bypass ─────────────────────────────────────
+  // Control/meta prompts should not be routed through LazyBrain machinery.
+  // Detect before match() so we skip all computation.
+  if (isMetaPrompt(prompt)) {
+    // Bypass: no match, no decision card, no governance, no secretary, no last-match write
+    appendHistory({
+      timestamp: new Date().toISOString(),
+      query: prompt,
+      matched: '',
+      accepted: false,
+      layer: 'tag',
+      sessionId: process.env.CLAUDE_SESSION_ID ?? 'unknown',
+      reason: 'meta_bypass',
+    });
+    output({ continue: true });
+    return;
+  }
+
   // no_graph 场景 — 先 loadConfig 再判断
   if (!existsSync(GRAPH_PATH)) {
     const config = loadConfig();
     if (config.mode === 'ask') {
       renderParchment({ type: 'no_graph' });
     }
-    process.stderr.write('[LazyBrain] No graph found. Run `lazybrain scan && lazybrain compile` first.\n');
+    _visibleNotice = 'LazyBrain: 未找到武器图谱，请先运行 `lazybrain scan && lazybrain compile`。';
     appendHistory({
       timestamp: new Date().toISOString(),
       query: prompt,
@@ -447,10 +525,11 @@ async function main() {
     const TEAM_KEYWORDS = ['/team', 'team模式', '组队', '多 agent', 'multi-agent', '多agent'];
     const isTeamQuery = TEAM_KEYWORDS.some(kw => prompt.toLowerCase().includes(kw.toLowerCase()));
 
+    const teamComposition = isTeamQuery ? recommendTeam(prompt, graph, 5) : null;
+
     if (isTeamQuery && config.mode === 'ask') {
-      const composition = recommendTeam(prompt, graph, 5);
-      if (composition && composition.members.length > 0) {
-        renderParchment({ type: 'team_composition', query: prompt, composition });
+      if (teamComposition && teamComposition.members.length > 0) {
+        renderParchment({ type: 'team_composition', query: prompt, composition: teamComposition });
       }
     }
 
@@ -461,7 +540,12 @@ async function main() {
     if (result.matches.length === 0) {
       if (config.mode === 'ask') renderParchment({ type: 'no_match' });
       writeLastMatch(null, 0);
-      output({ continue: true });
+      const bridgeNoMatch = appendTeamBridge('', prompt, teamComposition);
+      const govNoMatch = appendGovernance(bridgeNoMatch, prompt, result, teamComposition);
+      output({
+        continue: true,
+        additionalSystemPrompt: govNoMatch.trim() || undefined,
+      });
       return;
     }
 
@@ -481,6 +565,7 @@ async function main() {
         const modelHint = CAPABILITY_MODEL_HINTS[top.capability.name];
         renderParchment({ type: 'hit_auto', tool: top.capability.name, score: top.score, secondary, model: modelHint });
       }
+      renderDecisionCard(prompt, top, result.matches, config.decisionCardThreshold ?? 0.7);
 
       const card = graph.getWikiCard(top.capability.id);
       const histStats = getHistoryStats(history ?? [], top.capability.name, top.capability.id);
@@ -510,10 +595,12 @@ async function main() {
 
       writeLastMatch(top.capability.name, top.score, top.historyBoost);
       const dupWarning1 = buildDuplicateWarning(top.capability.id, top.capability.name, dupIndex);
-      const finalText1 = dupWarning1 ? prependThinkingHint(text, thinkingHint) + dupWarning1 : prependThinkingHint(text, thinkingHint);
+      const finalText1Base = dupWarning1 ? prependThinkingHint(text, thinkingHint) + dupWarning1 : prependThinkingHint(text, thinkingHint);
+      const finalText1 = appendTeamBridge(finalText1Base, prompt, teamComposition);
       const recTools = [top.capability.name, ...secondary.map(s => s.name)];
-      writeRecommendation({ sessionId: input.session_id ?? process.env.CLAUDE_SESSION_ID ?? 'unknown', timestamp: new Date().toISOString(), query: prompt, recommended: recTools });
-      output({ continue: true, additionalSystemPrompt: finalText1 });
+      safeWriteRecommendation({ sessionId: input.session_id ?? process.env.CLAUDE_SESSION_ID ?? 'unknown', timestamp: new Date().toISOString(), query: prompt, recommended: recTools });
+      const govText1 = appendGovernance(finalText1, prompt, result, teamComposition);
+      output({ continue: true, additionalSystemPrompt: govText1 });
       return;
     }
 
@@ -531,7 +618,12 @@ async function main() {
         reason: 'low_score',
       });
       writeLastMatch(top.capability.name, top.score, top.historyBoost);
-      output({ continue: true });
+      const bridgeLow = appendTeamBridge('', prompt, teamComposition);
+      const govLow = appendGovernance(bridgeLow, prompt, result, teamComposition);
+      output({
+        continue: true,
+        additionalSystemPrompt: govLow.trim() || undefined,
+      });
       return;
     }
 
@@ -542,7 +634,9 @@ async function main() {
     const secretaryApiKey = config.secretaryApiKey ?? config.compileApiKey;
     // Warn if base is set but key is missing — otherwise Secretary silently skipped
     if (secretaryApiBase && !secretaryApiKey) {
-      process.stderr.write('[LazyBrain] WARNING: secretaryApiBase configured but secretaryApiKey missing. Secretary layer disabled.\n');
+      if (process.env.LAZYBRAIN_DEBUG_HOOK === '1') {
+        process.stderr.write('[LazyBrain] WARNING: secretaryApiBase configured but secretaryApiKey missing. Secretary layer disabled.\n');
+      }
     }
     if (secretaryApiBase && secretaryApiKey) {
       if (config.mode === 'ask') {
@@ -588,7 +682,12 @@ async function main() {
             reason: 'secretary_no_tool',
           });
           writeLastMatch(null, 0);
-          output({ continue: true });
+          const bridgeSecNoTool = appendTeamBridge('', prompt, teamComposition);
+          const govSecNoTool = appendGovernance(bridgeSecNoTool, prompt, result, teamComposition);
+          output({
+            continue: true,
+            additionalSystemPrompt: govSecNoTool.trim() || undefined,
+          });
           return;
         }
 
@@ -627,10 +726,12 @@ async function main() {
 
           writeLastMatch(primaryAction!, secretaryResult.confidence);
           const dupWarning2 = buildDuplicateWarning(primaryNode.id, primaryAction!, dupIndex);
-          const finalText2 = dupWarning2 ? prependThinkingHint(text, thinkingHint) + dupWarning2 : prependThinkingHint(text, thinkingHint);
+          const finalText2Base = dupWarning2 ? prependThinkingHint(text, thinkingHint) + dupWarning2 : prependThinkingHint(text, thinkingHint);
+          const finalText2 = appendTeamBridge(finalText2Base, prompt, teamComposition);
           const secretaryTools = [primaryAction!, ...secretaryResult.tasks.slice(1, 3).map(t => t.action)];
-          writeRecommendation({ sessionId: input.session_id ?? process.env.CLAUDE_SESSION_ID ?? 'unknown', timestamp: new Date().toISOString(), query: prompt, recommended: secretaryTools });
-          output({ continue: true, additionalSystemPrompt: finalText2 });
+          safeWriteRecommendation({ sessionId: input.session_id ?? process.env.CLAUDE_SESSION_ID ?? 'unknown', timestamp: new Date().toISOString(), query: prompt, recommended: secretaryTools });
+          const govText2 = appendGovernance(finalText2, prompt, result, teamComposition);
+          output({ continue: true, additionalSystemPrompt: govText2 });
           return;
         }
 
@@ -645,7 +746,12 @@ async function main() {
           reason: 'secretary_rejected',
         });
         writeLastMatch(primaryAction ?? null, secretaryResult.confidence);
-        output({ continue: true });
+        const bridgeSecRej = appendTeamBridge('', prompt, teamComposition);
+        const govSecRej = appendGovernance(bridgeSecRej, prompt, result, teamComposition);
+        output({
+          continue: true,
+          additionalSystemPrompt: govSecRej.trim() || undefined,
+        });
         return;
       } else {
         // Secretary failed (network/parse error) — mark fallback as accepted=false
@@ -670,6 +776,7 @@ async function main() {
       const text = card
         ? formatWikiCard(card, top.score, secondary, histStats2.count > 0 ? { historyCount: histStats2.count, historyAcceptRate: histStats2.acceptRate, nextSteps: result.nextSteps, proposals: proposals2, strategy: config.strategy, decisionHint: result.decisionHint } : { nextSteps: result.nextSteps, proposals: proposals2, strategy: config.strategy, decisionHint: result.decisionHint }, config.mode === 'ask')
         : formatFallback(top, secondary, result.nextSteps, proposals2, config.strategy, result.decisionHint, config.mode === 'ask');
+      renderDecisionCard(prompt, top, result.matches, config.decisionCardThreshold ?? 0.7);
 
       // Fallback path: Secretary failed or skipped, using local result.
       // accepted=false so acceptRate isn't inflated by Secretary failures.
@@ -687,10 +794,12 @@ async function main() {
 
       writeLastMatch(top.capability.name, top.score, top.historyBoost);
       const dupWarning3 = buildDuplicateWarning(top.capability.id, top.capability.name, dupIndex);
-      const finalText3 = dupWarning3 ? prependThinkingHint(text, thinkingHint) + dupWarning3 : prependThinkingHint(text, thinkingHint);
+      const finalText3Base = dupWarning3 ? prependThinkingHint(text, thinkingHint) + dupWarning3 : prependThinkingHint(text, thinkingHint);
+      const finalText3 = appendTeamBridge(finalText3Base, prompt, teamComposition);
       const fallbackTools = [top.capability.name, ...secondary.map(s => s.name)];
-      writeRecommendation({ sessionId: input.session_id ?? process.env.CLAUDE_SESSION_ID ?? 'unknown', timestamp: new Date().toISOString(), query: prompt, recommended: fallbackTools });
-      output({ continue: true, additionalSystemPrompt: finalText3 });
+      safeWriteRecommendation({ sessionId: input.session_id ?? process.env.CLAUDE_SESSION_ID ?? 'unknown', timestamp: new Date().toISOString(), query: prompt, recommended: fallbackTools });
+      const govText3 = appendGovernance(finalText3, prompt, result, teamComposition);
+      output({ continue: true, additionalSystemPrompt: govText3 });
       return;
     }
 
@@ -707,10 +816,18 @@ async function main() {
       reason: 'no_match',
     });
     writeLastMatch(null, 0);
-    output({ continue: true });
+    const bridgeFinal = appendTeamBridge('', prompt, teamComposition);
+    const govFinal = appendGovernance(bridgeFinal, prompt, result, teamComposition);
+    output({
+      continue: true,
+      additionalSystemPrompt: govFinal.trim() || undefined,
+    });
   } catch (err: unknown) {
     const code = (err as { status?: number })?.status ?? 'ERR';
     const config = loadConfig();
+    if (process.env.LAZYBRAIN_DEBUG_HOOK === '1') {
+      process.stderr.write(`[LazyBrain] Hook error: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`);
+    }
     if (config.mode === 'ask') {
       renderParchment({ type: 'secretary_dead', code: String(code) });
     }
@@ -732,22 +849,23 @@ async function main() {
 function output(data: HookOutput) {
   cleanupPid();
 
-  // Inject card as visible assistant message in transcript — no Ctrl+O needed
-  if (data.additionalSystemPrompt && _transcriptPath) {
-    try {
-      const lines = data.additionalSystemPrompt.split('\n');
-      const text = lines
-        .map(l => l.replace(/^│ /, '').replace(/ │$/, '').replace(/^╭─.*─╮$/, '').replace(/^╰.*╯$/, '').replace(/^├.*┤$/, '').trim())
-        .filter(l => l.length > 0)
-        .join('\n');
-      if (text) {
-        const entry = JSON.stringify({ type: 'assistant', content: text });
-        appendFileSync(_transcriptPath, entry + '\n');
-      }
-    } catch {}
+  const hookEventName = _hookEventName || 'UserPromptSubmit';
+  const payload: ClaudeHookOutput = { continue: data.continue };
+
+  if (data.additionalSystemPrompt) {
+    payload.hookSpecificOutput = {
+      hookEventName,
+      additionalContext: data.additionalSystemPrompt,
+    };
   }
 
-  process.stdout.write(JSON.stringify(data) + '\n');
+  if (_visibleNotice) {
+    payload.systemMessage = _visibleNotice;
+  }
+
+  _visibleNotice = '';
+
+  process.stdout.write(JSON.stringify(payload) + '\n');
 }
 
 function getHistoryStats(history: import('../src/types.js').HistoryEntry[], capName: string, capId?: string): { count: number; acceptRate: number } {
@@ -814,6 +932,39 @@ function prependThinkingHint(text: string, hint?: { triggered: boolean; reason: 
   if (!hint?.triggered) return text;
   const block = renderThinkingHintBlock(hint.reason, hint.suggestedSkills);
   return block.join('\n') + text;
+}
+
+function appendTeamBridge(
+  text: string,
+  query: string,
+  composition: TeamComposition | null,
+): string {
+  if (!composition || composition.members.length === 0) return text;
+  return text + '\n\n' + formatTeamBridgeContext(query, composition);
+}
+
+/**
+ * Append governance preflight injection for heavy-mode queries.
+ * Non-invasive: only injects context when heavy mode is detected and preflight is enabled.
+ */
+function appendGovernance(
+  text: string,
+  query: string,
+  recommendation: import('../src/types.js').Recommendation | null,
+  teamComposition: TeamComposition | null,
+): string {
+  const config = loadConfig();
+  if (!isHeavyModeQuery(query)) return text;
+  if (!config.governance?.enablePreflight) return text;
+
+  const budgetState = loadBudgetState();
+  if (!budgetState) return text;
+
+  const decision = runPreflight({ query, recommendation, teamComposition, budgetState, config });
+  const policyResult = evaluatePolicy(decision, budgetState, config);
+  const injection = formatGovernanceInjection(decision, policyResult);
+  if (!injection) return text;
+  return text + '\n\n' + injection;
 }
 
 function formatSecretaryInjection(

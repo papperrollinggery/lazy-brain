@@ -69,6 +69,26 @@ function findMarkdownFiles(dirPath: string): string[] {
   return results;
 }
 
+function findMarkdownFilesInNamedDirs(rootPath: string, targetDirName: string): string[] {
+  const results: string[] = [];
+  if (!existsSync(rootPath)) return results;
+
+  const entries = readdirSync(rootPath, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+
+    const childPath = join(rootPath, entry.name);
+    if (entry.name === targetDirName) {
+      results.push(...findMarkdownFiles(childPath));
+      continue;
+    }
+
+    results.push(...findMarkdownFilesInNamedDirs(childPath, targetDirName));
+  }
+
+  return results;
+}
+
 function safeReadFile(filePath: string): string | null {
   try {
     return readFileSync(filePath, 'utf-8');
@@ -144,6 +164,36 @@ export function scan(options?: ScanOptions): ScanResult {
             continue;
           }
           const capability = parseSkill(filePath, content);
+          if (capability) {
+            capability.disabled = filePath.includes('/skills-disabled/');
+            capabilities.push(capability);
+          }
+        }
+
+        const agentFiles = findMarkdownFilesInNamedDirs(path, 'agents');
+        for (const filePath of agentFiles) {
+          scannedFiles++;
+          const content = safeReadFile(filePath);
+          if (content === null) {
+            errors.push(`Failed to read: ${filePath}`);
+            continue;
+          }
+          const capability = parseAgent(filePath, content);
+          if (capability) {
+            capability.disabled = filePath.includes('/skills-disabled/');
+            capabilities.push(capability);
+          }
+        }
+
+        const commandFiles = findMarkdownFilesInNamedDirs(path, 'commands');
+        for (const filePath of commandFiles) {
+          scannedFiles++;
+          const content = safeReadFile(filePath);
+          if (content === null) {
+            errors.push(`Failed to read: ${filePath}`);
+            continue;
+          }
+          const capability = parseCommand(filePath, content);
           if (capability) {
             capability.disabled = filePath.includes('/skills-disabled/');
             capabilities.push(capability);

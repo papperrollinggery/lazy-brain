@@ -30,45 +30,45 @@ function formatCost(costUSD: number): string {
 
 export function formatDashboard(stats: SessionStats): string {
   const lines: string[] = [];
+  const accepted = Math.round((stats.totalMatches * stats.hitRate) / 100);
+  const rejectedOrUnknown = Math.max(0, stats.totalMatches - accepted);
 
-  lines.push(`## 🧠 LazyBrain 武器库管家 · ${formatDate()}`);
+  lines.push(`## 🧠 LazyBrain · ${formatDate()}`);
   lines.push('');
-  lines.push('### 📊 你的工具使用');
-  lines.push('| 总能力 | 已匹配 | 推荐命中率 | 累计省 tokens |');
-  lines.push('|--------|--------|-----------|--------------|');
-  lines.push(`| ${stats.totalCapabilities}    | ${stats.totalMatches} 次 | ${stats.hitRate}%       | ${formatTokens(stats.savedTokens)} (${formatCost(stats.savedCostUSD)})|`);
+  lines.push('今天我替你：');
+  lines.push(`  ✅ 自动路由 ${stats.totalMatches} 次（接受 ${accepted} / 待确认 ${rejectedOrUnknown}）`);
+  lines.push(`  💰 节省估算 ${formatTokens(stats.savedTokens)} tokens / ${formatCost(stats.savedCostUSD)}`);
+  lines.push(`  🧰 管理 ${stats.totalCapabilities} 个可用能力`);
+  if (stats.duplicatePairs > 0) {
+    lines.push(`  🧹 发现 ${stats.duplicatePairs} 对可能重复的工具`);
+  }
   lines.push('');
 
-  lines.push('### 🎯 最近推荐（Top 3）');
-  lines.push('| 时间 | 你问的 | 推荐工具 | 接受 |');
-  lines.push('|------|--------|---------|:---:|');
+  lines.push('最近我做过的决定：');
   if (stats.recentMatches.length === 0) {
-    lines.push('| — | — | — | ❓ |');
+    lines.push('  还没有可展示的推荐。试试问我：“帮我审查这段代码”。');
   } else {
     for (const m of stats.recentMatches) {
-      const accepted = m.accepted ? '✅' : '❓';
-      lines.push(`| ${m.timestamp} | ${m.query} | ${m.matched} | ${accepted} |`);
+      const marker = m.accepted ? '✅' : '❓';
+      lines.push(`  ${marker} ${m.timestamp} · “${m.query}” → /${m.matched}`);
     }
   }
   lines.push('');
 
-  lines.push('### 🔔 新发现');
+  lines.push('下一步建议：');
   if (stats.newCapsThisWeek > 0) {
-    lines.push(`- 新增 ${stats.newCapsThisWeek} 个工具`);
+    lines.push(`  - 新增 ${stats.newCapsThisWeek} 个工具，建议运行 \`lazybrain compile\` 更新图谱`);
   } else {
-    lines.push('- 本周暂无新增工具');
+    lines.push('  - 本周暂无新增工具');
   }
   if (stats.duplicatePairs > 0) {
-    lines.push(`- 检测到 ${stats.duplicatePairs} 对重复工具（运行 \`lazybrain dups\`）`);
+    lines.push('  - 运行 `lazybrain dups` 清理重复能力，推荐会更准');
   } else {
-    lines.push('- 未检测到重复工具');
+    lines.push('  - 当前没有检测到重复工具');
   }
   lines.push('');
 
-  lines.push('### 💡 命令');
-  lines.push('- `lazybrain stats` 查看完整统计');
-  lines.push('- `lazybrain wiki <name>` 查工具详情');
-  lines.push('- 在对话里说"推荐 xxx"自动匹配');
+  lines.push('常用命令：`lazybrain stats` · `lazybrain wiki <name>` · `lazybrain summary`');
 
   return lines.join('\n');
 }

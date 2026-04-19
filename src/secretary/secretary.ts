@@ -142,7 +142,9 @@ export async function askSecretary(
   options: SecretaryOptions,
 ): Promise<SecretaryResponse | null> {
   if (isCircuitOpen()) {
-    process.stderr.write('[LazyBrain] Secretary circuit open, skipping\n');
+    if (process.env.LAZYBRAIN_HOOK !== '1' || process.env.LAZYBRAIN_DEBUG_HOOK === '1') {
+      process.stderr.write('[LazyBrain] Secretary circuit open, skipping\n');
+    }
     return null;
   }
 
@@ -211,10 +213,12 @@ export async function askSecretary(
     return result;
   } catch (err) {
     recordFailure();
-    if (isCircuitOpen()) {
-      process.stderr.write(`[LazyBrain] Secretary circuit open (paused ${SECRETARY_CIRCUIT_BREAKER_PAUSE_MS / 1000 / 60}min)\n`);
-    } else {
-      process.stderr.write(`[LazyBrain] Secretary error: ${err instanceof Error ? err.message : String(err)}\n`);
+    if (process.env.LAZYBRAIN_HOOK !== '1' || process.env.LAZYBRAIN_DEBUG_HOOK === '1') {
+      if (isCircuitOpen()) {
+        process.stderr.write(`[LazyBrain] Secretary circuit open (paused ${SECRETARY_CIRCUIT_BREAKER_PAUSE_MS / 1000 / 60}min)\n`);
+      } else {
+        process.stderr.write(`[LazyBrain] Secretary error: ${err instanceof Error ? err.message : String(err)}\n`);
+      }
     }
     return null;
   }

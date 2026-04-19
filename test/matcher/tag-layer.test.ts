@@ -44,6 +44,17 @@ describe('tokenize', () => {
     expect(tokens).toContain('代码');
   });
 
+  it('normalizes Traditional Chinese before tokenizing', () => {
+    const tokens = tokenize('幫我審查程式碼');
+    expect(tokens).toContain('审查');
+    expect(tokens).toContain('代码');
+  });
+
+  it('expands abstract product/architecture phrasing into concrete intent tokens', () => {
+    const tokens = tokenize('这个项目感觉带不起来，一直兜圈子');
+    expect(tokens).toEqual(expect.arrayContaining(['架构', '规划', 'architecture', 'architect', 'planning', 'plan']));
+  });
+
   it('deduplicates tokens', () => {
     const tokens = tokenize('code code review');
     expect(tokens.filter(t => t === 'code').length).toBe(1);
@@ -126,6 +137,31 @@ describe('tagMatch', () => {
     const results = tagMatch('代码审查', [richCap], 'claude-code', 3);
     expect(results.length).toBeGreaterThan(0);
     expect(results[0].capability.name).toBe('review-pr');
+  });
+
+  it('matches Traditional Chinese query via normalization and bridge expansion', () => {
+    const richCap = cap({
+      id: '11',
+      name: 'review-pr',
+      tags: ['code-review', 'pull-request', 'pr', 'review', 'code'],
+      exampleQueries: ['review this code', 'check my pull request', 'code review'],
+    });
+    const results = tagMatch('審查程式碼', [richCap], 'claude-code', 3);
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0].capability.name).toBe('review-pr');
+  });
+
+  it('routes abstract stuck-project phrasing toward planning/architecture capabilities', () => {
+    const architect = cap({
+      id: '12',
+      name: 'architect',
+      tags: ['architecture', 'architect', 'planning', 'plan', 'design'],
+      exampleQueries: ['system architecture planning'],
+      category: 'planning',
+    });
+    const results = tagMatch('这个项目感觉带不起来，一直兜圈子', [architect], 'claude-code', 3);
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0].capability.name).toBe('architect');
   });
 
   it('layer is always "tag"', () => {

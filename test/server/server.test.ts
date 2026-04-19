@@ -141,6 +141,24 @@ describe('GET /stats', () => {
   });
 });
 
+describe('GET /graph', () => {
+  it('returns graph view JSON', async () => {
+    const { status, body } = await req('GET', '/graph?limit=10');
+    expect(status).toBe(200);
+    expect(Array.isArray(body.nodes)).toBe(true);
+    expect(Array.isArray(body.edges)).toBe(true);
+    expect(body.nodes.length).toBe(2);
+  });
+
+  it('returns graph view Mermaid text', async () => {
+    const res = await fetch(`${baseUrl}/graph?format=mermaid&limit=10`);
+    const body = await res.text();
+    expect(res.status).toBe(200);
+    expect(body).toContain('graph LR');
+    expect(body).toContain('python-patterns');
+  });
+});
+
 describe('GET /dups', () => {
   it('returns array of duplicate pairs', async () => {
     const { status, body } = await req('GET', '/dups');

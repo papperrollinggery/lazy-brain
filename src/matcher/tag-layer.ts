@@ -8,6 +8,7 @@
 import type { Capability, MatchResult, Platform } from '../types.js';
 import { MIN_MATCH_SCORE } from '../constants.js';
 import { expandTokens } from '../utils/cjk-bridge.js';
+import { enrichQueryForMatching, isIntentExpansionToken, normalizeQuery } from '../utils/query-normalizer.js';
 
 /**
  * English stopwords that carry no domain signal.
@@ -36,7 +37,7 @@ const STOPWORDS = new Set([
  * diluting scores on short queries.
  */
 export function tokenize(text: string): string[] {
-  const lower = text.toLowerCase();
+  const lower = enrichQueryForMatching(text).toLowerCase();
   const tokens: string[] = [];
 
   // Extract CJK segments with sliding window (2-char bigrams + full segment)
@@ -154,6 +155,7 @@ function scoreCapability(
   original: string[],
   expanded: string[],
   cap: Capability,
+  query: string,
 ): number {
   if (original.length === 0 && expanded.length === 0) return 0;
 
@@ -163,6 +165,10 @@ function scoreCapability(
 
   const allTokens = [...original, ...expanded];
   const isExpanded = new Set(expanded);
+  const normalizedQuery = normalizeQuery(query);
+  const intentTokens = new Set(
+    allTokens.filter(token => isIntentExpansionToken(token, normalizedQuery)),
+  );
 
   // Per-token best score across all signal tiers
   const tokenScore = new Map<string, number>();
@@ -287,6 +293,13 @@ function scoreCapability(
     queryCount = Math.max(1, original.length);
   }
 
+  if (intentTokens.size > 0) {
+    const intentHitCount = [...intentTokens].filter(t => tokenScore.has(t)).length;
+    if (intentHitCount > 0) {
+      queryCount = Math.min(queryCount, Math.max(1, intentTokens.size));
+    }
+  }
+
   const totalScore = [...tokenScore.values()].reduce((a, b) => a + b, 0);
   return Math.min(1, totalScore / queryCount);
 }
@@ -315,7 +328,7 @@ export function tagMatch(
   const hasLangHint = queryHasLangHint([...original, ...expanded]);
   const scored: MatchResult[] = [];
   for (const cap of filtered) {
-    let score = scoreCapability(original, expanded, cap);
+    let score = scoreCapability(original, expanded, cap, query);
     if (score < MIN_MATCH_SCORE) continue;
 
     // Penalize language-specialized capabilities on generic queries

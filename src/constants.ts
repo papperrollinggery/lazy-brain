@@ -36,11 +36,19 @@ export function getClaudeConfigDir(): string {
   return normalize(configured);
 }
 
+export function getStatuslineChainPath(): string {
+  return join(getClaudeConfigDir(), 'lazybrain-statusline-chain.json');
+}
+
 // ─── Default Scan Paths ─────────────────────────────────────────────────────
 
 /** Infer primary platform from file path (single platform, not array) */
  export function inferSinglePlatformFromPath(filePath: string): Platform {
    if (filePath.includes('/.openclaw/')) return 'openclaw';
+   if (filePath.includes('/.codex/')) return 'codex';
+   if (filePath.includes('/.config/opencode/')) return 'opencode';
+   if (filePath.includes('/.opencode/')) return 'opencode';
+   if (filePath.includes('/.hermes/')) return 'hermes';
    if (filePath.includes('/.workbuddy/')) return 'workbuddy';
    if (filePath.includes('/.cursor/')) return 'cursor';
    if (filePath.includes('/.kiro/')) return 'kiro';
@@ -51,10 +59,11 @@ export function getClaudeConfigDir(): string {
 export function getDefaultScanPaths(platforms?: Record<string, boolean>): string[] {
   const claude = getClaudeConfigDir();
   const home = homedir();
-  const pf = platforms ?? { 'claude-code': true };
+  const pf = platforms;
   const paths: string[] = [];
+  const includeClaude = pf ? pf['claude-code'] === true : true;
 
-  if (pf['claude-code'] !== false) {
+  if (includeClaude) {
     paths.push(
       join(claude, 'skills'),
       join(claude, 'skills-disabled'),
@@ -70,14 +79,38 @@ export function getDefaultScanPaths(platforms?: Record<string, boolean>): string
     );
   }
 
-  if (pf['openclaw'] === true) {
+  if (pf?.['openclaw'] === true) {
     paths.push(
       join(home, '.openclaw', 'skills'),
       join(home, '.openclaw', 'agents'),
     );
   }
 
-  if (pf['workbuddy'] === true) {
+  if (pf?.['codex'] === true) {
+    paths.push(
+      join(home, '.codex', 'skills'),
+      join(home, '.codex', 'agents'),
+      join(home, '.codex', 'commands'),
+    );
+  }
+
+  if (pf?.['opencode'] === true) {
+    paths.push(
+      join(home, '.config', 'opencode', 'skills'),
+      join(home, '.config', 'opencode', 'agents'),
+      join(home, '.opencode', 'skills'),
+      join(home, '.opencode', 'agents'),
+    );
+  }
+
+  if (pf?.['hermes'] === true) {
+    paths.push(
+      join(home, '.hermes', 'skills'),
+      join(home, '.hermes', 'agents'),
+    );
+  }
+
+  if (pf?.['workbuddy'] === true) {
     paths.push(
       join(home, '.workbuddy', 'skills'),
     );
@@ -105,10 +138,13 @@ export const TRANSLATION_PATH_PATTERNS = [
 export function inferPlatformFromPath(filePath: string): Platform[] {
   const p = filePath.toLowerCase();
   if (p.includes('/.claw/') || p.includes('/claw/')) return ['openclaw'];
+  if (p.includes('/.codex/')) return ['codex'];
   if (p.includes('/.cursor/')) return ['cursor'];
   if (p.includes('/.kiro/')) return ['kiro'];
   if (p.includes('/.factory/')) return ['droid'];
   if (p.includes('/.config/opencode/')) return ['opencode'];
+  if (p.includes('/.opencode/')) return ['opencode'];
+  if (p.includes('/.hermes/')) return ['hermes'];
   if (p.includes('/.agents/skills/')) return ['claude-code', 'codex', 'universal'];
   if (p.includes('/.claude/')) return ['claude-code'];
   return ['universal'];
@@ -153,6 +189,15 @@ export type Category = typeof CATEGORIES[number];
 
 // ─── Default Config ─────────────────────────────────────────────────────────
 
+export const DEFAULT_GOVERNANCE_CONFIG: NonNullable<UserConfig['governance']> = {
+  enablePreflight: true,
+  softCostUsd: 0.5,
+  hardCostUsd: 5.0,
+  softTokenThreshold: 50_000,
+  hardTokenThreshold: 200_000,
+  heavyModes: ['team', 'ralph', 'ralplan'],
+};
+
 export const DEFAULT_CONFIG: UserConfig = {
   aliases: {},
   scanPaths: [],
@@ -167,8 +212,9 @@ export const DEFAULT_CONFIG: UserConfig = {
   externalDiscovery: false,
   platform: 'claude-code' as const,
   language: 'auto' as const,
-  platforms: { 'claude-code': true, 'openclaw': false, 'workbuddy': false, 'cursor': false, 'kiro': false, 'codex': false, 'opencode': false, 'droid': false, 'universal': false },
+  platforms: { 'claude-code': true, 'openclaw': false, 'workbuddy': false, 'cursor': false, 'kiro': false, 'codex': false, 'opencode': false, 'hermes': false, 'droid': false, 'universal': false },
   decisionCardThreshold: DEFAULT_DECISION_CARD_THRESHOLD,
+  governance: DEFAULT_GOVERNANCE_CONFIG,
 };
 
 // ─── Graph Version ──────────────────────────────────────────────────────────

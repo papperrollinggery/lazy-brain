@@ -58,6 +58,25 @@ interface UsageEntry {
   taskType: string;
 }
 
+function ratesForModel(model: string | undefined): {
+  input: number;
+  output: number;
+  cacheWrite: number;
+  cacheRead: number;
+} {
+  const name = model?.toLowerCase() ?? 'sonnet';
+  if (name.includes('opus')) {
+    return { input: 15.0, output: 75.0, cacheWrite: 18.75, cacheRead: 1.5 };
+  }
+  if (name.includes('haiku')) {
+    return { input: 0.80, output: 4.0, cacheWrite: 1.0, cacheRead: 0.08 };
+  }
+  if (name.includes('glm')) {
+    return { input: 0.07, output: 0.07, cacheWrite: 0, cacheRead: 0 };
+  }
+  return { input: 3.0, output: 15.0, cacheWrite: 3.75, cacheRead: 0.30 };
+}
+
 function loadHistoryEntries(historyPath?: string): HistoryEntry[] {
   const path = historyPath ?? HISTORY_PATH;
   if (!existsSync(path)) return [];
@@ -102,36 +121,30 @@ export function buildSessionSummary(sessionId: string, options?: SessionSummaryO
   const avoidCount = routed.filter(h => !h.accepted).length;
   const acceptRate = routeCount > 0 ? Math.round((acceptCount / routeCount) * 100) : 0;
 
-  // Baseline = full price tokens (input + output, no cache discount)
-  // Actual = tokens after cache read savings
-  // Saved = baseline - actual = cacheReadTokens (tokens that got cache discount)
+  // Baseline is what the session would have cost without prompt-cache reads.
+  // Actual is the transcript cost model: normal input/output, cache writes at
+  // write rates, and cache reads at the discounted read rate.
   let baselineTokens = 0;
   let actualTokens = 0;
   let baselineCostUSD = 0;
   let actualCostUSD = 0;
 
   for (const u of sessionUsage) {
-    const entryBaseline = u.inputTokens + u.outputTokens;
-    const entryActual = entryBaseline - u.cacheReadTokens;
+    const entryBaseline = u.inputTokens + u.outputTokens + u.cacheWriteTokens + u.cacheReadTokens;
+    const entryActual = u.inputTokens + u.outputTokens + u.cacheWriteTokens;
 
     baselineTokens += entryBaseline;
     actualTokens += entryActual;
 
-    // Calculate baseline cost at full rates, actual cost uses cached rates
-    const rates = { input: 3.0, output: 15.0, cacheWrite: 3.75, cacheRead: 0.30 };
-    const model = u.model?.toLowerCase() ?? 'sonnet';
-    if (model.includes('opus')) {
-      rates.input = 15.0; rates.output = 75.0; rates.cacheWrite = 18.75; rates.cacheRead = 1.5;
-    } else if (model.includes('haiku')) {
-      rates.input = 0.80; rates.output = 4.0; rates.cacheWrite = 1.0; rates.cacheRead = 0.08;
-    } else if (model.includes('glm')) {
-      rates.input = 0.07; rates.output = 0.07; rates.cacheWrite = 0; rates.cacheRead = 0;
-    }
+    const rates = ratesForModel(u.model);
 
     baselineCostUSD += (u.inputTokens / 1_000_000) * rates.input
-      + (u.outputTokens / 1_000_000) * rates.output;
+      + (u.outputTokens / 1_000_000) * rates.output
+      + (u.cacheWriteTokens / 1_000_000) * rates.input
+      + (u.cacheReadTokens / 1_000_000) * rates.input;
     actualCostUSD += (u.inputTokens / 1_000_000) * rates.input
       + (u.outputTokens / 1_000_000) * rates.output
+      + (u.cacheWriteTokens / 1_000_000) * rates.cacheWrite
       + (u.cacheReadTokens / 1_000_000) * rates.cacheRead;
   }
 

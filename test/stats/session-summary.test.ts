@@ -116,12 +116,13 @@ describe('buildSessionSummary', () => {
     expect(summary.acceptCount).toBe(3);
     expect(summary.acceptRate).toBe(100);
     expect(summary.avoidCount).toBe(0);
-    // baseline = 3000+1500 + 2000+1000 = 7500
-    expect(summary.baselineTokens).toBe(7500);
-    // actual = baseline - cacheRead = 7500 - 500 - 300 = 6700
-    expect(summary.actualTokens).toBe(6700);
-    // saved = baseline - actual = 7500 - 6700 = 800
+    // baseline includes cache reads as full-price input: 3000+1500+500 + 2000+1000+300 = 8300
+    expect(summary.baselineTokens).toBe(8300);
+    // actual excludes cache reads from full token usage: 3000+1500 + 2000+1000 = 7500
+    expect(summary.actualTokens).toBe(7500);
+    // saved = baseline - actual = 8300 - 7500 = 800
     expect(summary.savedTokens).toBe(800);
+    expect(summary.savedCostUSD).toBeGreaterThanOrEqual(0);
     expect(summary.cheapestTask).not.toBeNull();
   });
 
@@ -160,9 +161,9 @@ describe('buildSessionSummary', () => {
     expect(summary.acceptCount).toBe(2);
     expect(summary.acceptRate).toBe(67);
     expect(summary.avoidCount).toBe(1);
-    // baseline = 1500, actual = 1500-200 = 1300, saved = 200
-    expect(summary.baselineTokens).toBe(1500);
-    expect(summary.actualTokens).toBe(1300);
+    // baseline = 1500 + 200 cache reads, actual = 1500, saved = 200
+    expect(summary.baselineTokens).toBe(1700);
+    expect(summary.actualTokens).toBe(1500);
     expect(summary.savedTokens).toBe(200);
   });
 
@@ -173,13 +174,14 @@ describe('buildSessionSummary', () => {
       historyPath: HISTORY_FILE,
       usagePath: USAGE_FILE,
     });
-    // baseline = 5000+2000 = 7000
-    expect(summary.baselineTokens).toBe(7000);
-    // actual = 7000 - 1000 = 6000
-    expect(summary.actualTokens).toBe(6000);
-    // saved = 7000 - 6000 = 1000 = cacheReadTokens
+    // baseline = 5000+2000+1000 cache reads = 8000
+    expect(summary.baselineTokens).toBe(8000);
+    // actual = non-cache tokens only = 7000
+    expect(summary.actualTokens).toBe(7000);
+    // saved = 8000 - 7000 = 1000 = cacheReadTokens
     expect(summary.savedTokens).toBe(1000);
     expect(summary.savedTokens).toBe(summary.baselineTokens - summary.actualTokens);
+    expect(summary.savedCostUSD).toBeGreaterThanOrEqual(0);
   });
 });
 

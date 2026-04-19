@@ -43,6 +43,20 @@ describe('scanner', () => {
     expect(cmd?.description).toBe('A test command for scanner unit tests');
   });
 
+  it('scans plugin-provided agents and commands', () => {
+    const result = scan({
+      extraPaths: [resolve(fixturesDir, 'plugins')],
+    });
+
+    const pluginAgent = result.capabilities.find(c => c.name === 'Test Plugin Agent');
+    expect(pluginAgent?.kind).toBe('agent');
+    expect(pluginAgent?.filePath).toContain('/fixtures/plugins/sample-plugin/agents/');
+
+    const pluginCommand = result.capabilities.find(c => c.name === 'test-plugin-command');
+    expect(pluginCommand?.kind).toBe('command');
+    expect(pluginCommand?.filePath).toContain('/fixtures/plugins/sample-plugin/commands/');
+  });
+
   it('handles non-existent paths gracefully', () => {
     const result = scan({
       extraPaths: [resolve(fixturesDir, 'non-existent-path')],

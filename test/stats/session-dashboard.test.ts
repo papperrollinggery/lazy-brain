@@ -19,8 +19,8 @@ describe('formatDashboard', () => {
       duplicatePairs: 0,
     };
     const output = formatDashboard(stats);
-    expect(output).toContain('## 🧠 LazyBrain 武器库管家');
-    expect(output).toContain('### 📊 你的工具使用');
+    expect(output).toContain('## 🧠 LazyBrain');
+    expect(output).toContain('今天我替你：');
   });
 
   it('renders stats table with correct values', () => {
@@ -39,7 +39,8 @@ describe('formatDashboard', () => {
       duplicatePairs: 0,
     };
     const output = formatDashboard(stats);
-    expect(output).toContain('| 491    | 540 次 | 78%');
+    expect(output).toContain('自动路由 540 次');
+    expect(output).toContain('接受 421');
     expect(output).toContain('~5k');
   });
 
@@ -59,8 +60,8 @@ describe('formatDashboard', () => {
       duplicatePairs: 0,
     };
     const output = formatDashboard(stats);
-    expect(output).toContain('### 🎯 最近推荐（Top 3）');
-    expect(output).toContain('| — | — | — | ❓ |');
+    expect(output).toContain('最近我做过的决定：');
+    expect(output).toContain('还没有可展示的推荐');
   });
 
   it('renders recent matches with data', () => {
@@ -107,7 +108,7 @@ describe('formatDashboard', () => {
     };
     const output = formatDashboard(stats);
     expect(output).toContain('新增 5 个工具');
-    expect(output).toContain('检测到 2 对重复工具');
+    expect(output).toContain('发现 2 对可能重复的工具');
   });
 
   it('renders command hints', () => {
@@ -128,6 +129,6 @@ describe('formatDashboard', () => {
     const output = formatDashboard(stats);
     expect(output).toContain('lazybrain stats');
     expect(output).toContain('lazybrain wiki <name>');
-    expect(output).toContain('推荐 xxx');
+    expect(output).toContain('lazybrain summary');
   });
 });

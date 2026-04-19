@@ -14,6 +14,7 @@ const ZH_EN_MAP: Record<string, string[]> = {
   '质量': ['quality'],
   '清理': ['clean', 'cleanup'],
   '格式': ['format', 'lint'],
+  '垃圾': ['slop', 'junk'],
 
   // Testing
   '测试': ['test', 'testing'],
@@ -74,26 +75,39 @@ const ZH_EN_MAP: Record<string, string[]> = {
   '写作': ['write', 'writing'],
   '文章': ['article', 'blog'],
   '内容': ['content'],
+  '视频': ['video'],
+  '脚本': ['script'],
+  '故事': ['story', 'storytelling'],
 
   // Data
   '数据': ['data', 'database'],
   '迁移': ['migration', 'migrate'],
   '查询': ['query'],
+  '指标': ['metrics', 'analytics'],
 
   // Orchestration
   '工作流': ['workflow'],
   '编排': ['orchestrate', 'orchestration'],
   '团队': ['team'],
   '代理': ['agent'],
+  '拆解': ['decompose', 'breakdown', 'planning'],
 
   // Learning
   '学习': ['learn', 'learning'],
   '进化': ['evolve', 'evolution'],
   '优化': ['optimize', 'optimization'],
+  '最佳': ['best'],
+  '实践': ['practice', 'patterns'],
 
   // Communication
   '通知': ['notification', 'notify'],
   '消息': ['message'],
+
+  // Product
+  '产品': ['product'],
+  '定位': ['positioning', 'strategy'],
+  '商业': ['business', 'monetization'],
+  '变现': ['monetization', 'pricing'],
 
   // Common verbs (only domain-specific ones, skip generic like 帮/做)
   '创建': ['create', 'new'],

@@ -55,7 +55,14 @@ function loadHistoryEntries(): HistoryEntry[] {
   }
 }
 
-function loadUsageEntries(): Array<{ inputTokens: number; outputTokens: number; cacheWriteTokens: number; cacheReadTokens: number; costUsd: number }> {
+function loadUsageEntries(): Array<{
+  inputTokens: number;
+  outputTokens: number;
+  cacheWriteTokens: number;
+  cacheReadTokens: number;
+  costUsd: number;
+  model: string;
+}> {
   if (!existsSync(USAGE_PATH)) return [];
   try {
     const raw = readFileSync(USAGE_PATH, 'utf-8').trim();
@@ -68,11 +75,20 @@ function loadUsageEntries(): Array<{ inputTokens: number; outputTokens: number; 
         cacheWriteTokens: entry.cacheWriteTokens ?? 0,
         cacheReadTokens: entry.cacheReadTokens ?? 0,
         costUsd: entry.costUsd ?? 0,
+        model: entry.model ?? 'sonnet',
       };
     });
   } catch {
     return [];
   }
+}
+
+function ratesForModel(model: string | undefined): { input: number; output: number; cacheWrite: number; cacheRead: number } {
+  const name = model?.toLowerCase() ?? 'sonnet';
+  if (name.includes('opus')) return { input: 15.0, output: 75.0, cacheWrite: 18.75, cacheRead: 1.5 };
+  if (name.includes('haiku')) return { input: 0.80, output: 4.0, cacheWrite: 1.0, cacheRead: 0.08 };
+  if (name.includes('glm')) return { input: 0.07, output: 0.07, cacheWrite: 0, cacheRead: 0 };
+  return { input: 3.0, output: 15.0, cacheWrite: 3.75, cacheRead: 0.30 };
 }
 
 function loadLastCompiledAt(): number {
@@ -116,26 +132,20 @@ export function buildSessionStats(graph: Graph, duplicatePairs: DuplicatePair[] 
   let actualCostUSD = 0;
 
   for (const u of usageEntries) {
-    const entryBaseline = u.inputTokens + u.outputTokens;
-    const entryActual = entryBaseline - u.cacheReadTokens;
+    const entryBaseline = u.inputTokens + u.outputTokens + u.cacheWriteTokens + u.cacheReadTokens;
+    const entryActual = u.inputTokens + u.outputTokens + u.cacheWriteTokens;
     baselineTokens += entryBaseline;
     actualTokens += entryActual;
 
-    // Calculate costs using model-specific rates
-    const rates = { input: 3.0, output: 15.0, cacheRead: 0.30 };
-    const model = (u as unknown as { model?: string }).model?.toLowerCase() ?? 'sonnet';
-    if (model.includes('opus')) {
-      rates.input = 15.0; rates.output = 75.0; rates.cacheRead = 1.5;
-    } else if (model.includes('haiku')) {
-      rates.input = 0.80; rates.output = 4.0; rates.cacheRead = 0.08;
-    } else if (model.includes('glm')) {
-      rates.input = 0.07; rates.output = 0.07; rates.cacheRead = 0;
-    }
+    const rates = ratesForModel(u.model);
 
     baselineCostUSD += (u.inputTokens / 1_000_000) * rates.input
-      + (u.outputTokens / 1_000_000) * rates.output;
+      + (u.outputTokens / 1_000_000) * rates.output
+      + (u.cacheWriteTokens / 1_000_000) * rates.input
+      + (u.cacheReadTokens / 1_000_000) * rates.input;
     actualCostUSD += (u.inputTokens / 1_000_000) * rates.input
       + (u.outputTokens / 1_000_000) * rates.output
+      + (u.cacheWriteTokens / 1_000_000) * rates.cacheWrite
       + (u.cacheReadTokens / 1_000_000) * rates.cacheRead;
   }
 

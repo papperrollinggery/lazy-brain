@@ -47,7 +47,9 @@ function withFileLock<T>(lockPath: string, fn: () => T, timeoutMs = 3000): T {
   }
 
   // All retries exhausted — execute without lock (degraded mode)
-  process.stderr.write(`[LazyBrain] Warning: could not acquire file lock after ${timeoutMs}ms, proceeding without lock\n`);
+  if (process.env.LAZYBRAIN_HOOK !== '1' || process.env.LAZYBRAIN_DEBUG_HOOK === '1') {
+    process.stderr.write(`[LazyBrain] Warning: could not acquire file lock after ${timeoutMs}ms, proceeding without lock\n`);
+  }
   return fn();
 }
 

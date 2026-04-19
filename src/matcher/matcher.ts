@@ -21,6 +21,7 @@ import { MAX_RESULTS, HISTORY_BOOST_CAP } from '../constants.js';
 import { Graph } from '../graph/graph.js';
 import { tagMatch } from './tag-layer.js';
 import { detectDecisionType, buildDecisionRecommendation } from './decision-type.js';
+import { normalizeQuery } from '../utils/query-normalizer.js';
 
 /**
  * Language/framework keywords that make a capability specialized.
@@ -103,6 +104,7 @@ export async function match(
   query: string,
   options: MatchOptions,
 ): Promise<Recommendation> {
+  const normalizedQuery = normalizeQuery(query);
   const { graph, config, history, profile } = options;
   const allNodes = graph.getAllNodes().filter(n => n.status !== 'disabled');
   const platform = config.platform;
@@ -120,22 +122,22 @@ export async function match(
   }
 
   // ─── Layer 0: Alias exact match ───────────────────────────────────────
-  const aliasResult = matchAlias(query, config.aliases, allNodes);
+  const aliasResult = matchAlias(normalizedQuery, config.aliases, allNodes);
   if (aliasResult) {
-    const withExplanation = fillExplanation(aliasResult, query, history);
+    const withExplanation = fillExplanation(aliasResult, normalizedQuery, history);
     return buildRecommendation([withExplanation], graph, platform, history);
   }
 
   // ─── Layer 1: Tag + example query match ───────────────────────────────
   // Prefer tier 0+1 (current platform + universal), fallback to tier 2
   const primaryNodes = allNodes.filter(n => n.tier === undefined || n.tier <= 1);
-  let results = tagMatch(query, primaryNodes, platform, MAX_RESULTS);
+  let results = tagMatch(normalizedQuery, primaryNodes, platform, MAX_RESULTS);
 
   // Fallback: if < 3 results, search tier 2 as well
   if (results.length < 3) {
     const tier2Nodes = allNodes.filter(n => n.tier === 2);
     if (tier2Nodes.length > 0) {
-      const tier2Results = tagMatch(query, tier2Nodes, platform, MAX_RESULTS);
+      const tier2Results = tagMatch(normalizedQuery, tier2Nodes, platform, MAX_RESULTS);
       // Mark tier 2 results with lower confidence
       for (const r of tier2Results) {
         r.confidence = 'low';
@@ -170,10 +172,10 @@ export async function match(
   }
 
   // ─── Decision type detection ────────────────────────────────────────
-  const decisionType = detectDecisionType(query);
+  const decisionType = detectDecisionType(normalizedQuery);
 
   // ─── Build enriched recommendation via graph traversal ────────────────
-  const withExplanation = results.map(r => fillExplanation(r, query, history));
+  const withExplanation = results.map(r => fillExplanation(r, normalizedQuery, history));
   const sessionId = process.env.CLAUDE_SESSION_ID ?? 'unknown';
   const rec = buildRecommendation(withExplanation, graph, platform, history, sessionId);
   if (decisionType && rec) {

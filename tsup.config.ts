@@ -6,6 +6,7 @@ export default defineConfig({
     'bin/lazybrain': 'bin/lazybrain.ts',
     'bin/hook': 'bin/hook.ts',
     'bin/statusline': 'bin/statusline.ts',
+    'bin/statusline-combined': 'bin/statusline-combined.ts',
   },
   format: ['esm'],
   dts: true,

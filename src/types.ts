@@ -18,6 +18,7 @@ export type Platform =
   | 'kiro'
   | 'codex'
   | 'opencode'
+  | 'hermes'
   | 'droid'
   | 'universal';
 
@@ -80,6 +81,51 @@ export interface Capability {
   // ─── User-evolved tags ───
   /** Tags learned from user behavior (降权 0.6x，上限 5 个） */
   evolvedTags?: string[];
+
+  // ─── Phase 3.x: Execution Governance ───
+  /** Cost level for budget gating */
+  costLevel?: 'free' | 'low' | 'medium' | 'high';
+  /** Risk level for preflight gating */
+  riskLevel?: 'safe' | 'caution' | 'destructive';
+  /** Require user confirmation before execution */
+  requiresConfirmation?: boolean;
+  /** Hide from default recommendations (shown only on explicit query) */
+  hiddenByDefault?: boolean;
+  /** Source priority for duplicate resolution (0=highest) */
+  sourcePriority?: number;
+  /** Other capability names this overlaps with (for duplicate warnings) */
+  overlapsWith?: string[];
+}
+
+/**
+ * Governance decision for a matched capability.
+ * Produced by the governance layer before presenting to the user.
+ */
+export interface GovernanceDecision {
+  /** Recommended execution mode */
+  mode: ExecutionMode;
+  /** Whether to show a confirmation prompt */
+  requiresConfirmation: boolean;
+  /** Level of confirmation needed */
+  confirmationLevel: 'none' | 'soft' | 'hard';
+  /** Estimated input tokens for this execution */
+  estimatedInputTokens: number;
+  /** Estimated output tokens for this execution */
+  estimatedOutputTokens: number;
+  /** Estimated cost in USD (approximate) */
+  estimatedCostUsd: number;
+  /** Estimated duration in minutes */
+  estimatedDurationMinutes: number;
+  /** Which model plan was selected */
+  selectedModelPlan: 'haiku' | 'sonnet' | 'opus' | 'custom';
+  /** Reasons for the selected model plan */
+  reasons: string[];
+  /** Option to downgrade to a cheaper model */
+  downgradeOption?: {
+    plan: string;
+    estimatedCostUsd: number;
+    tradeoffs: string;
+  };
 }
 
 // ─── Link (Graph Edge) ──────────────────────────────────────────────────────
@@ -300,6 +346,23 @@ export interface UserConfig {
   platforms?: Record<Platform, boolean>;
   /** Decision card threshold (0-1): score >= threshold shows decision card, below uses compact output */
   decisionCardThreshold?: number;
+
+  // ─── Phase 3.x: Governance ───
+  /** Execution governance configuration */
+  governance?: {
+    /** Enable preflight checks before execution */
+    enablePreflight: boolean;
+    /** Soft cost limit in USD (warn above this) */
+    softCostUsd: number;
+    /** Hard cost limit in USD (block above this) */
+    hardCostUsd: number;
+    /** Soft token threshold (warn above this) */
+    softTokenThreshold: number;
+    /** Hard token threshold (block above this) */
+    hardTokenThreshold: number;
+    /** Modes that are considered "heavy" and require extra gating */
+    heavyModes: ExecutionMode[];
+  };
 }
 
 // ─── History ────────────────────────────────────────────────────────────────

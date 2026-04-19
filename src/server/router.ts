@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import type { Graph } from '../graph/graph.js';
 import type { UserConfig } from '../types.js';
+import { buildGraphView, formatGraphMermaid } from '../graph/graph-view.js';
 import { match } from '../matcher/matcher.js';
 import { recommendTeam } from '../matcher/team-recommender.js';
 import { detectDuplicates } from '../graph/duplicate-detector.js';
@@ -109,6 +110,30 @@ function handleStats(
     byCategory[n.category] = (byCategory[n.category] ?? 0) + 1;
   }
   json(res, 200, { total: nodes.length, byKind, byCategory });
+}
+
+function handleGraphView(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  graph: Graph,
+): void {
+  const url = new URL(req.url ?? '/', 'http://localhost');
+  const format = (url.searchParams.get('format') ?? 'json').toLowerCase();
+  const limitRaw = parseInt(url.searchParams.get('limit') ?? '80', 10);
+  const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 200) : 80;
+  const view = buildGraphView(graph, limit);
+
+  if (format === 'mermaid') {
+    const payload = formatGraphMermaid(view);
+    res.writeHead(200, {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Content-Length': Buffer.byteLength(payload),
+    });
+    res.end(payload);
+    return;
+  }
+
+  json(res, 200, view);
 }
 
 function handleDups(
@@ -252,6 +277,10 @@ export function createRouter(opts: RouterOptions): http.RequestListener {
     // GET /stats
     if (method === 'GET' && pathname === '/stats') {
       return handleStats(req, res, graph);
+    }
+    // GET /graph
+    if (method === 'GET' && pathname === '/graph') {
+      return handleGraphView(req, res, graph);
     }
     // GET /dups
     if (method === 'GET' && pathname === '/dups') {

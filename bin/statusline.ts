@@ -119,10 +119,10 @@ function getLabel(): string {
       }
     }
 
-    // tool=null → 匹配过但没有合适候选（OmcModeQuery 等）
+    // tool=null → 匹配过但没有合适候选（OmcModeQuery 等）或被 bypass
     // age < 5min 显示时间，否则待机
     if (age < 5 * 60 * 1000) {
-      return `🧠 ${timeAgo(age)} 无候选${omcSuffix}`;
+      return `🧠 ${timeAgo(age)} 已跳过${omcSuffix}`;
     }
   }
 

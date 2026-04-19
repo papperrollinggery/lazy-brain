@@ -6,6 +6,8 @@ function makeGraph(agents: Array<{
   name: string;
   description?: string;
   tags?: string[];
+  exampleQueries?: string[];
+  aliases?: string[];
   category?: string;
   evolvedTags?: string[];
 }>): Graph {
@@ -21,9 +23,10 @@ function makeGraph(agents: Array<{
       status: 'installed',
       compatibility: ['claude-code'],
       tags: a.tags || [],
-      exampleQueries: [],
+      exampleQueries: a.exampleQueries || [],
       category: a.category || 'other',
       evolvedTags: a.evolvedTags,
+      aliases: a.aliases,
     });
   }
   return graph;
@@ -44,6 +47,7 @@ describe('recommendTeam', () => {
     const result = recommendTeam('做一个 SEO 优化页面', graph, 4);
     expect(result).not.toBeNull();
     expect(result!.members.some(m => m.agent.name.includes('SEO'))).toBe(true);
+    expect(result!.omcBridge.command).toContain('/team');
   });
 
   it('returns security agent for security task', () => {
@@ -102,6 +106,163 @@ describe('recommendTeam', () => {
     ]);
     const result = recommendTeam('安全审查', graph, 2);
     expect(result).not.toBeNull();
+  });
+
+  it('routes abstract Chinese team requests to planning and orchestration agents', () => {
+    const graph = makeGraph([
+      {
+        name: 'Agents Orchestrator',
+        description: 'Autonomous pipeline manager that orchestrates multi-agent development workflows',
+        tags: ['agents orchestrator', 'multi-agent'],
+        category: 'orchestration',
+      },
+      {
+        name: 'architect',
+        description: 'Software architecture specialist for system design and technical decisions',
+        tags: ['architect', 'decision-making'],
+        category: 'planning',
+      },
+      {
+        name: 'frontend-fixer',
+        description: 'CSS and UI implementation worker',
+        tags: ['frontend', 'css'],
+        category: 'frontend',
+      },
+    ]);
+
+    const result = recommendTeam('team模式 这个项目带不起来，一直兜圈子，帮我拆解一下', graph, 3);
+
+    expect(result).not.toBeNull();
+    expect(result!.members.map(m => m.agent.name)).toEqual(
+      expect.arrayContaining(['Agents Orchestrator', 'architect']),
+    );
+  });
+
+  it('matches sparse agents from description instead of only fixed domain tags', () => {
+    const graph = makeGraph([
+      {
+        name: 'Product Strategist',
+        description: 'Defines product positioning, user value, go-to-market strategy, pricing, and monetization',
+        tags: ['product strategist'],
+        category: 'strategy',
+      },
+      {
+        name: 'Ops Runner',
+        description: 'Deploy scripts and CI maintenance',
+        tags: ['ops'],
+        category: 'ops',
+      },
+    ]);
+
+    const result = recommendTeam('这个工具产品感不强，帮我想商业化和定位', graph, 2);
+
+    expect(result).not.toBeNull();
+    expect(result!.members[0].agent.name).toBe('Product Strategist');
+  });
+
+  it('uses full inventory signals to compose cross-domain teams', () => {
+    const graph = makeGraph([
+      { name: 'Fixed Frontend 1', tags: ['frontend', 'react'], category: 'frontend' },
+      { name: 'Fixed Frontend 2', tags: ['frontend', 'css'], category: 'frontend' },
+      { name: 'Fixed Frontend 3', tags: ['frontend', 'vue'], category: 'frontend' },
+      {
+        name: 'Video Producer',
+        description: 'Creates video scripts, demos, and launch storytelling',
+        tags: ['video producer'],
+        category: 'media',
+      },
+      {
+        name: 'Data Analyst',
+        description: 'Analyzes usage funnels, retention, analytics, and product metrics',
+        tags: ['data analyst'],
+        category: 'analytics',
+      },
+      {
+        name: 'UX Researcher',
+        description: 'Researches user behavior and usability issues',
+        tags: ['ux researcher'],
+        category: 'research',
+      },
+    ]);
+
+    const result = recommendTeam('team模式 做一个视频脚本 + 前端页面 + 数据分析来验证产品', graph, 5);
+
+    expect(result).not.toBeNull();
+    const names = result!.members.map(m => m.agent.name);
+    expect(names).toEqual(expect.arrayContaining(['Video Producer', 'Data Analyst']));
+    expect(result!.members.filter(m => m.category === 'frontend')).toHaveLength(2);
+  });
+
+  it('maps debugging-heavy tasks to OMC debugger workers', () => {
+    const graph = makeGraph([
+      {
+        name: 'debugger',
+        description: 'Root-cause analysis and debugging specialist',
+        tags: ['debugger', 'root-cause'],
+        category: 'debugging',
+      },
+      {
+        name: 'architect',
+        description: 'Architecture specialist',
+        tags: ['architect'],
+        category: 'planning',
+      },
+    ]);
+
+    const result = recommendTeam('team模式 调试这个报错并修复根因', graph, 3);
+
+    expect(result).not.toBeNull();
+    expect(result!.omcBridge.workerType).toBe('debugger');
+    expect(result!.omcBridge.command).toContain('/team');
+    expect(result!.omcBridge.leadBrief).toContain('Recommended specialists');
+  });
+
+  it('maps generic planning tasks to executor workers for OMC compatibility', () => {
+    const graph = makeGraph([
+      {
+        name: 'architect',
+        description: 'Architecture specialist for system design',
+        tags: ['architect', 'planning'],
+        category: 'planning',
+      },
+      {
+        name: 'Agents Orchestrator',
+        description: 'Coordinates multi-agent workflows',
+        tags: ['orchestrator', 'multi-agent'],
+        category: 'orchestration',
+      },
+    ]);
+
+    const result = recommendTeam('team模式 帮我拆解这个项目怎么推进', graph, 2);
+
+    expect(result).not.toBeNull();
+    expect(result!.omcBridge.workerType).toBe('executor');
+    expect(result!.omcBridge.command).toContain(':executor');
+  });
+
+  it('normalizes explicit /team prompts instead of nesting commands', () => {
+    const graph = makeGraph([
+      {
+        name: 'architect',
+        description: 'Architecture specialist for system design',
+        tags: ['architect', 'planning'],
+        category: 'planning',
+      },
+      {
+        name: 'Workflow Architect',
+        description: 'Coordinates multi-agent workflows',
+        tags: ['workflow architect', 'orchestration'],
+        category: 'orchestration',
+      },
+    ]);
+
+    const result = recommendTeam('/team 5:executor "这个项目带不起来，一直兜圈子，帮我拆解一下"', graph, 5);
+
+    expect(result).not.toBeNull();
+    expect(result!.omcBridge.workerType).toBe('executor');
+    expect(result!.omcBridge.command).toBe('/team 2:executor "这个项目带不起来，一直兜圈子，帮我拆解一下"');
+    expect(result!.omcBridge.leadBrief).toContain('task="这个项目带不起来，一直兜圈子，帮我拆解一下"');
+    expect(result!.omcBridge.command).not.toContain('/team 2:executor "/team');
   });
 });
 

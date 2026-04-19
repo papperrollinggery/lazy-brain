@@ -20,7 +20,7 @@
 import { existsSync, mkdirSync, writeFileSync, readFileSync, unlinkSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { LAZYBRAIN_DIR, GRAPH_PATH, GRAPH_VERSION, STATUS_PATH, HISTORY_PATH } from '../src/constants.js';
+import { LAZYBRAIN_DIR, GRAPH_PATH, GRAPH_VERSION, STATUS_PATH, HISTORY_PATH, getStatuslineChainPath } from '../src/constants.js';
 import { Graph } from '../src/graph/graph.js';
 import { match } from '../src/matcher/matcher.js';
 import { recommendTeam } from '../src/matcher/team-recommender.js';
@@ -36,6 +36,7 @@ import { distillAndSave, loadProfile } from '../src/history/profile.js';
 import { evolveCapabilities } from '../src/evolution/evolve.js';
 import { generateReport, computeWeeklyStats, formatWeeklyReport } from '../src/history/accuracy-report.js';
 import { detectDuplicates, findCapabilityByNameOrId, compareCapabilities } from '../src/graph/duplicate-detector.js';
+import { buildGraphView, formatGraphMermaid } from '../src/graph/graph-view.js';
 import { createServer, isServerRunning, getServerPort, getServerPid, DEFAULT_PORT } from '../src/server/server.js';
 import { spawn } from 'node:child_process';
 import type { Capability, RawCapability, UserConfig } from '../src/types.js';
@@ -66,6 +67,9 @@ async function main() {
       break;
     case 'stats':
       cmdStats();
+      break;
+    case 'graph':
+      cmdGraph();
       break;
     case 'alias':
       cmdAlias();
@@ -900,6 +904,27 @@ function cmdStats() {
   }
 }
 
+function cmdGraph() {
+  if (!existsSync(GRAPH_PATH)) {
+    console.error('Graph is empty. Run `lazybrain scan && lazybrain compile` first.');
+    process.exit(1);
+  }
+
+  const graph = Graph.load(GRAPH_PATH);
+  const format = args.includes('--mermaid') ? 'mermaid' : 'json';
+  const limitIndex = args.indexOf('--limit');
+  const parsedLimit = limitIndex >= 0 ? parseInt(args[limitIndex + 1] ?? '80', 10) : 80;
+  const limit = Number.isFinite(parsedLimit) ? Math.max(1, parsedLimit) : 80;
+  const view = buildGraphView(graph, limit);
+
+  if (format === 'mermaid') {
+    console.log(formatGraphMermaid(view));
+    return;
+  }
+
+  console.log(JSON.stringify(view, null, 2));
+}
+
 // ─── Alias ────────────────────────────────────────────────────────────────
 
 function cmdAlias() {
@@ -1146,6 +1171,8 @@ function cmdTeam() {
   }
   console.log('\n> **组合理由**：' + composition.overallReason);
   console.log('\n> 建议命令：`' + composition.suggestedCommand + '`');
+  console.log('\n> OMC 可执行命令：`' + composition.omcBridge.command + '`');
+  console.log('\n> Lead brief:\n```text\n' + composition.omcBridge.leadBrief + '\n```');
   console.log('\n> 如果想默认 executor：`/team 3:executor "<task>"`');
 }
 
@@ -1219,11 +1246,36 @@ function cmdHook() {
   // Resolve the hook script path from this binary's location
   const binDir = dirname(fileURLToPath(import.meta.url));
   const hookScript = resolve(binDir, 'hook.js');
+  const statuslineScript = resolve(binDir, 'statusline.js');
+  const combinedStatuslineScript = resolve(binDir, 'statusline-combined.js');
+  const shouldInstallStatusline = args.includes('--statusline') || args.includes('--install-statusline');
+  const shouldReplaceStatusline = args.includes('--replace-statusline');
+  const isLazyBrainCommand = (command: unknown): command is string => (
+    typeof command === 'string' &&
+    (command.includes('lazybrain') ||
+      command.includes('/lazy_user/') ||
+      command.includes('dist/bin/hook.js') ||
+      command.includes('dist/bin/statusline.js') ||
+      command.includes('dist/bin/statusline-combined.js') ||
+      command.includes(hookScript) ||
+      command.includes(statuslineScript) ||
+      command.includes(combinedStatuslineScript))
+  );
 
   switch (sub) {
     case 'install': {
       if (!existsSync(hookScript)) {
         console.error(`Hook script not found: ${hookScript}`);
+        console.error('Run `npm run build` first.');
+        process.exit(1);
+      }
+      if (!existsSync(statuslineScript)) {
+        console.error(`Statusline script not found: ${statuslineScript}`);
+        console.error('Run `npm run build` first.');
+        process.exit(1);
+      }
+      if (!existsSync(combinedStatuslineScript)) {
+        console.error(`Combined statusline script not found: ${combinedStatuslineScript}`);
         console.error('Run `npm run build` first.');
         process.exit(1);
       }
@@ -1245,10 +1297,10 @@ function cmdHook() {
       const filteredUps = existingUps.filter(
         (h) => {
           // Check old format: { command: '...' }
-          if (typeof h.command === 'string' && h.command.includes('lazybrain')) return false;
+          if (isLazyBrainCommand(h.command)) return false;
           // Check new format: { hooks: [{ command: '...' }] }
           const inner = Array.isArray(h.hooks) ? h.hooks as Array<Record<string, unknown>> : [];
-          if (inner.some(ih => typeof ih.command === 'string' && (ih.command as string).includes('lazybrain'))) return false;
+          if (inner.some(ih => isLazyBrainCommand(ih.command))) return false;
           return true;
         },
       );
@@ -1262,9 +1314,9 @@ function cmdHook() {
       const existingStop = (hooks.Stop ?? []) as Array<Record<string, unknown>>;
       const filteredStop = existingStop.filter(
         (h) => {
-          if (typeof h.command === 'string' && h.command.includes('lazybrain')) return false;
+          if (isLazyBrainCommand(h.command)) return false;
           const inner = Array.isArray(h.hooks) ? h.hooks as Array<Record<string, unknown>> : [];
-          if (inner.some(ih => typeof ih.command === 'string' && (ih.command as string).includes('lazybrain'))) return false;
+          if (inner.some(ih => isLazyBrainCommand(ih.command))) return false;
           return true;
         },
       );
@@ -1275,10 +1327,120 @@ function cmdHook() {
 
       settings.hooks = hooks;
 
+      const existingStatusline = settings.statusLine as { command?: unknown } | string | undefined;
+      const existingStatuslineCommand = typeof existingStatusline === 'string'
+        ? existingStatusline
+        : typeof existingStatusline?.command === 'string'
+          ? existingStatusline.command
+          : '';
+      let chainedUpstreamCommand = '';
+      const statuslineChainPath = getStatuslineChainPath();
+      try {
+        const chain = existsSync(statuslineChainPath)
+          ? JSON.parse(readFileSync(statuslineChainPath, 'utf-8')) as { upstreamCommand?: unknown }
+          : {};
+        if (typeof chain.upstreamCommand === 'string') {
+          chainedUpstreamCommand = chain.upstreamCommand;
+        }
+      } catch {}
+
+      const hasOtherStatusline = Boolean(existingStatuslineCommand && !isLazyBrainCommand(existingStatuslineCommand));
+      const alreadyCombined = Boolean(existingStatuslineCommand && existingStatuslineCommand.includes(combinedStatuslineScript));
+      const shouldComposeStatusline = shouldInstallStatusline && hasOtherStatusline && !shouldReplaceStatusline;
+      const shouldUseLazyBrainOnlyStatusline = (
+        shouldReplaceStatusline ||
+        (isLazyBrainCommand(existingStatuslineCommand) && !alreadyCombined) ||
+        (!existingStatuslineCommand && shouldInstallStatusline)
+      );
+
+      if (shouldComposeStatusline) {
+        writeFileSync(statuslineChainPath, JSON.stringify({
+          upstreamCommand: existingStatuslineCommand,
+          upstreamType: typeof existingStatusline === 'string' ? 'legacy-string' : 'command-object',
+          installedAt: new Date().toISOString(),
+        }, null, 2));
+        settings.statusLine = {
+          type: 'command',
+          command: `node ${combinedStatuslineScript}`,
+        };
+      } else if (alreadyCombined && chainedUpstreamCommand) {
+        settings.statusLine = {
+          type: 'command',
+          command: `node ${combinedStatuslineScript}`,
+        };
+      } else if (shouldUseLazyBrainOnlyStatusline) {
+        settings.statusLine = {
+          type: 'command',
+          command: `node ${statuslineScript}`,
+        };
+      }
+
       writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
       console.log(`Hook installed: ${settingsPath}`);
       console.log(`  Script: ${hookScript}`);
+      if (shouldComposeStatusline) {
+        console.log(`  Statusline: ${combinedStatuslineScript}`);
+        console.log('  Statusline mode: combined with existing HUD');
+      } else if (alreadyCombined && chainedUpstreamCommand) {
+        console.log(`  Statusline: ${combinedStatuslineScript}`);
+        console.log('  Statusline mode: already combined');
+      } else if (shouldUseLazyBrainOnlyStatusline) {
+        console.log(`  Statusline: ${statuslineScript}`);
+      } else if (hasOtherStatusline) {
+        console.log('  Statusline: skipped because another statusLine is already configured.');
+        console.log('  Re-run `lazybrain hook install --statusline` to combine with it, or `--replace-statusline` to replace it.');
+      } else {
+        console.log('  Statusline: not installed. Use `lazybrain hook install --statusline` if you want LazyBrain statusline and no existing HUD is configured.');
+      }
       console.log(`  Restart Claude Code to activate.`);
+      break;
+    }
+    case 'restore-statusline': {
+      if (!existsSync(settingsPath)) {
+        console.log('No settings file found.');
+        return;
+      }
+      let settings: Record<string, unknown> = {};
+      try {
+        settings = JSON.parse(readFileSync(settingsPath, 'utf-8')) as Record<string, unknown>;
+      } catch {
+        console.error(`Failed to parse ${settingsPath}`);
+        process.exit(1);
+      }
+
+      const statuslineChainPath = getStatuslineChainPath();
+      if (!existsSync(statuslineChainPath)) {
+        console.error('No LazyBrain statusline chain backup found.');
+        process.exit(1);
+      }
+
+      let upstreamCommand = '';
+      let upstreamType = 'command-object';
+      try {
+        const chain = JSON.parse(readFileSync(statuslineChainPath, 'utf-8')) as {
+          upstreamCommand?: unknown;
+          upstreamType?: unknown;
+        };
+        if (typeof chain.upstreamCommand === 'string') upstreamCommand = chain.upstreamCommand;
+        if (typeof chain.upstreamType === 'string') upstreamType = chain.upstreamType;
+      } catch {
+        console.error(`Failed to parse ${statuslineChainPath}`);
+        process.exit(1);
+      }
+
+      if (!upstreamCommand) {
+        console.error('No upstream statusLine command found in chain backup.');
+        process.exit(1);
+      }
+
+      settings.statusLine = upstreamType === 'legacy-string'
+        ? upstreamCommand
+        : { type: 'command', command: upstreamCommand };
+
+      writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+      console.log('Statusline restored from LazyBrain chain backup.');
+      console.log(`  Command: ${upstreamCommand}`);
+      console.log('  Restart Claude Code to activate.');
       break;
     }
     case 'uninstall': {
@@ -1298,29 +1460,39 @@ function cmdHook() {
       const existingUps = (hooks.UserPromptSubmit ?? []) as Array<Record<string, unknown>>;
       hooks.UserPromptSubmit = existingUps.filter(
         (h) => {
-          if (typeof h.command === 'string' && h.command.includes('lazybrain')) return false;
+          if (isLazyBrainCommand(h.command)) return false;
           const inner = Array.isArray(h.hooks) ? h.hooks as Array<Record<string, unknown>> : [];
-          if (inner.some(ih => typeof ih.command === 'string' && (ih.command as string).includes('lazybrain'))) return false;
+          if (inner.some(ih => isLazyBrainCommand(ih.command))) return false;
           return true;
         },
       );
       const existingStop = (hooks.Stop ?? []) as Array<Record<string, unknown>>;
       hooks.Stop = existingStop.filter(
         (h) => {
-          if (typeof h.command === 'string' && h.command.includes('lazybrain')) return false;
+          if (isLazyBrainCommand(h.command)) return false;
           const inner = Array.isArray(h.hooks) ? h.hooks as Array<Record<string, unknown>> : [];
-          if (inner.some(ih => typeof ih.command === 'string' && (ih.command as string).includes('lazybrain'))) return false;
+          if (inner.some(ih => isLazyBrainCommand(ih.command))) return false;
           return true;
         },
       );
       settings.hooks = hooks;
+
+      const existingStatusline = settings.statusLine as { command?: unknown } | string | undefined;
+      const existingStatuslineCommand = typeof existingStatusline === 'string'
+        ? existingStatusline
+        : typeof existingStatusline?.command === 'string'
+          ? existingStatusline.command
+          : '';
+      if (isLazyBrainCommand(existingStatuslineCommand)) {
+        delete settings.statusLine;
+      }
 
       writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
       console.log('Hook uninstalled.');
       break;
     }
     default:
-      console.error('Usage: lazybrain hook [install|uninstall]');
+      console.error('Usage: lazybrain hook [install|uninstall|restore-statusline] [--statusline|--replace-statusline]');
       process.exit(1);
   }
 }
@@ -1473,6 +1645,7 @@ Usage:
   lazybrain match "<query>"          Match input to capabilities
   lazybrain list [--category <c>]    List indexed capabilities
   lazybrain stats                    Show graph statistics
+  lazybrain graph [--mermaid]        Export graph view
   lazybrain alias set <n> <target>   Set an alias
   lazybrain alias list               List aliases
   lazybrain alias remove <name>      Remove an alias
@@ -1494,4 +1667,3 @@ main().catch(err => {
   console.error(err);
   process.exit(1);
 });
-
