@@ -41,6 +41,12 @@ import { createServer, isServerRunning, getServerPort, getServerPid, DEFAULT_POR
 import { spawn } from 'node:child_process';
 import type { Capability, RawCapability, UserConfig } from '../src/types.js';
 import { buildSessionSummary, formatSessionSummary } from '../src/stats/session-summary.js';
+import {
+  isLazyBrainHookCommand,
+  removeLazyBrainHookRegistrations,
+  upsertLazyBrainUserPromptSubmit,
+} from '../src/hook/settings.js';
+import { getHookLifecycleStatus, loadLatestStopHookAudit } from '../src/hook/status.js';
 
 const args = process.argv.slice(2);
 const cmd = args[0];
@@ -858,7 +864,7 @@ function cmdStats() {
       } catch {}
     }
     const totalTokens = totalInput + totalOutput;
-    console.log('\n💰 LazyBrain Token 统计 (usage.jsonl):');
+    console.log('\n💰 LazyBrain 使用审计 (usage.jsonl):');
     console.log(`   Session: ${lines.length} | 总Token: ${(totalTokens / 1000).toFixed(1)}k | 总成本: $${totalCost.toFixed(4)}`);
     const topTasks = Object.entries(taskTypes).sort((a, b) => b[1] - a[1]).slice(0, 5);
     if (topTasks.length > 0) {
@@ -868,7 +874,7 @@ function cmdStats() {
       }
     }
   } else {
-    console.log('\n💰 LazyBrain Token: (Stop hook 触发后开始记录，重启 Claude Code 生效)');
+    console.log('\n💰 LazyBrain 使用审计: (无 usage.jsonl，可手动运行 summary/report 查看本地审计摘要)');
   }
 
   // ─── Config summary ────────────────────────────────────────────────────
@@ -1254,10 +1260,9 @@ function cmdHook() {
     typeof command === 'string' &&
     (command.includes('lazybrain') ||
       command.includes('/lazy_user/') ||
-      command.includes('dist/bin/hook.js') ||
+      isLazyBrainHookCommand(command) ||
       command.includes('dist/bin/statusline.js') ||
       command.includes('dist/bin/statusline-combined.js') ||
-      command.includes(hookScript) ||
       command.includes(statuslineScript) ||
       command.includes(combinedStatuslineScript))
   );
@@ -1290,42 +1295,7 @@ function cmdHook() {
         }
       }
 
-      const hooks = (settings.hooks ?? {}) as Record<string, unknown>;
-
-      // ─── UserPromptSubmit ─────────────────────────────────────────────────
-      const existingUps = (hooks.UserPromptSubmit ?? []) as Array<Record<string, unknown>>;
-      const filteredUps = existingUps.filter(
-        (h) => {
-          // Check old format: { command: '...' }
-          if (isLazyBrainCommand(h.command)) return false;
-          // Check new format: { hooks: [{ command: '...' }] }
-          const inner = Array.isArray(h.hooks) ? h.hooks as Array<Record<string, unknown>> : [];
-          if (inner.some(ih => isLazyBrainCommand(ih.command))) return false;
-          return true;
-        },
-      );
-      filteredUps.push({
-        matcher: '',
-        hooks: [{ type: 'command', command: `node ${hookScript}` }],
-      });
-      hooks.UserPromptSubmit = filteredUps;
-
-      // ─── Stop ───────────────────────────────────────────────────────────
-      const existingStop = (hooks.Stop ?? []) as Array<Record<string, unknown>>;
-      const filteredStop = existingStop.filter(
-        (h) => {
-          if (isLazyBrainCommand(h.command)) return false;
-          const inner = Array.isArray(h.hooks) ? h.hooks as Array<Record<string, unknown>> : [];
-          if (inner.some(ih => isLazyBrainCommand(ih.command))) return false;
-          return true;
-        },
-      );
-      filteredStop.push({
-        hooks: [{ type: 'command', command: `node ${hookScript}` }],
-      });
-      hooks.Stop = filteredStop;
-
-      settings.hooks = hooks;
+      settings = upsertLazyBrainUserPromptSubmit(settings, `node ${hookScript}`);
 
       const existingStatusline = settings.statusLine as { command?: unknown } | string | undefined;
       const existingStatuslineCommand = typeof existingStatusline === 'string'
@@ -1378,6 +1348,7 @@ function cmdHook() {
       writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
       console.log(`Hook installed: ${settingsPath}`);
       console.log(`  Script: ${hookScript}`);
+      console.log('  Lifecycle: UserPromptSubmit only (Stop 已退出)');
       if (shouldComposeStatusline) {
         console.log(`  Statusline: ${combinedStatuslineScript}`);
         console.log('  Statusline mode: combined with existing HUD');
@@ -1456,26 +1427,7 @@ function cmdHook() {
         process.exit(1);
       }
 
-      const hooks = (settings.hooks ?? {}) as Record<string, unknown>;
-      const existingUps = (hooks.UserPromptSubmit ?? []) as Array<Record<string, unknown>>;
-      hooks.UserPromptSubmit = existingUps.filter(
-        (h) => {
-          if (isLazyBrainCommand(h.command)) return false;
-          const inner = Array.isArray(h.hooks) ? h.hooks as Array<Record<string, unknown>> : [];
-          if (inner.some(ih => isLazyBrainCommand(ih.command))) return false;
-          return true;
-        },
-      );
-      const existingStop = (hooks.Stop ?? []) as Array<Record<string, unknown>>;
-      hooks.Stop = existingStop.filter(
-        (h) => {
-          if (isLazyBrainCommand(h.command)) return false;
-          const inner = Array.isArray(h.hooks) ? h.hooks as Array<Record<string, unknown>> : [];
-          if (inner.some(ih => isLazyBrainCommand(ih.command))) return false;
-          return true;
-        },
-      );
-      settings.hooks = hooks;
+      settings = removeLazyBrainHookRegistrations(settings);
 
       const existingStatusline = settings.statusLine as { command?: unknown } | string | undefined;
       const existingStatuslineCommand = typeof existingStatusline === 'string'
@@ -1491,8 +1443,74 @@ function cmdHook() {
       console.log('Hook uninstalled.');
       break;
     }
+    case 'status': {
+      if (!existsSync(settingsPath)) {
+        console.log('No settings file found.');
+        return;
+      }
+      let settings: Record<string, unknown> = {};
+      try {
+        settings = JSON.parse(readFileSync(settingsPath, 'utf-8')) as Record<string, unknown>;
+      } catch {
+        console.error(`Failed to parse ${settingsPath}`);
+        process.exit(1);
+      }
+
+      const status = getHookLifecycleStatus(settings);
+      const stopAudit = loadLatestStopHookAudit(process.cwd());
+
+      console.log('LazyBrain hook 状态：');
+      console.log(`  UserPromptSubmit: ${status.lazybrainUserPromptSubmit ? '✅ 已安装' : '❌ 未安装'}`);
+      console.log(`  Stop: ${status.lazybrainStop ? '⚠️ 仍存在 LazyBrain 残留' : '✅ 无 LazyBrain 注册'}`);
+      console.log(`  SessionStart: ${status.lazybrainSessionStart ? 'ℹ️ 含 LazyBrain' : 'ℹ️ 无 LazyBrain 注册'}`);
+      console.log('');
+      console.log('当前 Stop 链：');
+      if (status.stopCommands.length === 0) {
+        console.log('  (空)');
+      } else {
+        for (const command of status.stopCommands) {
+          const kind = command.includes('claude-mem') ? 'claude-mem'
+            : command.includes('codeisland-state.py') ? 'codeisland'
+            : isLazyBrainHookCommand(command) ? 'lazybrain'
+            : 'other';
+          console.log(`  - [${kind}] ${command}`);
+        }
+      }
+
+      console.log('');
+      console.log('当前 UserPromptSubmit 链：');
+      if (status.userPromptSubmitCommands.length === 0) {
+        console.log('  (空)');
+      } else {
+        for (const command of status.userPromptSubmitCommands) {
+          const kind = isLazyBrainHookCommand(command) ? 'lazybrain'
+            : command.includes('keyword-detector') ? 'keyword-detector'
+            : command.includes('codeisland-state.py') ? 'codeisland'
+            : command.includes('claude-mem') ? 'claude-mem'
+            : 'other';
+          console.log(`  - [${kind}] ${command}`);
+        }
+      }
+
+      if (stopAudit) {
+        console.log('');
+        console.log(`最近一次 Stop 审计：${stopAudit.timestamp} (${stopAudit.sessionFile})`);
+        for (const entry of stopAudit.entries) {
+          const kind = entry.command.includes('claude-mem') ? 'claude-mem'
+            : entry.command.includes('codeisland-state.py') ? 'codeisland'
+            : isLazyBrainHookCommand(entry.command) ? 'lazybrain'
+            : entry.command.includes('cmux') ? 'cmux'
+            : 'other';
+          console.log(`  - [${kind}] ${entry.durationMs}ms`);
+        }
+      } else {
+        console.log('');
+        console.log('最近一次 Stop 审计：未找到 stop_hook_summary 日志');
+      }
+      break;
+    }
     default:
-      console.error('Usage: lazybrain hook [install|uninstall|restore-statusline] [--statusline|--replace-statusline]');
+      console.error('Usage: lazybrain hook [install|uninstall|restore-statusline|status] [--statusline|--replace-statusline]');
       process.exit(1);
   }
 }
@@ -1620,7 +1638,7 @@ function cmdReport() {
 function cmdSummary() {
   const sessionId = process.env.CLAUDE_SESSION_ID;
   if (!sessionId) {
-    console.error('No active session. The summary command requires CLAUDE_SESSION_ID environment variable.');
+    console.error('没有活动会话。`lazybrain summary` 需要 `CLAUDE_SESSION_ID` 环境变量。');
     process.exit(1);
   }
   const summary = buildSessionSummary(sessionId);
@@ -1658,7 +1676,8 @@ Usage:
   lazybrain server --port <n>        Custom port (default: 18450)
   lazybrain server stop              Stop background server
   lazybrain server status            Check server status
-  lazybrain summary                  Show current session summary
+  lazybrain hook status              Show LazyBrain hook lifecycle status
+  lazybrain summary                  Show manual session audit
   lazybrain --version                Show version
 `);
 }

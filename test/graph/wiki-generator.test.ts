@@ -48,6 +48,8 @@ describe('generateWiki', () => {
     expect(result.articlesWritten).toBeGreaterThanOrEqual(2);
     expect(existsSync(result.indexPath)).toBe(true);
     expect(existsSync(join(TEST_WIKI_DIR, 'code-quality.md'))).toBe(true);
+    expect(existsSync(join(TEST_WIKI_DIR, 'kinds.md'))).toBe(true);
+    expect(existsSync(join(TEST_WIKI_DIR, 'origins.md'))).toBe(true);
   });
 
   it('index contains correct capability count', () => {
@@ -71,6 +73,8 @@ describe('generateWiki', () => {
 
     expect(indexContent).toContain('# LazyBrain Wiki');
     expect(indexContent).toContain('1 capabilities');
+    expect(indexContent).toContain('[Kinds](kinds.md)');
+    expect(indexContent).toContain('[Origins](origins.md)');
   });
 
   it('category file contains capability details', () => {
@@ -124,5 +128,49 @@ describe('generateWiki', () => {
     const categoryContent = readFileSync(join(TEST_WIKI_DIR, 'other.md'), 'utf-8');
 
     expect(categoryContent).toContain('[[skill-a]]');
+  });
+
+  it('generates kind and origin indexes', () => {
+    const graph = new Graph();
+
+    graph.addNode({
+      id: 'skill-1',
+      kind: 'skill',
+      name: 'build-tool',
+      description: 'Build helper',
+      origin: 'local',
+      status: 'installed',
+      compatibility: ['claude-code'],
+      tags: [],
+      exampleQueries: [],
+      category: 'development',
+    });
+
+    graph.addNode({
+      id: 'command-1',
+      kind: 'command',
+      name: 'ship-it',
+      description: 'Shipping command',
+      origin: 'ECC',
+      status: 'installed',
+      compatibility: ['claude-code'],
+      tags: [],
+      exampleQueries: [],
+      category: 'operations',
+    });
+
+    generateWiki(graph, { outputDir: TEST_WIKI_DIR });
+
+    const kinds = readFileSync(join(TEST_WIKI_DIR, 'kinds.md'), 'utf-8');
+    const origins = readFileSync(join(TEST_WIKI_DIR, 'origins.md'), 'utf-8');
+
+    expect(kinds).toContain('# Capability Kinds');
+    expect(kinds).toContain('## command (1)');
+    expect(kinds).toContain('## skill (1)');
+    expect(kinds).toContain('**ship-it**');
+    expect(origins).toContain('# Capability Origins');
+    expect(origins).toContain('## ECC (1)');
+    expect(origins).toContain('## local (1)');
+    expect(origins).toContain('**build-tool**');
   });
 });

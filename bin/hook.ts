@@ -22,9 +22,7 @@ import { loadConfig } from '../src/config/config.js';
 import { askSecretary, buildHistoryHints } from '../src/secretary/secretary.js';
 import { loadRecentHistory, appendHistory } from '../src/history/history.js';
 import { loadProfile, isProfileStale, distillAndSave } from '../src/history/profile.js';
-import { trackSessionUsage } from '../src/history/usage.js';
 import { writeRecommendation } from '../src/history/tool-usage-tracker.js';
-import { evolveCapabilities } from '../src/evolution/evolve.js';
 import { generateProposals } from '../src/utils/token-estimate.js';
 import { detectDuplicates, buildDuplicateIndex, findCapabilityByNameOrId, compareCapabilities } from '../src/graph/duplicate-detector.js';
 import { isServerRunning, getServerPort } from '../src/server/server.js';
@@ -33,7 +31,6 @@ import type { WikiCard, SecretaryResponse, ProposalOption } from '../src/types.j
 import type { TeamComposition } from '../src/matcher/team-recommender.js';
 import { buildSessionStats } from '../src/stats/session-stats.js';
 import { formatDashboard } from '../src/stats/session-dashboard.js';
-import { buildSessionSummary, formatSessionSummary } from '../src/stats/session-summary.js';
 import { formatDecisionCard, formatDecisionCardCompact } from '../src/hook/decision-card.js';
 import { formatTeamBridgeContext } from '../src/hook/team-bridge.js';
 import { loadBudgetState } from '../src/budget/state-machine.js';
@@ -399,53 +396,8 @@ async function main() {
     return;
   }
 
-  // ─── Stop Hook: Token tracking + evolution ─────────────────────────────
+  // ─── Stop Hook: legacy compatibility only ─────────────────────────────
   if (input.hook_event_name === 'Stop') {
-    const sessionId = input.session_id ?? 'unknown';
-
-    // Track token usage for this session
-    if (_transcriptPath) {
-      try {
-        const entry = trackSessionUsage(sessionId, _transcriptPath);
-        if (entry) {
-          // Trigger evolution based on new usage data — evolution errors are non-fatal
-          try {
-            evolveCapabilities({ auto: true });
-          } catch (evolutionError) {
-            if (process.env.LAZYBRAIN_DEBUG_HOOK === '1') {
-              process.stderr.write(`[LazyBrain] Evolution error: ${evolutionError instanceof Error ? evolutionError.message : String(evolutionError)}\n`);
-            }
-          }
-        }
-      } catch (err) {
-        // Non-fatal: log but don't block session end
-        if (process.env.LAZYBRAIN_DEBUG_HOOK === '1') {
-          process.stderr.write(`[LazyBrain] Usage tracking error: ${err instanceof Error ? err.message : String(err)}\n`);
-        }
-      }
-    }
-
-    // Log session end to history (used by distillProfile for session completeness)
-    appendHistory({
-      timestamp: new Date().toISOString(),
-      query: '',
-      matched: '',
-      accepted: true,
-      layer: 'tag',
-      sessionId,
-      reason: 'stop',
-    });
-
-    // Update last-match to reflect session end
-    writeLastMatch(null, 0);
-
-    // SessionEnd: output session summary
-    const summary = buildSessionSummary(sessionId);
-    const summaryOutput = formatSessionSummary(summary);
-    if (process.env.LAZYBRAIN_DEBUG_HOOK === '1') {
-      process.stderr.write('\n' + summaryOutput + '\n');
-    }
-
     output({ continue: true });
     return;
   }

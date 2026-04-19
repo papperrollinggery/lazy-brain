@@ -2,14 +2,14 @@
 
 # 🧠 LazyBrain
 
-**AI 编程助手的语义技能路由器**
+**AI 编程助手的语义技能路由器 / 附属性智能体**
 
 [![CI](https://github.com/papperrollinggery/lazy-brain/actions/workflows/ci.yml/badge.svg)](https://github.com/papperrollinggery/lazy-brain/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A518-brightgreen.svg)](https://nodejs.org)
 
-> 你装了几十个 Skill，但每次都忘了该用哪个。
-> LazyBrain 让你只管说话，它帮你找到对的工具。
+> 一个贴在主模型旁边的附属性智能体，把零散工具库变成可理解、可路由、可表达的能力层。  
+> 扫描能力、编译图谱、按意图路由，并且不参与 `Stop` 生命周期竞争。
 
 [English](README.md) | [中文文档](README_CN.md)
 
@@ -17,54 +17,79 @@
 
 </div>
 
-## 一句话介绍
+## 项目概览
 
-LazyBrain 是一个**自动帮你找到对工具的小助手**。你在 Claude Code 里输入任何话，它就能立刻知道你需要哪个 Skill，然后自动帮你加载——你完全不需要记住任何命令。
+在现代 AI 编码环境里，真正的问题通常已经不是“能力不够”，而是：
 
-## 你是不是遇到过这些问题？
+- skill 太多，记不住名字
+- agent 太多，不知道什么时候该叫谁
+- command 太多，入口碎片化
+- 多个插件重叠，但没有统一路由层
+- 中英文混输时，匹配效果不稳定
 
-- "我知道有个工具能做代码审查，但叫什么来着？"
-- "装了一堆 Skill，每次都懒得翻"
-- "中文搜不到英文工具名"
-- "每次都要手动输入 `/xxx`，好烦"
+LazyBrain 的角色不是替代主模型，而是作为一个**附属性智能体（sidecar agent）**，贴在主模型旁边，负责：
 
-LazyBrain 就是来解决这些问题的。
+- 扫描本地能力面
+- 编译能力图谱
+- 在输入时做意图路由
+- 在启动时做轻量回顾
+- 避免和记忆/通知插件争抢 `Stop` 生命周期
 
-## Wiki 知识库在哪？
+## 为什么要有它
 
-`lazybrain compile` 会自动生成一个知识库，存在你电脑的 `~/.lazybrain/wiki/` 文件夹里。它不在项目仓库里——是运行时生成的。
+如果没有路由层，高级 AI 编码环境通常会退化成这样：
 
-里面有 16 个分类文件，把你所有工具按用途整理好了：
+- 明明装了很多能力，但几乎不用
+- 中文需求匹配不到英文能力名
+- 用户被迫自己决定模式和工具
+- 花了很多时间在“找入口”，而不是“推进任务”
+
+LazyBrain 的目标，就是把零散工具库整理成一个可路由、可解释、可成长的能力层。
+
+```
+你输入: "帮我审查这个 PR"
+LazyBrain: → /review-pr (92%) | /critic (78%) | /santa-loop (71%)
+           ✅ 自动注入 /review-pr 到上下文
+```
+
+## 核心特性
+
+- **意图优先**：用户描述目标，不需要记命令名
+- **能力无关**：覆盖 skill、agent、command、mode、hook
+- **中英双语**：中文和英文查询都作为一等输入处理
+- **本地优先**：scan、graph、wiki、tag-layer 都依赖本地产物
+- **副驾驶生命周期**：默认只接 `UserPromptSubmit`，可选 `SessionStart`，不依赖 `Stop`
+
+## Wiki 与图谱产物
+
+`lazybrain compile` 会把运行时产物写到 `~/.lazybrain/` 下。这些是你本机的图谱和知识文件，不是仓库源码的一部分。
 
 ```
 ~/.lazybrain/wiki/
-├── index.md           # 总目录（"491 capabilities across 15 categories"）
-├── development.md     # 开发类工具（107 个）
-├── operations.md      # 运维类工具（65 个）
-├── content.md         # 内容创作类（60 个）
-├── code-quality.md    # 代码质量类（48 个）
-├── testing.md         # 测试类（43 个）
-├── design.md          # 设计类（33 个）
-├── orchestration.md   # 编排协调类（27 个）
-├── planning.md        # 规划类（23 个）
-├── security.md        # 安全类（22 个）
-├── research.md        # 研究类（20 个）
-├── data.md            # 数据类（14 个）
-└── ...                # 更多分类
+├── index.md
+├── development.md
+├── operations.md
+├── orchestration.md
+└── ...
 ```
 
-每个文件里列出了工具名称、一句话描述、标签、以及跟其他工具的关系（依赖、相似、组合使用）。你可以直接用 `cat ~/.lazybrain/wiki/orchestration.md` 看某个分类。
+这里有几个要点：
 
-### 单个工具 Wiki 文件
+- 分类页来自**固定分类体系 + 本地动态归类**
+- 最终会生成多少个分类页，取决于你本机实际扫描到了哪些能力
+- README 里的数量如果出现，只能算示例，**不是固定事实**
+- wiki 覆盖的是 **capability**，不只是 skill
 
-`lazybrain compile` 也会为每个工具生成独立的 Markdown 说明文件：
+当前 wiki 输出方式是“按分类聚合”：
 
-- **路径**：`~/.lazybrain/wiki/<tool-name>.md`
-- **内容**：工具描述、标签、示例查询、使用场景
-- **用途**：`lazybrain wiki <tool-name>` 命令读取这些文件展示详情
-- **生成方式**：每次 `lazybrain compile` 自动更新
+- `index.md`：总索引
+- `*.md` 分类页：每页再细分为
+  - `Skills`
+  - `Agents`
+  - `Commands`
+  - `Other`
 
-如果 wiki 目录不存在，运行 `lazybrain compile` 即可生成。
+所以 agent 和 command 并没有消失，它们目前是收在分类页内部，而不是单独放顶层索引。
 
 ## 怎么用？（3 步，5 分钟）
 
@@ -100,6 +125,12 @@ lazybrain hook install
 ```
 
 **就这样，完事了。**
+
+从当前版本开始，`lazybrain hook install` 只安装：
+
+- `UserPromptSubmit`
+
+它会自动清理旧版本残留的 LazyBrain `Stop` 注册，不再让 LazyBrain 参与 `running stop hooks`。
 
 从此以后，你在 Claude Code 里随便说话，LazyBrain 就会自动帮你匹配工具：
 
@@ -183,7 +214,7 @@ LazyBrain 有三个阶段，全自动运行：
 
 **简单理解**：先看有没有快捷方式 → 再看关键词 → 再看语义 → 实在不行让 AI 帮忙想
 
-**离线也能用**：前 3 层不需要网络，断网时也有 74.5% 的准确率。联网后准确率接近 100%。
+**离线也能用**：前 3 层不需要网络；联网后可以进一步借助更高层判断提升模糊查询质量。
 
 ## 越用越聪明：四种进化能力
 
@@ -239,27 +270,28 @@ LazyBrain: "通常审查完会重构，要不要用 /refactor-clean？"
 
 ## 百科 (Wiki)
 
-编译还会为每个工具生成一张百科卡片，包含：
-- 工具的功能描述
-- 适合什么场景
-- 和哪些工具可以搭配使用
-- 和哪些工具相似、区别在哪
+`lazybrain wiki` 会基于当前图谱生成一组本地 capability 文档，不是“查询单个工具说明”的在线命令。
 
-```bash
-lazybrain wiki review-pr     # 查看 /review-pr 的百科
-```
+当前 wiki 结构包含三种入口：
 
-百科按分类整理，放在 `~/.lazybrain/wiki/` 目录下：
+- `index.md`：总索引
+- `kinds.md`：按 `skill / agent / command / mode / hook` 聚合
+- `origins.md`：按 `local / ECC / OMC / plugin / external` 等来源聚合
+- `*.md` 分类页：按固定分类体系聚合，并在页内分成 `Skills / Agents / Commands / Other`
+
+生成后会写到 `~/.lazybrain/wiki/`：
 
 ```
 ~/.lazybrain/wiki/
 ├── index.md           # 总目录
+├── kinds.md           # 按 capability 类型索引
+├── origins.md         # 按来源索引
 ├── code-quality.md    # 代码质量类
 ├── development.md     # 开发类
 ├── deployment.md      # 部署类
 ├── security.md        # 安全类
 ├── design.md          # 设计类
-├── ...                # 等等
+└── ...
 ```
 
 ## 完整命令列表
@@ -271,7 +303,7 @@ lazybrain wiki review-pr     # 查看 /review-pr 的百科
 | `lazybrain compile --offline` | 离线编译（不需要 API key） |
 | `lazybrain match "你的话"` | 测试匹配效果 |
 | `lazybrain list` | 列出所有工具 |
-| `lazybrain wiki <工具名>` | 查看工具百科 |
+| `lazybrain wiki` | 生成本地 wiki 目录与索引 |
 | `lazybrain stats` | 图谱统计 |
 | `lazybrain suggest-aliases` | 查看建议的快捷方式 |
 | `lazybrain evolve` | 从使用中学习新标签 |
@@ -279,8 +311,56 @@ lazybrain wiki review-pr     # 查看 /review-pr 的百科
 | `lazybrain evolve --rollback` | 撤销上次学习 |
 | `lazybrain hook install` | 安装到 Claude Code |
 | `lazybrain hook uninstall` | 卸载 |
+| `lazybrain hook status` | 检查 LazyBrain 是否仍参与 `Stop` |
 | `lazybrain config list` | 查看配置 |
 | `lazybrain config set <键> <值>` | 修改配置 |
+
+## 启动回顾（SessionStart）
+
+LazyBrain 默认只依赖 `UserPromptSubmit`。如果你希望在打开新会话时看到一段轻量启动回顾，可以额外配置 `SessionStart`：
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "command": "node",
+        "args": ["${CLAUDE_CONFIG_DIR}/../../.local/lib/node_modules/lazybrain/dist/bin/hook.js"]
+      }
+    ]
+  }
+}
+```
+
+启动回顾会展示：
+
+- 最近推荐次数
+- 接受率 / 跳过率
+- 最近一次主要推荐
+- 最近常用能力
+- 重复能力提示
+- 当前生命周期说明
+
+它不会做这些事：
+
+- 不依赖 `Stop`
+- 不重解析 transcript
+- 不调用 LLM 做总结
+- 不和别的插件争抢会话结束阶段
+
+如果你要确认当前环境里 LazyBrain 是否已经完全退出 `Stop`，直接运行：
+
+```bash
+lazybrain hook status
+```
+
+你会看到类似：
+
+```text
+UserPromptSubmit: ✅ 已安装
+Stop: ✅ 无 LazyBrain 注册
+SessionStart: ℹ️ 无 LazyBrain 注册
+```
 
 ## 配置
 
@@ -316,22 +396,27 @@ lazybrain config set mode auto        # 静默自动注入
 ```
 ~/.lazybrain/
 ├── config.json           # 你的配置
-├── graph.json            # 知识图谱（366 个工具，11666 条关系）
+├── graph.json            # 知识图谱（你本机当前扫描出来的能力图谱）
 ├── graph.embeddings.bin  # 语义向量缓存
 ├── history.jsonl         # 使用记录（进化功能的数据源）
 ├── profile.json          # 你的使用画像
 ├── last-match.json       # 最近一次匹配结果
-└── wiki/                 # 工具百科（按分类整理）
+└── wiki/                 # capability 文档（index/kinds/origins + 分类页）
 ```
 
 ## 性能基准
 
 | 模式 | Top-1 | Top-3 |
 |------|-------|-------|
-| 完整流水线（联网） | 100% | 100% |
-| 仅标签（断网） | — | 74.5% |
+| 完整流水线（联网） | 取决于本地图谱与评测集 | 取决于本地图谱与评测集 |
+| 仅标签（断网） | 反映本地基础匹配能力 | 反映本地基础匹配能力 |
 
-测试集：55 条查询（33 条中文，22 条英文），366 个工具。
+基准结果会受到这些因素影响：
+
+- 你当前机器上实际扫描到了哪些能力
+- 你用的是离线 compile 还是 LLM compile
+- Secretary / governance 等高层是否开启
+- 使用的评测集是什么
 
 ## 许可证
 

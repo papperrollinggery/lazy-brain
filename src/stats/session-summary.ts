@@ -1,12 +1,12 @@
 /**
  * LazyBrain — Session Summary Module
  *
- * Computes per-session summary statistics for SessionEnd hook output
- * and /lazybrain summary CLI command.
+ * Computes manual per-session audit statistics for the `lazybrain summary`
+ * command. This module is no longer tied to the Stop hook lifecycle.
  *
  * Data sources:
  *   - history.jsonl: route/accept events with sessionId
- *   - usage.jsonl: token usage per session
+ *   - usage.jsonl: optional local token/accounting records
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -31,20 +31,20 @@ export interface SessionSummary {
   acceptRate: number;
   /** Wrong recommendations we helped avoid (accepted=false) */
   avoidCount: number;
-  /** Baseline tokens (without cache optimization) */
+  /** Audited token baseline from usage log */
   baselineTokens: number;
-  /** Actual tokens consumed this session (after cache reads) */
+  /** Audited actual tokens consumed this session */
   actualTokens: number;
-  /** Saved tokens = baselineTokens - actualTokens */
-  savedTokens: number;
-  /** Baseline cost USD (full price, no cache) */
+  /** Difference between baseline and actual, when usage logs exist */
+  tokenDelta: number;
+  /** Audited baseline cost USD */
   baselineCostUSD: number;
-  /** Actual cost USD this session (after cache reads) */
+  /** Audited actual cost USD */
   actualCostUSD: number;
-  /** Saved cost USD = baselineCostUSD - actualCostUSD */
-  savedCostUSD: number;
-  /** Cheapest task in this session */
-  cheapestTask: CheapestTask | null;
+  /** Difference between baseline and actual cost, when usage logs exist */
+  costDeltaUSD: number;
+  /** Lowest-cost task observed in this session */
+  lowestCostTask: CheapestTask | null;
 }
 
 interface UsageEntry {
@@ -148,8 +148,8 @@ export function buildSessionSummary(sessionId: string, options?: SessionSummaryO
       + (u.cacheReadTokens / 1_000_000) * rates.cacheRead;
   }
 
-  const savedTokens = baselineTokens - actualTokens;
-  const savedCostUSD = Math.round((baselineCostUSD - actualCostUSD) * 100) / 100;
+  const tokenDelta = baselineTokens - actualTokens;
+  const costDeltaUSD = Math.round((baselineCostUSD - actualCostUSD) * 100) / 100;
   actualCostUSD = Math.round(actualCostUSD * 100) / 100;
   baselineCostUSD = Math.round(baselineCostUSD * 100) / 100;
 
@@ -173,25 +173,26 @@ export function buildSessionSummary(sessionId: string, options?: SessionSummaryO
     avoidCount,
     baselineTokens,
     actualTokens,
-    savedTokens,
+    tokenDelta,
     baselineCostUSD,
     actualCostUSD,
-    savedCostUSD,
-    cheapestTask: cheapest,
+    costDeltaUSD,
+    lowestCostTask: cheapest,
   };
 }
 
 export function formatSessionSummary(summary: SessionSummary): string {
   const lines: string[] = [];
 
-  lines.push('本次会话小结：');
+  lines.push('本次会话审计：');
   lines.push(`• 路由 ${summary.routeCount} 次，你接受了 ${summary.acceptCount} 次 (${summary.acceptRate}%)`);
-  lines.push(`• 替你避开过 ${summary.avoidCount} 次错选`);
-  lines.push(`• 节省估算：~${formatTokens(summary.savedTokens)} tokens / ~$${summary.savedCostUSD.toFixed(summary.savedCostUSD < 1 ? 2 : 1)}`);
+  lines.push(`• 跳过/拒绝 ${summary.avoidCount} 次推荐`);
+  lines.push(`• 使用记录：基线 ${formatTokens(summary.baselineTokens)} / 实际 ${formatTokens(summary.actualTokens)} / 差值 ${formatSignedTokens(summary.tokenDelta)}`);
+  lines.push(`• 成本记录：基线 ~$${summary.baselineCostUSD.toFixed(summary.baselineCostUSD < 1 ? 2 : 1)} / 实际 ~$${summary.actualCostUSD.toFixed(summary.actualCostUSD < 1 ? 2 : 1)} / 差值 ${formatSignedCost(summary.costDeltaUSD)}`);
 
-  if (summary.cheapestTask) {
-    const ct = summary.cheapestTask;
-    lines.push(`• 最省钱的一次：${formatTokens(ct.tokens)} 用 ${ct.model} 做 ${ct.taskType}`);
+  if (summary.lowestCostTask) {
+    const ct = summary.lowestCostTask;
+    lines.push(`• 最低成本任务：${formatTokens(ct.tokens)} 用 ${ct.model} 做 ${ct.taskType}`);
   }
 
   return lines.join('\n');
@@ -199,4 +200,14 @@ export function formatSessionSummary(summary: SessionSummary): string {
 
 function formatTokens(n: number): string {
   return `~${(n / 1000).toFixed(1)}k`;
+}
+
+function formatSignedTokens(n: number): string {
+  const prefix = n > 0 ? '-' : n < 0 ? '+' : '±';
+  return `${prefix}${formatTokens(Math.abs(n))}`;
+}
+
+function formatSignedCost(n: number): string {
+  const prefix = n > 0 ? '-' : n < 0 ? '+' : '±';
+  return `${prefix}$${Math.abs(n).toFixed(Math.abs(n) < 1 ? 2 : 1)}`;
 }

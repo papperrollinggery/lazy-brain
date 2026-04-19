@@ -25,6 +25,7 @@ const ZH_EN_MAP: Record<string, string[]> = {
 
   // Development
   '开发': ['development', 'develop'],
+  '工程': ['engineering', 'engineer'],
   '前端': ['frontend', 'front-end', 'ui'],
   '后端': ['backend', 'back-end', 'server'],
   '组件': ['component'],
@@ -32,17 +33,24 @@ const ZH_EN_MAP: Record<string, string[]> = {
   '接口': ['api', 'interface'],
   '函数': ['function'],
   '模块': ['module'],
+  '代码库': ['codebase', 'repository'],
+  '新人': ['onboarding', 'new-developer'],
+  '上手': ['onboarding', 'guide', 'tour'],
 
   // Deployment
   '部署': ['deploy', 'deployment'],
   '发布': ['release', 'publish'],
+  '生产': ['production'],
   '构建': ['build'],
   '提交': ['commit'],
   '合并': ['merge'],
   '分支': ['branch'],
+  '环境': ['environment'],
+  '上线': ['production', 'release', 'deploy'],
 
   // Design
   '设计': ['design'],
+  '系统': ['system'],
   '界面': ['ui', 'interface'],
   '样式': ['style', 'css'],
   '布局': ['layout'],
@@ -53,6 +61,7 @@ const ZH_EN_MAP: Record<string, string[]> = {
   '架构': ['architecture', 'architect'],
   '需求': ['requirement', 'prd'],
   '文档': ['document', 'docs'],
+  '方案': ['solution', 'plan'],
 
   // Research
   '研究': ['research'],
@@ -74,6 +83,7 @@ const ZH_EN_MAP: Record<string, string[]> = {
   // Content
   '写作': ['write', 'writing'],
   '文章': ['article', 'blog'],
+  '技术': ['technical', 'engineering'],
   '内容': ['content'],
   '视频': ['video'],
   '脚本': ['script'],
@@ -81,6 +91,7 @@ const ZH_EN_MAP: Record<string, string[]> = {
 
   // Data
   '数据': ['data', 'database'],
+  '数据库': ['database', 'db'],
   '迁移': ['migration', 'migrate'],
   '查询': ['query'],
   '指标': ['metrics', 'analytics'],
@@ -109,6 +120,15 @@ const ZH_EN_MAP: Record<string, string[]> = {
   '商业': ['business', 'monetization'],
   '变现': ['monetization', 'pricing'],
 
+  // Infra / stack
+  '容器': ['container', 'docker'],
+  '镜像': ['image', 'docker'],
+  '语言': ['language'],
+  '最佳实践': ['best-practice', 'patterns'],
+  '错字': ['typo', 'small-fix'],
+  '笔误': ['typo', 'small-fix'],
+  '小修': ['small-fix', 'minimal-change'],
+
   // Common verbs (only domain-specific ones, skip generic like 帮/做)
   '创建': ['create', 'new'],
   '修复': ['fix', 'repair'],
@@ -120,6 +140,12 @@ const ZH_EN_MAP: Record<string, string[]> = {
   '运行': ['run', 'execute'],
   '配置': ['config', 'configure'],
   '写': ['write'],
+
+  // Technology names
+  'docker': ['docker', 'container'],
+  'go': ['go', 'golang'],
+  'spring': ['spring', 'springboot'],
+  'springboot': ['springboot', 'spring'],
 };
 
 // Reverse map: English → Chinese

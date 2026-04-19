@@ -82,8 +82,8 @@ describe('buildSessionSummary', () => {
     expect(summary.actualTokens).toBe(0);
     expect(summary.actualCostUSD).toBe(0);
     expect(summary.baselineTokens).toBe(0);
-    expect(summary.savedTokens).toBe(0);
-    expect(summary.cheapestTask).toBeNull();
+    expect(summary.tokenDelta).toBe(0);
+    expect(summary.lowestCostTask).toBeNull();
   });
 
   it('no matches: history entries exist but none have query+matched', () => {
@@ -121,9 +121,9 @@ describe('buildSessionSummary', () => {
     // actual excludes cache reads from full token usage: 3000+1500 + 2000+1000 = 7500
     expect(summary.actualTokens).toBe(7500);
     // saved = baseline - actual = 8300 - 7500 = 800
-    expect(summary.savedTokens).toBe(800);
-    expect(summary.savedCostUSD).toBeGreaterThanOrEqual(0);
-    expect(summary.cheapestTask).not.toBeNull();
+    expect(summary.tokenDelta).toBe(800);
+    expect(summary.costDeltaUSD).toBeGreaterThanOrEqual(0);
+    expect(summary.lowestCostTask).not.toBeNull();
   });
 
   it('all rejected: 2 routes, all rejected, 0% rate', () => {
@@ -142,9 +142,9 @@ describe('buildSessionSummary', () => {
     // baseline = 1000+500 = 1500, no cache savings
     expect(summary.baselineTokens).toBe(1500);
     expect(summary.actualTokens).toBe(1500);
-    expect(summary.savedTokens).toBe(0);
-    expect(summary.cheapestTask).not.toBeNull();
-    expect(summary.cheapestTask!.taskType).toBe('simple-task');
+    expect(summary.tokenDelta).toBe(0);
+    expect(summary.lowestCostTask).not.toBeNull();
+    expect(summary.lowestCostTask!.taskType).toBe('simple-task');
   });
 
   it('mixed: partial acceptance', () => {
@@ -164,10 +164,10 @@ describe('buildSessionSummary', () => {
     // baseline = 1500 + 200 cache reads, actual = 1500, saved = 200
     expect(summary.baselineTokens).toBe(1700);
     expect(summary.actualTokens).toBe(1500);
-    expect(summary.savedTokens).toBe(200);
+    expect(summary.tokenDelta).toBe(200);
   });
 
-  it('baseline calculation: savedTokens equals cacheReadTokens', () => {
+  it('baseline calculation: tokenDelta equals cacheReadTokens', () => {
     appendUsage(makeUsageEntry({ sessionId: 'test-session', inputTokens: 5000, outputTokens: 2000, cacheReadTokens: 1000 }));
 
     const summary = buildSessionSummary('test-session', {
@@ -179,9 +179,9 @@ describe('buildSessionSummary', () => {
     // actual = non-cache tokens only = 7000
     expect(summary.actualTokens).toBe(7000);
     // saved = 8000 - 7000 = 1000 = cacheReadTokens
-    expect(summary.savedTokens).toBe(1000);
-    expect(summary.savedTokens).toBe(summary.baselineTokens - summary.actualTokens);
-    expect(summary.savedCostUSD).toBeGreaterThanOrEqual(0);
+    expect(summary.tokenDelta).toBe(1000);
+    expect(summary.tokenDelta).toBe(summary.baselineTokens - summary.actualTokens);
+    expect(summary.costDeltaUSD).toBeGreaterThanOrEqual(0);
   });
 });
 
@@ -194,17 +194,17 @@ describe('formatSessionSummary', () => {
       avoidCount: 0,
       baselineTokens: 0,
       actualTokens: 0,
-      savedTokens: 0,
+      tokenDelta: 0,
       baselineCostUSD: 0,
       actualCostUSD: 0,
-      savedCostUSD: 0,
-      cheapestTask: null,
+      costDeltaUSD: 0,
+      lowestCostTask: null,
     };
     const output = formatSessionSummary(summary);
-    expect(output).toContain('本次会话小结：');
+    expect(output).toContain('本次会话审计：');
     expect(output).toContain('路由 0 次');
-    expect(output).toContain('替你避开过 0 次错选');
-    expect(output).not.toContain('最省钱的一次');
+    expect(output).toContain('跳过/拒绝 0 次推荐');
+    expect(output).not.toContain('最低成本任务');
   });
 
   it('renders summary with cheapest task', () => {
@@ -215,18 +215,18 @@ describe('formatSessionSummary', () => {
       avoidCount: 2,
       baselineTokens: 12000,
       actualTokens: 10000,
-      savedTokens: 2000,
+      tokenDelta: 2000,
       baselineCostUSD: 0.15,
       actualCostUSD: 0.05,
-      savedCostUSD: 0.10,
-      cheapestTask: { tokens: 500, model: 'haiku', taskType: 'code-review' },
+      costDeltaUSD: 0.10,
+      lowestCostTask: { tokens: 500, model: 'haiku', taskType: 'code-review' },
     };
     const output = formatSessionSummary(summary);
     expect(output).toContain('路由 5 次，你接受了 3 次 (60%)');
-    expect(output).toContain('替你避开过 2 次错选');
-    expect(output).toContain('~2.0k tokens');
-    expect(output).toContain('~$0.1');
-    expect(output).toContain('最省钱的一次：~0.5k 用 haiku 做 code-review');
+    expect(output).toContain('跳过/拒绝 2 次推荐');
+    expect(output).toContain('基线 ~12.0k / 实际 ~10.0k / 差值 -~2.0k');
+    expect(output).toContain('差值 -$0.1');
+    expect(output).toContain('最低成本任务：~0.5k 用 haiku 做 code-review');
   });
 
   it('formats small token counts with k suffix', () => {
@@ -237,14 +237,14 @@ describe('formatSessionSummary', () => {
       avoidCount: 0,
       baselineTokens: 1000,
       actualTokens: 800,
-      savedTokens: 200,
+      tokenDelta: 200,
       baselineCostUSD: 0.005,
       actualCostUSD: 0.001,
-      savedCostUSD: 0.004,
-      cheapestTask: { tokens: 800, model: 'sonnet', taskType: 'debug' },
+      costDeltaUSD: 0.004,
+      lowestCostTask: { tokens: 800, model: 'sonnet', taskType: 'debug' },
     };
     const output = formatSessionSummary(summary);
-    expect(output).toContain('~0.2k tokens');
+    expect(output).toContain('差值 -~0.2k');
     expect(output).toContain('~0.8k 用 sonnet 做 debug');
   });
 
@@ -256,18 +256,18 @@ describe('formatSessionSummary', () => {
       avoidCount: 2,
       baselineTokens: 120000,
       actualTokens: 100000,
-      savedTokens: 20000,
+      tokenDelta: 20000,
       baselineCostUSD: 2.0,
       actualCostUSD: 1.5,
-      savedCostUSD: 0.5,
-      cheapestTask: { tokens: 5000, model: 'sonnet', taskType: 'refactor' },
+      costDeltaUSD: 0.5,
+      lowestCostTask: { tokens: 5000, model: 'sonnet', taskType: 'refactor' },
     };
     const output = formatSessionSummary(summary);
-    expect(output).toContain('~20.0k tokens');
-    expect(output).toContain('~$0.5');
+    expect(output).toContain('差值 -~20.0k');
+    expect(output).toContain('差值 -$0.5');
   });
 
-  it('shows real savings when cache read tokens exist', () => {
+  it('shows audited delta when cache read tokens exist', () => {
     const summary: SessionSummary = {
       routeCount: 3,
       acceptCount: 2,
@@ -275,14 +275,14 @@ describe('formatSessionSummary', () => {
       avoidCount: 1,
       baselineTokens: 6000,
       actualTokens: 4500,
-      savedTokens: 1500,
+      tokenDelta: 1500,
       baselineCostUSD: 0.09,
       actualCostUSD: 0.03,
-      savedCostUSD: 0.06,
-      cheapestTask: null,
+      costDeltaUSD: 0.06,
+      lowestCostTask: null,
     };
     const output = formatSessionSummary(summary);
-    expect(output).toContain('~1.5k tokens');
-    expect(output).toContain('~$0.06');
+    expect(output).toContain('差值 -~1.5k');
+    expect(output).toContain('差值 -$0.06');
   });
 });

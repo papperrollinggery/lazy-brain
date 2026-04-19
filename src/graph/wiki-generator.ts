@@ -155,6 +155,12 @@ function generateIndex(
     '',
     `> ${graph.getNodeCount()} capabilities across ${categories.length} categories`,
     '',
+    '## Views',
+    '',
+    '- [Categories](#categories)',
+    '- [Kinds](kinds.md) — capability kind index',
+    '- [Origins](origins.md) — source/origin index',
+    '',
     '## Categories',
     '',
   ];
@@ -163,6 +169,66 @@ function generateIndex(
     if (cat.count > 0) {
       lines.push(`- [${cat.title}](${cat.name}.md) — ${cat.count} capabilities`);
     }
+  }
+
+  return lines.join('\n');
+}
+
+function generateKindsIndex(graph: Graph): string {
+  const nodes = graph.getAllNodes();
+  const grouped = new Map<string, typeof nodes>();
+
+  for (const node of nodes) {
+    const arr = grouped.get(node.kind) ?? [];
+    arr.push(node);
+    grouped.set(node.kind, arr);
+  }
+
+  const kinds = [...grouped.keys()].sort();
+  const lines: string[] = [
+    '# Capability Kinds',
+    '',
+    `> ${nodes.length} capabilities grouped by kind`,
+    '',
+  ];
+
+  for (const kind of kinds) {
+    const caps = (grouped.get(kind) ?? []).sort((a, b) => a.name.localeCompare(b.name));
+    lines.push(`## ${kind} (${caps.length})`, '');
+    for (const cap of caps) {
+      lines.push(`- **${cap.name}** — ${cap.description} [${cap.origin}] (${cap.category})`);
+    }
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
+function generateOriginsIndex(graph: Graph): string {
+  const nodes = graph.getAllNodes();
+  const grouped = new Map<string, typeof nodes>();
+
+  for (const node of nodes) {
+    const arr = grouped.get(node.origin) ?? [];
+    arr.push(node);
+    grouped.set(node.origin, arr);
+  }
+
+  const origins = [...grouped.keys()].sort((a, b) => a.localeCompare(b));
+  const lines: string[] = [
+    '# Capability Origins',
+    '',
+    `> ${nodes.length} capabilities grouped by origin/source`,
+    '',
+  ];
+
+  for (const origin of origins) {
+    const caps = (grouped.get(origin) ?? []).sort((a, b) => a.name.localeCompare(b.name));
+    lines.push(`## ${origin} (${caps.length})`, '');
+    for (const cap of caps) {
+      lines.push(`- **${cap.name}** — ${cap.description} [${cap.kind}] (${cap.category})`);
+    }
+    lines.push('');
   }
 
   return lines.join('\n');
@@ -187,6 +253,14 @@ export function generateWiki(graph: Graph, options?: WikiOptions): WikiResult {
   const indexContent = generateIndex(graph, categories);
   const indexPath = join(outputDir, 'index.md');
   writeFileSync(indexPath, indexContent, 'utf-8');
+  articlesWritten++;
+
+  const kindsPath = join(outputDir, 'kinds.md');
+  writeFileSync(kindsPath, generateKindsIndex(graph), 'utf-8');
+  articlesWritten++;
+
+  const originsPath = join(outputDir, 'origins.md');
+  writeFileSync(originsPath, generateOriginsIndex(graph), 'utf-8');
   articlesWritten++;
 
   return { articlesWritten, indexPath };

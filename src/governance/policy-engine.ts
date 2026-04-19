@@ -8,6 +8,7 @@
 import type { GovernanceDecision } from '../types.js';
 import type { BudgetState } from '../budget/state-machine.js';
 import type { UserConfig } from '../types.js';
+import { isMetaPrompt } from '../utils/meta-prompt.js';
 
 // ─── Policy Actions ───────────────────────────────────────────────────────────
 
@@ -146,13 +147,44 @@ export function selectModelPlan(
 // ─── Governance Context Injection (for hook output) ─────────────────────────────
 
 const HEAVY_MODE_KEYWORDS = ['team', 'ralph', 'ralplan', 'autopilot'] as const;
+const HEAVY_MODE_PATTERNS = [
+  /从规划到实现/i,
+  /全自动跑完/i,
+  /自己决定是先计划还是直接执行/i,
+  /必要的话用\s*team/i,
+  /自动完成整个需求/i,
+  /端到端完成/i,
+  /自己安排执行/i,
+  /先告诉我预计成本/i,
+  /先告诉我.*模型分配/i,
+  /先告诉我.*更便宜方案/i,
+  /自动跑完/i,
+  /自动做完/i,
+  /先计划再执行/i,
+  /你自己判断要不要进入\s*(team|ralph|autopilot)/i,
+  /end[\s-]?to[\s-]?end/i,
+  /plan\s+first/i,
+  /planning\s+only/i,
+  /necessary.*team/i,
+  /model allocation/i,
+  /cheaper option/i,
+  /from planning to implementation/i,
+  /fully automatic/i,
+  /auto\s*pilot/i,
+] as const;
 
 /**
  * Detect whether a query triggers heavy-mode governance gating.
  */
 export function isHeavyModeQuery(query: string): boolean {
-  const q = query.toLowerCase();
-  return HEAVY_MODE_KEYWORDS.some(kw => q.includes(kw));
+  const q = query.trim();
+  if (!q || isMetaPrompt(q)) {
+    return false;
+  }
+
+  const lowered = q.toLowerCase();
+  return HEAVY_MODE_KEYWORDS.some(kw => lowered.includes(kw))
+    || HEAVY_MODE_PATTERNS.some(pattern => pattern.test(q));
 }
 
 /**

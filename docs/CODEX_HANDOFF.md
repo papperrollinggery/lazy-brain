@@ -23,7 +23,7 @@ The v1 product should stay CLI/hook-first, but must visibly communicate value:
 - What decision LazyBrain made
 - Why it picked a capability
 - What alternatives existed
-- What tokens/cost/work it saved
+- What decision it made and what work it avoided
 - Which runtime/model layer is being used
 
 Future UI direction is a desktop companion / virtual pet, but it should be the
@@ -104,9 +104,14 @@ Do not start with animations or a heavy UI framework. The sequence should be:
 
 ## Recent Codex Changes
 
-- Fixed token/cost savings semantics in session stats and summary.
+- Repositioned session summary as a manual audit surface instead of a
+  Stop-hook-driven “savings” report.
 - Converted the session dashboard from a table into a narrative value surface.
 - Added initial Hermes platform support and scanner paths.
+- Removed LazyBrain from the `Stop` lifecycle. Hook install now keeps
+  `UserPromptSubmit` only and treats `Stop` as legacy compatibility no-op.
+- Session recap responsibility moved to `SessionStart`, sourced from local
+  recommendation/history data instead of transcript parsing.
 
 ## Current Working State
 
@@ -164,9 +169,9 @@ Recommended mental model:
 
 ## Known Risks / Open Questions
 
-- Claude `Stop` hooks are currently crowded. `claude-mem` plus LazyBrain plus
-  other hook layers likely create end-of-response latency or "fake thinking"
-  after the visible answer has already completed.
+- Claude `Stop` hooks may still be crowded because of other plugins. LazyBrain
+  should no longer appear in that chain after reinstalling hooks, but users may
+  still observe slow `Stop` behavior from unrelated plugins.
 - HUD semantics are still not fully clean. Current token display should be
   treated as cumulative consumption, not savings.
 - Natural-language heavy-mode detection is still weaker than explicit mode

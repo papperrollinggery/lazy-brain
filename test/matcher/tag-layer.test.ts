@@ -164,6 +164,26 @@ describe('tagMatch', () => {
     expect(results[0].capability.name).toBe('architect');
   });
 
+  it('expands architecture/system-design phrasing into concrete routing tokens', () => {
+    const tokens = tokenize('设计系统架构');
+    expect(tokens).toEqual(expect.arrayContaining(['架构', '设计', 'architecture', 'architect', 'planner']));
+  });
+
+  it('expands deployment-to-production phrasing into deployment and verification tokens', () => {
+    const tokens = tokenize('部署到生产环境');
+    expect(tokens).toEqual(expect.arrayContaining(['部署', '生产', 'deployment', 'production', 'verification', 'verify']));
+  });
+
+  it('expands onboarding phrasing into codebase guidance tokens', () => {
+    const tokens = tokenize('代码库新人上手');
+    expect(tokens).toEqual(expect.arrayContaining(['代码库', 'onboarding', 'codebase', 'tour', 'code-tour']));
+  });
+
+  it('expands typo fix phrasing into minimal change tokens', () => {
+    const tokens = tokenize('修个 typo');
+    expect(tokens).toEqual(expect.arrayContaining(['typo', 'small-fix', 'minimal-change', 'fix']));
+  });
+
   it('layer is always "tag"', () => {
     const results = tagMatch('code review', caps, 'claude-code', 3);
     for (const r of results) {

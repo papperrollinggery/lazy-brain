@@ -6,80 +6,74 @@ describe('formatDashboard', () => {
   it('renders dashboard header with date', () => {
     const stats: SessionStats = {
       totalCapabilities: 100,
-      totalMatches: 50,
-      hitRate: 75,
-      baselineTokens: 12000,
-      actualTokens: 10000,
-      savedTokens: 2000,
-      baselineCostUSD: 0.6,
-      actualCostUSD: 0.5,
-      savedCostUSD: 0.1,
+      totalRecommendations: 50,
+      acceptedRecommendations: 38,
+      adoptionRate: 76,
+      skippedRecommendations: 12,
+      lastRecommendedTool: 'review-pr',
       recentMatches: [],
+      topCapabilities: [],
       newCapsThisWeek: 0,
       duplicatePairs: 0,
     };
     const output = formatDashboard(stats);
     expect(output).toContain('## 🧠 LazyBrain');
-    expect(output).toContain('今天我替你：');
+    expect(output).toContain('启动摘要 / Startup recap');
+    expect(output).toContain('不参与 Stop');
   });
 
-  it('renders stats table with correct values', () => {
+  it('renders recap values with correct numbers', () => {
     const stats: SessionStats = {
       totalCapabilities: 491,
-      totalMatches: 540,
-      hitRate: 78,
-      baselineTokens: 50000,
-      actualTokens: 45000,
-      savedTokens: 5000,
-      baselineCostUSD: 1.5,
-      actualCostUSD: 1.2,
-      savedCostUSD: 0.3,
+      totalRecommendations: 540,
+      acceptedRecommendations: 421,
+      adoptionRate: 78,
+      skippedRecommendations: 119,
+      lastRecommendedTool: 'review-pr',
       recentMatches: [],
+      topCapabilities: ['review-pr', 'debugger'],
       newCapsThisWeek: 0,
       duplicatePairs: 0,
     };
     const output = formatDashboard(stats);
-    expect(output).toContain('自动路由 540 次');
+    expect(output).toContain('推荐记录：540 次');
     expect(output).toContain('接受 421');
-    expect(output).toContain('~5k');
+    expect(output).toContain('采用率：78%');
+    expect(output).toContain('/review-pr');
   });
 
   it('renders recent matches when empty', () => {
     const stats: SessionStats = {
       totalCapabilities: 10,
-      totalMatches: 0,
-      hitRate: 0,
-      baselineTokens: 0,
-      actualTokens: 0,
-      savedTokens: 0,
-      baselineCostUSD: 0,
-      actualCostUSD: 0,
-      savedCostUSD: 0,
+      totalRecommendations: 0,
+      acceptedRecommendations: 0,
+      adoptionRate: 0,
+      skippedRecommendations: 0,
+      lastRecommendedTool: null,
       recentMatches: [],
+      topCapabilities: [],
       newCapsThisWeek: 0,
       duplicatePairs: 0,
     };
     const output = formatDashboard(stats);
-    expect(output).toContain('最近我做过的决定：');
-    expect(output).toContain('还没有可展示的推荐');
+    expect(output).toContain('最近决策 / Recent decisions');
+    expect(output).toContain('No recent routing history');
   });
 
   it('renders recent matches with data', () => {
     const stats: SessionStats = {
       totalCapabilities: 10,
-      totalMatches: 5,
-      hitRate: 80,
-      baselineTokens: 6000,
-      actualTokens: 5000,
-      savedTokens: 1000,
-      baselineCostUSD: 0.30,
-      actualCostUSD: 0.25,
-      savedCostUSD: 0.05,
+      totalRecommendations: 5,
+      acceptedRecommendations: 4,
+      adoptionRate: 80,
+      skippedRecommendations: 1,
+      lastRecommendedTool: 'Tool Evaluator',
       recentMatches: [
         { timestamp: '20:51', query: '方案 a', matched: 'Tool Evaluator', accepted: true },
         { timestamp: '12:05', query: '审查吧', matched: 'code-reviewer', accepted: true },
         { timestamp: '10:30', query: '修 bug', matched: 'debugger', accepted: false },
       ],
+      topCapabilities: ['Tool Evaluator', 'code-reviewer', 'debugger'],
       newCapsThisWeek: 3,
       duplicatePairs: 4,
     };
@@ -94,35 +88,31 @@ describe('formatDashboard', () => {
   it('renders new tools section', () => {
     const stats: SessionStats = {
       totalCapabilities: 100,
-      totalMatches: 10,
-      hitRate: 50,
-      baselineTokens: 1200,
-      actualTokens: 1000,
-      savedTokens: 200,
-      baselineCostUSD: 0.12,
-      actualCostUSD: 0.1,
-      savedCostUSD: 0.02,
+      totalRecommendations: 10,
+      acceptedRecommendations: 5,
+      adoptionRate: 50,
+      skippedRecommendations: 5,
+      lastRecommendedTool: 'debugger',
       recentMatches: [],
+      topCapabilities: ['debugger'],
       newCapsThisWeek: 5,
       duplicatePairs: 2,
     };
     const output = formatDashboard(stats);
     expect(output).toContain('新增 5 个工具');
-    expect(output).toContain('发现 2 对可能重复的工具');
+    expect(output).toContain('重复能力提示：2 对');
   });
 
   it('renders command hints', () => {
     const stats: SessionStats = {
       totalCapabilities: 100,
-      totalMatches: 10,
-      hitRate: 50,
-      baselineTokens: 1200,
-      actualTokens: 1000,
-      savedTokens: 200,
-      baselineCostUSD: 0.12,
-      actualCostUSD: 0.1,
-      savedCostUSD: 0.02,
+      totalRecommendations: 10,
+      acceptedRecommendations: 5,
+      adoptionRate: 50,
+      skippedRecommendations: 5,
+      lastRecommendedTool: 'debugger',
       recentMatches: [],
+      topCapabilities: ['debugger'],
       newCapsThisWeek: 0,
       duplicatePairs: 0,
     };
@@ -130,5 +120,6 @@ describe('formatDashboard', () => {
     expect(output).toContain('lazybrain stats');
     expect(output).toContain('lazybrain wiki <name>');
     expect(output).toContain('lazybrain summary');
+    expect(output).toContain('lazybrain hook status');
   });
 });
