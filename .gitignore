@@ -36,3 +36,11 @@ lazy-brain/
 # Local workflow doc (user-facing, but not for public repo — keep local)
 HOW_TO_WORK_WITH_TRAE.md
 
+
+# Private operational scripts (user-specific, contains personal infra details)
+scripts/check-budget.sh
+.lazybrain/balance.json
+
+# Local workflow doc (user-facing, but not for public repo — keep local)
+HOW_TO_WORK_WITH_TRAE.md
+

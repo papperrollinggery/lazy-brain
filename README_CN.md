@@ -4,6 +4,10 @@
 
 **AI 编程助手的语义技能路由器**
 
+[![CI](https://github.com/papperrollinggery/lazy-brain/actions/workflows/ci.yml/badge.svg)](https://github.com/papperrollinggery/lazy-brain/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![Node](https://img.shields.io/badge/node-%E2%89%A518-brightgreen.svg)](https://nodejs.org)
+
 > 你装了几十个 Skill，但每次都忘了该用哪个。
 > LazyBrain 让你只管说话，它帮你找到对的工具。
 
@@ -64,10 +68,17 @@ LazyBrain 就是来解决这些问题的。
 
 ## 怎么用？（3 步，5 分钟）
 
+**环境要求**：Node.js ≥ 18
+
 ### 第 1 步：安装
 
 ```bash
-npm install -g lazybrain
+# 从 GitHub 安装（npm 发布中）
+git clone https://github.com/papperrollinggery/lazy-brain.git
+cd lazy-brain
+npm install
+npm run build
+npm link        # 注册 lazybrain / lb 到全局
 ```
 
 ### 第 2 步：扫描 + 编译
@@ -75,6 +86,9 @@ npm install -g lazybrain
 ```bash
 lazybrain scan        # 找到你电脑上所有工具
 lazybrain compile     # 让 AI 给每个工具打标签、建关系
+
+# 或者不用 API key，纯离线编译（tag-layer 可用）
+lazybrain compile --offline
 ```
 
 编译完成后，LazyBrain 就知道你有哪些工具、每个工具是干嘛的了。

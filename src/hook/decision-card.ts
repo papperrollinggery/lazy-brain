@@ -1,5 +1,5 @@
 /**
- * LazyBrain — Decision Card (LAZ-40)
+ * LazyBrain — Decision Card
  * Formats matcher results into user-readable Decision Cards.
  */
 
@@ -8,7 +8,7 @@ import type { MatchResult, ProposalOption } from '../types.js';
 export const DECISION_CARD_DIVIDER = '━━━ 分隔 ━━━';
 
 /**
- * Stub for LAZ-42 — returns explanation based on match score.
+ * Stub for explanation helper — returns explanation based on match score.
  */
 export function getExplanation(topTool: string, score: number, query: string): string {
   if (score >= 0.85) {
@@ -32,7 +32,7 @@ export interface DecisionCardOptions {
 
 /**
  * Format a decision card for high-confidence matches.
- * Output format per LAZ-40 acceptance criteria:
+ * Output format per acceptance criteria:
  * ━━━ 分隔 ━━━
  * 🧠 LazyBrain 替你做了一个决定
  * 你想: <原 query>
