@@ -118,7 +118,7 @@ describe('formatDashboard', () => {
     };
     const output = formatDashboard(stats);
     expect(output).toContain('lazybrain stats');
-    expect(output).toContain('lazybrain wiki <name>');
+    expect(output).toContain('lazybrain wiki');
     expect(output).toContain('lazybrain summary');
     expect(output).toContain('lazybrain hook status');
   });

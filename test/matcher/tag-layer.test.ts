@@ -184,6 +184,36 @@ describe('tagMatch', () => {
     expect(tokens).toEqual(expect.arrayContaining(['typo', 'small-fix', 'minimal-change', 'fix']));
   });
 
+  it('expands unit test phrasing into test coverage and tdd tokens', () => {
+    const tokens = tokenize('add unit tests');
+    expect(tokens).toEqual(expect.arrayContaining(['test-coverage', 'tdd', 'cpp-test']));
+  });
+
+  it('expands commit phrasing into git commit capability names', () => {
+    const tokens = tokenize('提交代码');
+    expect(tokens).toEqual(expect.arrayContaining(['git-commit', 'git-master', 'prp-commit']));
+  });
+
+  it('boosts architecture intent toward architect capabilities', () => {
+    const architect = cap({
+      id: '13',
+      name: 'Software Architect',
+      tags: ['planning'],
+      exampleQueries: ['plan a system'],
+      category: 'planning',
+    });
+    const reviewer = cap({
+      id: '14',
+      name: 'review-pr',
+      tags: ['review', 'code'],
+      exampleQueries: ['review code'],
+      category: 'code-quality',
+    });
+
+    const results = tagMatch('设计系统架构', [reviewer, architect], 'claude-code', 3);
+    expect(results[0]?.capability.name).toBe('Software Architect');
+  });
+
   it('layer is always "tag"', () => {
     const results = tagMatch('code review', caps, 'claude-code', 3);
     for (const r of results) {

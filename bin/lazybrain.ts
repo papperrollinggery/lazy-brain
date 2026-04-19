@@ -919,9 +919,15 @@ function cmdGraph() {
   const graph = Graph.load(GRAPH_PATH);
   const format = args.includes('--mermaid') ? 'mermaid' : 'json';
   const limitIndex = args.indexOf('--limit');
+  const kindIndex = args.indexOf('--kind');
+  const originIndex = args.indexOf('--origin');
+  const categoryIndex = args.indexOf('--category');
   const parsedLimit = limitIndex >= 0 ? parseInt(args[limitIndex + 1] ?? '80', 10) : 80;
   const limit = Number.isFinite(parsedLimit) ? Math.max(1, parsedLimit) : 80;
-  const view = buildGraphView(graph, limit);
+  const kind = kindIndex >= 0 ? args[kindIndex + 1] : undefined;
+  const origin = originIndex >= 0 ? args[originIndex + 1] : undefined;
+  const category = categoryIndex >= 0 ? args[categoryIndex + 1] : undefined;
+  const view = buildGraphView(graph, { limit, kind, origin, category });
 
   if (format === 'mermaid') {
     console.log(formatGraphMermaid(view));
@@ -1663,7 +1669,8 @@ Usage:
   lazybrain match "<query>"          Match input to capabilities
   lazybrain list [--category <c>]    List indexed capabilities
   lazybrain stats                    Show graph statistics
-  lazybrain graph [--mermaid]        Export graph view
+  lazybrain graph [--mermaid] [--limit <n>] [--kind <k>] [--origin <o>] [--category <c>]
+                                     Export graph view
   lazybrain alias set <n> <target>   Set an alias
   lazybrain alias list               List aliases
   lazybrain alias remove <name>      Remove an alias

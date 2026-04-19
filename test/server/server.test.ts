@@ -157,6 +157,13 @@ describe('GET /graph', () => {
     expect(body).toContain('graph LR');
     expect(body).toContain('python-patterns');
   });
+
+  it('supports graph filters via query params', async () => {
+    const { status, body } = await req('GET', '/graph?kind=agent&origin=test&limit=10');
+    expect(status).toBe(200);
+    expect(body.nodes).toHaveLength(1);
+    expect(body.nodes[0].name).toBe('code-reviewer');
+  });
 });
 
 describe('GET /dups', () => {

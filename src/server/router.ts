@@ -121,7 +121,10 @@ function handleGraphView(
   const format = (url.searchParams.get('format') ?? 'json').toLowerCase();
   const limitRaw = parseInt(url.searchParams.get('limit') ?? '80', 10);
   const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 200) : 80;
-  const view = buildGraphView(graph, limit);
+  const kind = url.searchParams.get('kind') ?? undefined;
+  const origin = url.searchParams.get('origin') ?? undefined;
+  const category = url.searchParams.get('category') ?? undefined;
+  const view = buildGraphView(graph, { limit, kind, origin, category });
 
   if (format === 'mermaid') {
     const payload = formatGraphMermaid(view);

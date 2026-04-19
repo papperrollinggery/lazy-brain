@@ -74,6 +74,20 @@ describe('buildGraphView', () => {
     expect(similarEdges).toHaveLength(1);
     expect(view.edges.some((edge) => edge.type === 'composes_with')).toBe(true);
   });
+
+  it('filters nodes by kind and origin', () => {
+    const graph = makeGraph();
+    graph.addLink({ source: 'a', target: 'b', type: 'similar_to', confidence: 0.8 });
+    graph.addLink({ source: 'b', target: 'c', type: 'depends_on', confidence: 0.9 });
+
+    const byKind = buildGraphView(graph, { limit: 10, kind: 'agent' });
+    expect(byKind.nodes).toHaveLength(1);
+    expect(byKind.nodes[0]?.id).toBe('b');
+
+    const byOrigin = buildGraphView(graph, { limit: 10, origin: 'OMC' });
+    expect(byOrigin.nodes).toHaveLength(1);
+    expect(byOrigin.nodes[0]?.id).toBe('c');
+  });
 });
 
 describe('formatGraphMermaid', () => {

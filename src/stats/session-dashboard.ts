@@ -58,7 +58,7 @@ export function formatDashboard(stats: SessionStats): string {
   }
   lines.push('');
   lines.push('常用命令 / Useful commands');
-  lines.push('- `lazybrain stats` · `lazybrain wiki <name>` · `lazybrain summary` · `lazybrain hook status`');
+  lines.push('- `lazybrain stats` · `lazybrain wiki` · `lazybrain summary` · `lazybrain hook status`');
 
   return lines.join('\n');
 }

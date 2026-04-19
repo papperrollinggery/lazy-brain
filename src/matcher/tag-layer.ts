@@ -85,6 +85,87 @@ const LANG_KEYWORDS = new Set([
 
 /** Penalty multiplier for language-specialized capabilities on generic queries */
 const LANG_SPECIALTY_PENALTY = 0.5;
+const INTENT_CLUSTER_BOOST = 0.35;
+
+interface IntentCluster {
+  triggers: string[];
+  nameHints?: string[];
+  tagHints?: string[];
+  descHints?: string[];
+  categoryHints?: string[];
+}
+
+const INTENT_CLUSTERS: IntentCluster[] = [
+  {
+    triggers: ['architecture', 'architect', 'system-design', 'planner', 'backend-architect'],
+    nameHints: ['architect', 'planner'],
+    tagHints: ['architecture', 'architect', 'planning', 'plan', 'design'],
+    categoryHints: ['planning', 'development'],
+  },
+  {
+    triggers: ['deployment', 'production', 'verification', 'verify', 'release'],
+    nameHints: ['verify', 'setup', 'deploy'],
+    tagHints: ['deployment', 'production', 'verification', 'release', 'setup'],
+    descHints: ['deploy', 'production', 'release', 'verify'],
+    categoryHints: ['deployment', 'operations'],
+  },
+  {
+    triggers: ['onboarding', 'codebase', 'tour', 'code-tour', 'documentation'],
+    nameHints: ['onboarding', 'tour', 'bridge', 'skill-create', 'review'],
+    tagHints: ['onboarding', 'code-tour', 'bridge', 'tour', 'review'],
+    descHints: ['onboarding', 'codebase', 'guide'],
+    categoryHints: ['learning', 'development'],
+  },
+  {
+    triggers: ['database', 'migration', 'migrate', 'database-optimizer'],
+    nameHints: ['database', 'migration'],
+    tagHints: ['database', 'migration', 'schema'],
+    descHints: ['database', 'migration', 'schema'],
+    categoryHints: ['data', 'development'],
+  },
+  {
+    triggers: ['technical', 'article', 'writer', 'writing', 'article-writing', 'technical-writer'],
+    nameHints: ['writer', 'article'],
+    tagHints: ['technical', 'article', 'writing', 'writer'],
+    descHints: ['article', 'writer', 'technical', 'blog'],
+    categoryHints: ['content', 'communication'],
+  },
+  {
+    triggers: ['typo', 'small-fix', 'minimal-change', 'fix'],
+    nameHints: ['minimal', 'build-fix'],
+    tagHints: ['minimal', 'fix', 'typo'],
+    descHints: ['minimal', 'fix', 'small'],
+    categoryHints: ['development', 'code-quality'],
+  },
+  {
+    triggers: ['refactor', 'simplify', 'readability', 'code-simplifier', 'refactor-clean'],
+    nameHints: ['simplifier', 'refactor'],
+    tagHints: ['simplifier', 'refactor'],
+    descHints: ['clarity', 'maintainability', 'refine', 'dead code'],
+    categoryHints: ['code-quality', 'development'],
+  },
+  {
+    triggers: ['commit', 'git-commit', 'git-master', 'prp-commit'],
+    nameHints: ['commit', 'git'],
+    tagHints: ['commit', 'git', 'review'],
+    descHints: ['commit', 'git history', 'atomic commits'],
+    categoryHints: ['development', 'code-quality'],
+  },
+  {
+    triggers: ['python', 'python-review', 'python-patterns'],
+    nameHints: ['python'],
+    tagHints: ['python'],
+    descHints: ['python'],
+    categoryHints: ['development'],
+  },
+  {
+    triggers: ['database', 'query', 'optimize', 'optimizer', 'postgres', 'postgres-patterns', 'prompt-optimize'],
+    nameHints: ['database', 'optimizer', 'postgres', 'prompt-optimize'],
+    tagHints: ['database', 'optimizer', 'postgres', 'query'],
+    descHints: ['query optimization', 'performance tuning', 'database'],
+    categoryHints: ['data', 'development'],
+  },
+];
 
 /**
  * Check if a capability is language/framework-specialized.
@@ -113,6 +194,41 @@ function queryHasLangHint(tokens: string[]): boolean {
     }
   }
   return false;
+}
+
+function matchesAnyHint(target: string, hints: string[] | undefined): boolean {
+  if (!hints || hints.length === 0) return false;
+  return hints.some(hint => target.includes(hint));
+}
+
+function computeIntentClusterBoost(tokens: string[], cap: Capability): number {
+  if (tokens.length === 0) return 0;
+
+  const tokenSet = new Set(tokens);
+  const nameLower = cap.name.toLowerCase();
+  const tagLowers = cap.tags.map(t => t.toLowerCase());
+  const descLower = cap.description.toLowerCase();
+  const categoryLower = cap.category.toLowerCase();
+
+  let boost = 0;
+
+  for (const cluster of INTENT_CLUSTERS) {
+    if (!cluster.triggers.some(trigger => tokenSet.has(trigger))) continue;
+
+    const primaryMatch =
+      matchesAnyHint(nameLower, cluster.nameHints) ||
+      tagLowers.some(tag => matchesAnyHint(tag, cluster.tagHints)) ||
+      matchesAnyHint(descLower, cluster.descHints);
+    const categoryMatch = matchesAnyHint(categoryLower, cluster.categoryHints);
+
+    // Category 只能作为辅助信号，不能单独触发 boost。
+    // 否则 architecture 类 query 会把整个 planning/design 桶整体抬高。
+    if (primaryMatch) {
+      boost = Math.max(boost, categoryMatch ? INTENT_CLUSTER_BOOST : INTENT_CLUSTER_BOOST * 0.85);
+    }
+  }
+
+  return boost;
 }
 
 /**
@@ -329,12 +445,15 @@ export function tagMatch(
   const scored: MatchResult[] = [];
   for (const cap of filtered) {
     let score = scoreCapability(original, expanded, cap, query);
+    score += computeIntentClusterBoost([...original, ...expanded], cap);
     if (score < MIN_MATCH_SCORE) continue;
 
     // Penalize language-specialized capabilities on generic queries
     if (!hasLangHint && getLangSpecialty(cap)) {
       score *= LANG_SPECIALTY_PENALTY;
     }
+
+    score = Math.min(1, score);
 
     if (score >= MIN_MATCH_SCORE) {
       scored.push({

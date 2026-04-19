@@ -21,6 +21,13 @@ export interface GraphView {
   edges: GraphViewEdge[];
 }
 
+export interface GraphViewOptions {
+  limit?: number;
+  kind?: string;
+  origin?: string;
+  category?: string;
+}
+
 function edgeThreshold(type: Link['type']): number {
   switch (type) {
     case 'similar_to':
@@ -39,11 +46,20 @@ function canonicalPair(source: string, target: string): string {
   return [source, target].sort().join('::');
 }
 
-export function buildGraphView(graph: Graph, limit = 80): GraphView {
+export function buildGraphView(graph: Graph, options: number | GraphViewOptions = 80): GraphView {
+  const resolved = typeof options === 'number' ? { limit: options } : options;
+  const limit = Math.max(1, resolved.limit ?? 80);
+  const kind = resolved.kind?.toLowerCase();
+  const origin = resolved.origin?.toLowerCase();
+  const category = resolved.category?.toLowerCase();
+
   const rankedNodes = graph.getAllNodes()
+    .filter(node => !kind || node.kind.toLowerCase() === kind)
+    .filter(node => !origin || node.origin.toLowerCase() === origin)
+    .filter(node => !category || node.category.toLowerCase() === category)
     .map(node => ({ node, score: graph.getLinks(node.id).length }))
     .sort((a, b) => b.score - a.score || a.node.name.localeCompare(b.node.name))
-    .slice(0, Math.max(1, limit));
+    .slice(0, limit);
 
   const allowedIds = new Set(rankedNodes.map(entry => entry.node.id));
 
