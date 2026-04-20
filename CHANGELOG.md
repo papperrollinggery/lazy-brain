@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v1.0.1] - 2026-04-20
+
+### Added
+- Project-scoped hook install metadata and workspace `cwd` guard so LazyBrain only runs inside the intended repo by default
+- Hook runtime registry, active run inspection, and breaker diagnostics via `lazybrain doctor`, `lazybrain hook ps`, and `lazybrain hook clean`
+
+### Changed
+- Hardened hook runtime safety with concurrency limits, hung/stale run handling, overload breaker checks, and fail-closed scope behavior when install metadata is missing
+- `doctor --fix` now only repairs LazyBrain-owned state and refuses to silently rebind a missing project scope
+- `hook status` and startup diagnostics now surface scope, active hooks, hung hooks, breaker state, and confirm that LazyBrain does not participate in `Stop`
+- Documentation updated to reflect the sidecar-agent lifecycle, project-scoped hook behavior, and CLI-first runtime guidance
+
 ## [v1.0.0] - 2026-04-19
 
 ### Added
