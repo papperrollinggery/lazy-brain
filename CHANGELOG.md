@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [v1.0.1] - 2026-04-20
+## [v1.0.2] - 2026-04-20
 
 ### Added
 - Project-scoped hook install metadata and workspace `cwd` guard so LazyBrain only runs inside the intended repo by default

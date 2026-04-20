@@ -125,7 +125,7 @@ async function main() {
       break;
     case '--version':
     case '-v':
-      console.log('lazybrain 1.0.1');
+      console.log('lazybrain 1.0.2');
       break;
     case '--help':
     case '-h':
