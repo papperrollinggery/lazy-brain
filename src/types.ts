@@ -363,6 +363,15 @@ export interface UserConfig {
     /** Modes that are considered "heavy" and require extra gating */
     heavyModes: ExecutionMode[];
   };
+  /** Hook runtime safety controls */
+  hookSafety?: {
+    maxConcurrentHooks?: number;
+    staleHookMs?: number;
+    avgDurationBreakerMs?: number;
+    loadAvgBreaker?: number;
+    breakerCooldownMs?: number;
+    recentDurationsWindow?: number;
+  };
 }
 
 // ─── History ────────────────────────────────────────────────────────────────

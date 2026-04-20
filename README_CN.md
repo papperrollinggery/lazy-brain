@@ -122,6 +122,8 @@ lazybrain compile --offline
 
 ```bash
 lazybrain hook install
+# 显式全局安装（不推荐）
+# lazybrain hook install --global
 ```
 
 **就这样，完事了。**
@@ -132,7 +134,7 @@ lazybrain hook install
 
 它会自动清理旧版本残留的 LazyBrain `Stop` 注册，不再让 LazyBrain 参与 `running stop hooks`。
 
-从此以后，你在 Claude Code 里随便说话，LazyBrain 就会自动帮你匹配工具：
+从此以后，你在**当前记录的项目工作区里**使用 Claude Code/CLI 时，LazyBrain 就会自动帮你匹配工具：
 
 ```
 你说: "帮我审查代码"
@@ -309,11 +311,28 @@ LazyBrain: "通常审查完会重构，要不要用 /refactor-clean？"
 | `lazybrain evolve` | 从使用中学习新标签 |
 | `lazybrain evolve --dry-run` | 预览学习结果（不实际修改） |
 | `lazybrain evolve --rollback` | 撤销上次学习 |
-| `lazybrain hook install` | 安装到 Claude Code |
+| `lazybrain hook install` | 安装 Hook（默认 project scope） |
 | `lazybrain hook uninstall` | 卸载 |
 | `lazybrain hook status` | 检查 LazyBrain 是否仍参与 `Stop` |
+| `lazybrain hook ps` | 查看当前活跃 hook |
+| `lazybrain hook clean` | 清理失效 runtime 记录 |
+| `lazybrain doctor` | 诊断 LazyBrain 运行状态 |
+| `lazybrain doctor --fix` | 修复 LazyBrain 自身状态漂移 |
 | `lazybrain config list` | 查看配置 |
 | `lazybrain config set <键> <值>` | 修改配置 |
+
+## Hook 安全模型
+
+- `lazybrain hook install` 默认是 **project scope**
+- LazyBrain 只会在记录的项目根目录下工作
+- 其他 cwd 的调用会直接 no-op 跳过
+- `Stop` 仍然不属于产品生命周期
+- `doctor --fix` 只修 LazyBrain 自身状态：
+  - 规范化 hook 注册
+  - 清理 stale runtime 记录
+  - 清除 breaker 状态
+  - 在已有 metadata 前提下修复 install metadata
+- `doctor --fix` 不会自动修改第三方插件，也不会改系统服务
 
 ## 启动回顾（SessionStart）
 

@@ -23,6 +23,10 @@ export const PROFILE_PATH = join(LAZYBRAIN_DIR, 'profile.json');
 export const OMC_STATE_DIR = join(homedir(), '.omc', 'state');
 export const STATUS_PATH = join(LAZYBRAIN_DIR, 'status.json');
 export const HOOK_ACTIVE_PATH = join(LAZYBRAIN_DIR, '.hook-pid');
+export const HOOK_INSTALL_STATE_PATH = join(LAZYBRAIN_DIR, 'hook-install.json');
+export const HOOK_RUNS_DIR = join(LAZYBRAIN_DIR, 'hook-runs');
+export const HOOK_HEALTH_PATH = join(LAZYBRAIN_DIR, 'hook-health.json');
+export const HOOK_EVENTS_PATH = join(LAZYBRAIN_DIR, 'hook-events.jsonl');
 export const SECRETARY_CB_PATH = join(LAZYBRAIN_DIR, '.secretary-cb.json');
 
 /** Resolve Claude config dir (mirrors ~/.claude/hooks/lib/config-dir.mjs) */
@@ -198,6 +202,15 @@ export const DEFAULT_GOVERNANCE_CONFIG: NonNullable<UserConfig['governance']> = 
   heavyModes: ['team', 'ralph', 'ralplan'],
 };
 
+export const DEFAULT_HOOK_RUNTIME_CONFIG: Required<NonNullable<UserConfig['hookSafety']>> = {
+  maxConcurrentHooks: 3,
+  staleHookMs: 15_000,
+  avgDurationBreakerMs: 3_000,
+  loadAvgBreaker: 8,
+  breakerCooldownMs: 60_000,
+  recentDurationsWindow: 12,
+};
+
 export const DEFAULT_CONFIG: UserConfig = {
   aliases: {},
   scanPaths: [],
@@ -215,6 +228,7 @@ export const DEFAULT_CONFIG: UserConfig = {
   platforms: { 'claude-code': true, 'openclaw': false, 'workbuddy': false, 'cursor': false, 'kiro': false, 'codex': false, 'opencode': false, 'hermes': false, 'droid': false, 'universal': false },
   decisionCardThreshold: DEFAULT_DECISION_CARD_THRESHOLD,
   governance: DEFAULT_GOVERNANCE_CONFIG,
+  hookSafety: DEFAULT_HOOK_RUNTIME_CONFIG,
 };
 
 // ─── Graph Version ──────────────────────────────────────────────────────────

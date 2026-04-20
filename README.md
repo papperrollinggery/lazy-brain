@@ -221,11 +221,13 @@ lazybrain compile --offline
 
 # Install into Claude Code / 安装到 Claude Code
 lazybrain hook install
+# Explicit global install / 显式全局安装
+# lazybrain hook install --global
 ```
 
-That's it. Every prompt you type in Claude Code will now be automatically matched.
+That's it. Prompts inside the recorded project workspace will now be automatically matched.
 
-这样就完成了。之后你在 Claude Code 里的每次输入，都会自动经过 LazyBrain 路由。
+这样就完成了。之后你在**当前记录的项目工作区内**输入时，都会自动经过 LazyBrain 路由。
 
 ## Configuration / 配置
 
@@ -281,7 +283,24 @@ lazybrain evolve --rollback          # Undo last evolution
 lazybrain hook install               # Install Claude Code hook
 lazybrain hook uninstall             # Uninstall hook
 lazybrain hook status                # Check hook status
+lazybrain hook ps                    # Show active hook runs
+lazybrain hook clean                 # Clean stale hook records
+lazybrain doctor                     # Diagnose LazyBrain runtime state
+lazybrain doctor --fix               # Repair LazyBrain-only state drift
 ```
+
+### Hook Safety / Hook 安全模型
+
+- `lazybrain hook install` now defaults to **project scope**
+- runtime routing only applies inside the recorded workspace root
+- if a prompt comes from another cwd, LazyBrain returns no-op immediately
+- `Stop` is still outside the product lifecycle
+- `doctor --fix` only repairs **LazyBrain's own state**
+  - hook registration normalization
+  - stale runtime record cleanup
+  - breaker reset
+  - install metadata repair when metadata already exists
+- `doctor --fix` does **not** modify third-party plugins or system services
 
 ### Smoke Test / 冒烟测试
 

@@ -1,6 +1,9 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { readHookInstallState } from './install-state.js';
+import { getHookRuntimeSnapshot, getHookRuntimeStats } from './runtime.js';
 import { isLazyBrainHookCommand } from './settings.js';
+import type { HookInstallState, HookRuntimeSnapshot } from './types.js';
 
 type HookCommand = {
   type?: string;
@@ -25,6 +28,11 @@ export interface HookLifecycleStatus {
   userPromptSubmitCommands: string[];
   stopCommands: string[];
   sessionStartCommands: string[];
+  installState: HookInstallState | null;
+  runtime: HookRuntimeSnapshot;
+  avgDurationMs: number;
+  p95DurationMs: number;
+  breakerOpen: boolean;
 }
 
 export interface StopHookAuditEntry {
@@ -37,6 +45,12 @@ export interface StopHookAudit {
   timestamp: string;
   entries: StopHookAuditEntry[];
 }
+
+type HookLifecycleOptions = {
+  installState?: HookInstallState | null;
+  runtime?: HookRuntimeSnapshot;
+  now?: number;
+};
 
 function flattenCommands(entries: HookEntry[]): string[] {
   const commands: string[] = [];
@@ -55,7 +69,7 @@ function normalizeEntries(value: unknown): HookEntry[] {
   return Array.isArray(value) ? value as HookEntry[] : [];
 }
 
-export function getHookLifecycleStatus(settings: SettingsObject): HookLifecycleStatus {
+export function getHookLifecycleStatus(settings: SettingsObject, options: HookLifecycleOptions = {}): HookLifecycleStatus {
   const hooks = (settings.hooks ?? {}) as Record<string, unknown>;
   const userPromptSubmit = normalizeEntries(hooks.UserPromptSubmit);
   const stop = normalizeEntries(hooks.Stop);
@@ -64,6 +78,8 @@ export function getHookLifecycleStatus(settings: SettingsObject): HookLifecycleS
   const userPromptSubmitCommands = flattenCommands(userPromptSubmit);
   const stopCommands = flattenCommands(stop);
   const sessionStartCommands = flattenCommands(sessionStart);
+  const runtime = options.runtime ?? getHookRuntimeSnapshot();
+  const runtimeStats = getHookRuntimeStats(runtime, options.now);
 
   return {
     lazybrainUserPromptSubmit: userPromptSubmitCommands.some(isLazyBrainHookCommand),
@@ -72,6 +88,11 @@ export function getHookLifecycleStatus(settings: SettingsObject): HookLifecycleS
     userPromptSubmitCommands,
     stopCommands,
     sessionStartCommands,
+    installState: options.installState ?? readHookInstallState(),
+    runtime,
+    avgDurationMs: runtimeStats.avgDurationMs,
+    p95DurationMs: runtimeStats.p95DurationMs,
+    breakerOpen: runtimeStats.breakerOpen,
   };
 }
 

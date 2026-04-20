@@ -11,9 +11,9 @@
  *   stdout: { continue: true, hookSpecificOutput?: { hookEventName, additionalContext }, systemMessage?: string }
  */
 
-import { readFileSync, existsSync, writeFileSync, unlinkSync } from 'node:fs';
+import { readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { GRAPH_PATH, CAPABILITY_MODEL_HINTS, LAZYBRAIN_DIR, HOOK_ACTIVE_PATH } from '../src/constants.js';
+import { GRAPH_PATH, CAPABILITY_MODEL_HINTS, LAZYBRAIN_DIR } from '../src/constants.js';
 import { Graph } from '../src/graph/graph.js';
 import { match } from '../src/matcher/matcher.js';
 import { recommendTeam } from '../src/matcher/team-recommender.js';
@@ -37,6 +37,8 @@ import { loadBudgetState } from '../src/budget/state-machine.js';
 import { runPreflight } from '../src/governance/preflight.js';
 import { evaluatePolicy, isHeavyModeQuery, formatGovernanceInjection } from '../src/governance/policy-engine.js';
 import { isMetaPrompt } from '../src/utils/meta-prompt.js';
+import { beginHookRun, finishHookRun } from '../src/hook/runtime.js';
+import type { HookRunRecord } from '../src/hook/types.js';
 
 // ─── Server HTTP Client (optional fast path) ─────────────────────────────────
 
@@ -74,6 +76,8 @@ interface HookInput {
 interface HookOutput {
   continue: boolean;
   additionalSystemPrompt?: string;
+  runStatus?: 'ok' | 'error';
+  runErrorMessage?: string;
 }
 
 interface ClaudeHookOutput {
@@ -366,24 +370,17 @@ function safeWriteRecommendation(entry: Parameters<typeof writeRecommendation>[0
   }
 }
 
-// ─── Main ─────────────────────────────────────────────────────────────────────
-
-function cleanupPid(): void {
-  try { if (existsSync(HOOK_ACTIVE_PATH)) unlinkSync(HOOK_ACTIVE_PATH); } catch {}
-}
-
 // Module-level hook state used when formatting official Claude Code hook output.
 let _transcriptPath = '';
 let _hookEventName = '';
 let _visibleNotice = '';
+let _currentRun: HookRunRecord | null = null;
+let _currentRunStartedAt = 0;
+let _hookConfig: ReturnType<typeof loadConfig> | null = null;
 
 async function main() {
   process.env.LAZYBRAIN_HOOK = '1';
   let input: HookInput = {};
-  // Signal statusline that LazyBrain is processing
-  try {
-    writeFileSync(HOOK_ACTIVE_PATH, String(process.pid), 'utf-8');
-  } catch {}
 
   try {
     const raw = readFileSync('/dev/stdin', 'utf-8').trim();
@@ -391,7 +388,6 @@ async function main() {
     _transcriptPath = input.transcript_path ?? '';
     _hookEventName = input.hook_event_name ?? '';
   } catch {
-    cleanupPid();
     output({ continue: true });
     return;
   }
@@ -401,6 +397,21 @@ async function main() {
     output({ continue: true });
     return;
   }
+
+  const config = loadConfig();
+  _hookConfig = config;
+  const runDecision = beginHookRun({
+    cwd: input.cwd,
+    hookEventName: input.hook_event_name ?? 'UserPromptSubmit',
+    sessionId: input.session_id,
+    prompt: input.prompt,
+  }, { config });
+  if (!runDecision.allowed) {
+    output({ continue: true });
+    return;
+  }
+  _currentRun = runDecision.run;
+  _currentRunStartedAt = Date.now();
 
   // ─── SessionStart Hook: Dashboard ──────────────────────────────────────
   if (input.hook_event_name === 'SessionStart') {
@@ -444,7 +455,6 @@ async function main() {
 
   // no_graph 场景 — 先 loadConfig 再判断
   if (!existsSync(GRAPH_PATH)) {
-    const config = loadConfig();
     if (config.mode === 'ask') {
       renderParchment({ type: 'no_graph' });
     }
@@ -465,7 +475,6 @@ async function main() {
 
   try {
     const graph = Graph.load(GRAPH_PATH);
-    const config = loadConfig();
 
     const dupIndex = buildDuplicateIndex(detectDuplicates(graph));
 
@@ -794,12 +803,24 @@ async function main() {
       reason: 'error',
     });
     writeLastMatch(null, 0);
-    output({ continue: true });
+    output({
+      continue: true,
+      runStatus: 'error',
+      runErrorMessage: err instanceof Error ? err.message : String(err),
+    });
   }
 }
 
 function output(data: HookOutput) {
-  cleanupPid();
+  if (_currentRun) {
+    finishHookRun(_currentRun, {
+      status: data.runStatus ?? 'ok',
+      durationMs: Math.max(1, Date.now() - _currentRunStartedAt),
+      errorMessage: data.runErrorMessage,
+    }, { config: _hookConfig ?? undefined });
+    _currentRun = null;
+    _currentRunStartedAt = 0;
+  }
 
   const hookEventName = _hookEventName || 'UserPromptSubmit';
   const payload: ClaudeHookOutput = { continue: data.continue };
@@ -816,6 +837,7 @@ function output(data: HookOutput) {
   }
 
   _visibleNotice = '';
+  _hookConfig = null;
 
   process.stdout.write(JSON.stringify(payload) + '\n');
 }
@@ -1172,4 +1194,16 @@ function formatWikiCard(
   return lines.join('\n');
 }
 
-main();
+main().catch((err) => {
+  if (_currentRun) {
+    finishHookRun(_currentRun, {
+      status: 'error',
+      durationMs: Math.max(1, Date.now() - _currentRunStartedAt),
+      errorMessage: err instanceof Error ? err.message : String(err),
+    }, { config: _hookConfig ?? undefined });
+    _currentRun = null;
+    _currentRunStartedAt = 0;
+  }
+  console.error(err);
+  process.exit(1);
+});

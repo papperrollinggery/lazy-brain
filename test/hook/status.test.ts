@@ -14,11 +14,21 @@ describe('hook lifecycle status', () => {
           { hooks: [{ type: 'command', command: 'node /plugin/claude-mem summarize' }] },
         ],
       },
+    }, {
+      installState: null,
+      runtime: {
+        activeRuns: [],
+        hungRuns: [],
+        staleRuns: [],
+        health: { recentDurationsMs: [100, 200], updatedAt: 1000 },
+      },
+      now: 1000,
     });
 
     expect(status.lazybrainUserPromptSubmit).toBe(true);
     expect(status.lazybrainStop).toBe(false);
     expect(status.stopCommands).toHaveLength(2);
+    expect(status.avgDurationMs).toBe(150);
   });
 
   it('detects stale LazyBrain Stop registration', () => {
@@ -28,9 +38,25 @@ describe('hook lifecycle status', () => {
           { hooks: [{ type: 'command', command: 'node /tmp/dist/bin/hook.js' }] },
         ],
       },
+    }, {
+      installState: {
+        scope: 'project',
+        workspaceRoot: '/repo/lazy_user',
+        hookCommand: 'node /tmp/dist/bin/hook.js',
+        installedAt: '2026-04-20T00:00:00.000Z',
+        statuslineMode: 'none',
+      },
+      runtime: {
+        activeRuns: [],
+        hungRuns: [],
+        staleRuns: [],
+        health: { recentDurationsMs: [], updatedAt: 1000 },
+      },
+      now: 1000,
     });
 
     expect(status.lazybrainStop).toBe(true);
     expect(status.lazybrainUserPromptSubmit).toBe(false);
+    expect(status.installState?.scope).toBe('project');
   });
 });

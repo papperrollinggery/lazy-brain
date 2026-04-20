@@ -38,15 +38,19 @@ import { generateReport, computeWeeklyStats, formatWeeklyReport } from '../src/h
 import { detectDuplicates, findCapabilityByNameOrId, compareCapabilities } from '../src/graph/duplicate-detector.js';
 import { buildGraphView, formatGraphMermaid } from '../src/graph/graph-view.js';
 import { createServer, isServerRunning, getServerPort, getServerPid, DEFAULT_PORT } from '../src/server/server.js';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import type { Capability, RawCapability, UserConfig } from '../src/types.js';
 import { buildSessionSummary, formatSessionSummary } from '../src/stats/session-summary.js';
 import {
+  hasLazyBrainHookRegistration,
   isLazyBrainHookCommand,
   removeLazyBrainHookRegistrations,
   upsertLazyBrainUserPromptSubmit,
 } from '../src/hook/settings.js';
 import { getHookLifecycleStatus, loadLatestStopHookAudit } from '../src/hook/status.js';
+import { clearHookInstallState, readHookInstallState, writeHookInstallState } from '../src/hook/install-state.js';
+import { cleanHookRuntimeRecords, clearHookBreaker, getHookRuntimeSnapshot, getHookRuntimeStats } from '../src/hook/runtime.js';
+import type { HookInstallScope, HookStatuslineMode } from '../src/hook/types.js';
 
 const args = process.argv.slice(2);
 const cmd = args[0];
@@ -97,6 +101,9 @@ async function main() {
       break;
     case 'hook':
       cmdHook();
+      break;
+    case 'doctor':
+      cmdDoctor();
       break;
     case 'team':
       cmdTeam();
@@ -1291,6 +1298,9 @@ function cmdHook() {
         process.exit(1);
       }
 
+      const installScope: HookInstallScope = args.includes('--global') ? 'global' : 'project';
+      const workspaceRoot = installScope === 'project' ? resolve(process.cwd()) : undefined;
+
       let settings: Record<string, unknown> = {};
       if (existsSync(settingsPath)) {
         try {
@@ -1329,6 +1339,8 @@ function cmdHook() {
         (!existingStatuslineCommand && shouldInstallStatusline)
       );
 
+      let statuslineMode: HookStatuslineMode = 'none';
+
       if (shouldComposeStatusline) {
         writeFileSync(statuslineChainPath, JSON.stringify({
           upstreamCommand: existingStatuslineCommand,
@@ -1339,22 +1351,38 @@ function cmdHook() {
           type: 'command',
           command: `node ${combinedStatuslineScript}`,
         };
+        statuslineMode = 'combined';
       } else if (alreadyCombined && chainedUpstreamCommand) {
         settings.statusLine = {
           type: 'command',
           command: `node ${combinedStatuslineScript}`,
         };
+        statuslineMode = 'combined';
       } else if (shouldUseLazyBrainOnlyStatusline) {
         settings.statusLine = {
           type: 'command',
           command: `node ${statuslineScript}`,
         };
+        statuslineMode = 'lazybrain';
+      } else if (hasOtherStatusline) {
+        statuslineMode = 'skipped';
       }
 
       writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+      writeHookInstallState({
+        scope: installScope,
+        workspaceRoot,
+        hookCommand: `node ${hookScript}`,
+        installedAt: new Date().toISOString(),
+        statuslineMode,
+      });
       console.log(`Hook installed: ${settingsPath}`);
       console.log(`  Script: ${hookScript}`);
       console.log('  Lifecycle: UserPromptSubmit only (Stop 已退出)');
+      console.log(`  Scope: ${installScope}${workspaceRoot ? ` (${workspaceRoot})` : ''}`);
+      if (installScope === 'global') {
+        console.log('  Warning: global scope 会让 LazyBrain 在所有 Claude 会话里被调起，仅建议明确需要时使用。');
+      }
       if (shouldComposeStatusline) {
         console.log(`  Statusline: ${combinedStatuslineScript}`);
         console.log('  Statusline mode: combined with existing HUD');
@@ -1369,6 +1397,7 @@ function cmdHook() {
       } else {
         console.log('  Statusline: not installed. Use `lazybrain hook install --statusline` if you want LazyBrain statusline and no existing HUD is configured.');
       }
+      console.log('  Runtime guard: 非目标项目 cwd 将直接跳过');
       console.log(`  Restart Claude Code to activate.`);
       break;
     }
@@ -1434,6 +1463,8 @@ function cmdHook() {
       }
 
       settings = removeLazyBrainHookRegistrations(settings);
+      clearHookInstallState();
+      cleanHookRuntimeRecords();
 
       const existingStatusline = settings.statusLine as { command?: unknown } | string | undefined;
       const existingStatuslineCommand = typeof existingStatusline === 'string'
@@ -1462,13 +1493,24 @@ function cmdHook() {
         process.exit(1);
       }
 
-      const status = getHookLifecycleStatus(settings);
+      const config = loadConfig();
+      const runtime = getHookRuntimeSnapshot({ config });
+      const status = getHookLifecycleStatus(settings, { runtime });
       const stopAudit = loadLatestStopHookAudit(process.cwd());
+      const installState = status.installState;
 
       console.log('LazyBrain hook 状态：');
       console.log(`  UserPromptSubmit: ${status.lazybrainUserPromptSubmit ? '✅ 已安装' : '❌ 未安装'}`);
       console.log(`  Stop: ${status.lazybrainStop ? '⚠️ 仍存在 LazyBrain 残留' : '✅ 无 LazyBrain 注册'}`);
       console.log(`  SessionStart: ${status.lazybrainSessionStart ? 'ℹ️ 含 LazyBrain' : 'ℹ️ 无 LazyBrain 注册'}`);
+      console.log(`  Scope: ${installState ? installState.scope : 'unknown'}`);
+      if (installState?.workspaceRoot) {
+        console.log(`  Workspace root: ${installState.workspaceRoot}`);
+      }
+      console.log(`  Active hooks: ${status.runtime.activeRuns.length}`);
+      console.log(`  Hung hooks: ${status.runtime.hungRuns.length}`);
+      console.log(`  Breaker: ${status.breakerOpen ? 'OPEN' : 'closed'}`);
+      console.log(`  Avg / P95: ${status.avgDurationMs}ms / ${status.p95DurationMs}ms`);
       console.log('');
       console.log('当前 Stop 链：');
       if (status.stopCommands.length === 0) {
@@ -1515,9 +1557,131 @@ function cmdHook() {
       }
       break;
     }
+    case 'ps': {
+      const config = loadConfig();
+      const snapshot = getHookRuntimeSnapshot({ config });
+      if (snapshot.activeRuns.length === 0) {
+        console.log('No active LazyBrain hooks.');
+        return;
+      }
+      console.log('Active LazyBrain hooks:');
+      for (const run of snapshot.activeRuns) {
+        const isHung = snapshot.hungRuns.some((hung) => hung.runId === run.runId);
+        console.log(`  - pid=${run.pid} event=${run.hookEventName} ageMs=${Date.now() - run.startedAt} hung=${isHung ? 'yes' : 'no'} cwd=${run.cwd ?? '(unknown)'}`);
+      }
+      break;
+    }
+    case 'clean': {
+      const config = loadConfig();
+      const snapshot = cleanHookRuntimeRecords({ config });
+      console.log(`Removed ${snapshot.staleRuns.length} stale hook records.`);
+      console.log(`Active hooks remaining: ${snapshot.activeRuns.length}`);
+      console.log(`Hung hooks retained: ${snapshot.hungRuns.length}`);
+      break;
+    }
     default:
-      console.error('Usage: lazybrain hook [install|uninstall|restore-statusline|status] [--statusline|--replace-statusline]');
+      console.error('Usage: lazybrain hook [install|uninstall|restore-statusline|status|ps|clean] [--statusline|--replace-statusline|--global]');
       process.exit(1);
+  }
+}
+
+function getBudgetCheckerState(): string {
+  try {
+    const uid = typeof process.getuid === 'function' ? String(process.getuid()) : '';
+    const output = execFileSync('launchctl', ['print-disabled', `gui/${uid}`], { encoding: 'utf-8' });
+    const match = output.match(/"com\.lazybrain\.budget-check"\s*=>\s*(true|false|disabled|enabled)/);
+    if (!match) return 'unknown';
+    if (match[1] === 'true' || match[1] === 'disabled') return 'disabled';
+    if (match[1] === 'false' || match[1] === 'enabled') return 'enabled';
+    return 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+function cmdDoctor() {
+  const shouldFix = args.includes('--fix');
+  const config = loadConfig();
+  const settingsPath = join(
+    process.env.CLAUDE_CONFIG_DIR ?? join(process.env.HOME ?? '~', '.claude'),
+    'settings.json',
+  );
+  const budgetCheckerState = getBudgetCheckerState();
+
+  let settings: Record<string, unknown> = {};
+  if (existsSync(settingsPath)) {
+    try {
+      settings = JSON.parse(readFileSync(settingsPath, 'utf-8')) as Record<string, unknown>;
+    } catch {}
+  }
+  const binDir = dirname(fileURLToPath(import.meta.url));
+  const hookScript = resolve(binDir, 'hook.js');
+  const hookCommand = `node ${hookScript}`;
+  const repairs: string[] = [];
+
+  if (shouldFix) {
+    const existingState = readHookInstallState();
+    if (existingState) {
+      settings = removeLazyBrainHookRegistrations(settings);
+      settings = upsertLazyBrainUserPromptSubmit(settings, hookCommand);
+      writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+
+      const repairedScope: HookInstallScope = existingState.scope;
+      const repairedRoot = repairedScope === 'project'
+        ? resolve(existingState.workspaceRoot ?? process.cwd())
+        : undefined;
+      writeHookInstallState({
+        scope: repairedScope,
+        workspaceRoot: repairedRoot,
+        hookCommand,
+        installedAt: existingState.installedAt,
+        statuslineMode: existingState.statuslineMode,
+      });
+      repairs.push('normalized_hook_registration');
+    } else if (hasLazyBrainHookRegistration(settings)) {
+      repairs.push('metadata_missing_manual_reinstall_required');
+    }
+
+    const cleaned = cleanHookRuntimeRecords({ config });
+    if (cleaned.staleRuns.length > 0) {
+      repairs.push(`cleaned_stale_runs:${cleaned.staleRuns.length}`);
+    }
+
+    const runtimeBeforeReset = getHookRuntimeSnapshot({ config });
+    if (runtimeBeforeReset.health.breakerUntil || runtimeBeforeReset.health.lastSkipReason === 'breaker_open') {
+      clearHookBreaker();
+      repairs.push('cleared_breaker');
+    }
+  }
+
+  const installState = readHookInstallState();
+  const runtime = getHookRuntimeSnapshot({ config });
+  const runtimeStats = getHookRuntimeStats(runtime);
+  const lifecycle = getHookLifecycleStatus(settings, { runtime });
+
+  console.log('LazyBrain doctor');
+  console.log(`  Mode: ${shouldFix ? 'diagnose+fix' : 'diagnose'}`);
+  console.log(`  Install state: ${installState ? 'present' : 'missing'}`);
+  console.log(`  Scope: ${installState?.scope ?? 'unknown'}`);
+  if (installState?.workspaceRoot) {
+    console.log(`  Workspace root: ${installState.workspaceRoot}`);
+  }
+  console.log(`  UserPromptSubmit installed: ${lifecycle.lazybrainUserPromptSubmit ? 'yes' : 'no'}`);
+  console.log(`  Stop clean: ${lifecycle.lazybrainStop ? 'no' : 'yes'}`);
+  console.log(`  Active hooks: ${runtime.activeRuns.length}`);
+  console.log(`  Hung hooks: ${runtime.hungRuns.length}`);
+  console.log(`  Stale hooks cleaned: ${runtime.staleRuns.length}`);
+  console.log(`  Breaker: ${runtimeStats.breakerOpen ? 'OPEN' : 'closed'}`);
+  console.log(`  Avg duration: ${runtimeStats.avgDurationMs}ms`);
+  console.log(`  P95 duration: ${runtimeStats.p95DurationMs}ms`);
+  console.log(`  Last skip reason: ${runtime.health.lastSkipReason ?? '(none)'}`);
+  console.log(`  Last error: ${runtime.health.lastError ?? '(none)'}`);
+  console.log(`  Budget checker: ${budgetCheckerState}`);
+  if (shouldFix) {
+    console.log(`  Repairs: ${repairs.length > 0 ? repairs.join(', ') : '(none)'}`);
+    if (budgetCheckerState === 'enabled') {
+      console.log('  Note: budget checker 已启用，但 doctor --fix 不会自动修改 LaunchAgent 状态。');
+    }
   }
 }
 
@@ -1684,6 +1848,9 @@ Usage:
   lazybrain server stop              Stop background server
   lazybrain server status            Check server status
   lazybrain hook status              Show LazyBrain hook lifecycle status
+  lazybrain hook ps                  Show active LazyBrain hook runs
+  lazybrain hook clean               Remove stale LazyBrain hook records
+  lazybrain doctor [--fix]           Show runtime diagnostics and optional self-repair
   lazybrain summary                  Show manual session audit
   lazybrain --version                Show version
 `);

@@ -172,6 +172,9 @@ Recommended mental model:
 - Claude `Stop` hooks may still be crowded because of other plugins. LazyBrain
   should no longer appear in that chain after reinstalling hooks, but users may
   still observe slow `Stop` behavior from unrelated plugins.
+- Hook install now defaults to project scope. LazyBrain should only activate
+  inside the recorded workspace root, and should fail closed if install
+  metadata is missing.
 - HUD semantics are still not fully clean. Current token display should be
   treated as cumulative consumption, not savings.
 - Natural-language heavy-mode detection is still weaker than explicit mode
@@ -228,6 +231,21 @@ inspect:
 - `bin/statusline.ts`
 - `bin/statusline-combined.ts`
 - `src/governance/`
+- `src/hook/runtime.ts`
+- `src/hook/install-state.ts`
+
+## Claude / LazyBrain Safety Model
+
+- `lazybrain hook install` defaults to project scope
+- runtime activation is guarded by workspace cwd
+- `lazybrain doctor` is the first diagnostic entrypoint
+- `lazybrain doctor --fix` only repairs LazyBrain-owned state:
+  - normalize hook registration
+  - clean stale runtime records
+  - clear breaker state
+  - preserve existing install metadata when available
+- `doctor --fix` must not silently rebind an unknown installation to a new
+  project and must not modify third-party plugins or system services
 - `src/graph/graph-view.ts`
 - `src/utils/meta-prompt.ts`
 - `src/utils/hud-normalizer.ts`

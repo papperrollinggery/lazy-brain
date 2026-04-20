@@ -57,3 +57,10 @@ export function removeLazyBrainHookRegistrations(settings: SettingsObject): Sett
   settings.hooks = hooks;
   return settings;
 }
+
+export function hasLazyBrainHookRegistration(settings: SettingsObject): boolean {
+  const hooks = (settings.hooks ?? {}) as Record<string, unknown>;
+  const ups = (hooks.UserPromptSubmit ?? []) as HookEntry[];
+  const stop = (hooks.Stop ?? []) as HookEntry[];
+  return stripLazyBrainEntries(ups).length !== ups.length || stripLazyBrainEntries(stop).length !== stop.length;
+}

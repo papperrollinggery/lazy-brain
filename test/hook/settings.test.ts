@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  hasLazyBrainHookRegistration,
   isLazyBrainHookCommand,
   removeLazyBrainHookRegistrations,
   upsertLazyBrainUserPromptSubmit,
@@ -97,5 +98,19 @@ describe('hook settings', () => {
     expect(ups).toHaveLength(1);
     expect(ups[0].hooks?.[0].command).toBe('echo keep');
     expect(stop).toHaveLength(0);
+  });
+
+  it('detects whether any LazyBrain hook registration exists', () => {
+    expect(hasLazyBrainHookRegistration({
+      hooks: {
+        UserPromptSubmit: [{ matcher: '', hooks: [{ type: 'command', command: 'node /old/dist/bin/hook.js' }] }],
+      },
+    })).toBe(true);
+
+    expect(hasLazyBrainHookRegistration({
+      hooks: {
+        UserPromptSubmit: [{ matcher: '', hooks: [{ type: 'command', command: 'echo keep' }] }],
+      },
+    })).toBe(false);
   });
 });
