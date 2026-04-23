@@ -1,0 +1,127 @@
+name: PR Governance
+
+on:
+  pull_request:
+    branches: [main]
+    types:
+      - opened
+      - edited
+      - reopened
+      - synchronize
+      - ready_for_review
+      - review_requested
+  pull_request_review:
+    types:
+      - submitted
+      - dismissed
+
+jobs:
+  governance:
+    name: Governance Checks
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+      contents: read
+    steps:
+      - name: Validate governance fields and review evidence
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request || {}
+            const body = pr.body || ''
+
+            const requiredSections = [
+              '## Summary',
+              '## Evidence',
+              '## Governance checklist',
+              '## Risk',
+              '## Test plan'
+            ]
+
+            const requiredCheckboxes = [
+              /^[-*]\s*\[\s*[xX]\s*\]\s*CI passed/im,
+              /^[-*]\s*\[\s*[xX]\s*\]\s*At least 1 other AI reviewer completed cross-review/im,
+              /^[-*]\s*\[\s*[xX]\s*\]\s*AI cross-review reviewer recorded/im,
+              /^[-*]\s*\[\s*[xX]\s*\]\s*CEO final review completed/im,
+              /^[-*]\s*\[\s*[xX]\s*\]\s*CEO final review reviewer recorded/im,
+              /^[-*]\s*\[\s*[xX]\s*\]\s*Ready for human final review/im,
+              /^[-*]\s*\[\s*[xX]\s*\]\s*Human final review reviewer recorded/im,
+              /^[-*]\s*\[\s*[xX]\s*\]\s*AI does not have permission to merge into `main`/im
+            ]
+
+            const requiredLinks = [
+              /^[-*]?\s*Cross-review evidence URL:\s*(https?:\/\/\S+)/im,
+              /^[-*]?\s*CEO final review evidence URL:\s*(https?:\/\/\S+)/im,
+              /^[-*]?\s*Human final review evidence URL:\s*(https?:\/\/\S+)/im
+            ]
+
+            const requiredEvidenceFields = [
+              /^[-*]?\s*AI cross-review reviewer:\s*\S+/im,
+              /^[-*]?\s*AI cross-review evidence URL:\s*(https?:\/\/\S+)/im,
+              /^[-*]?\s*CEO final review reviewer:\s*\S+/im,
+              /^[-*]?\s*CEO final review evidence URL:\s*(https?:\/\/\S+)/im,
+              /^[-*]?\s*Human final review reviewer:\s*\S+/im,
+              /^[-*]?\s*Human final review evidence URL:\s*(https?:\/\/\S+)/im
+            ]
+
+            const missingSections = requiredSections.filter((snippet) => !body.includes(snippet))
+            if (missingSections.length > 0) {
+              core.setFailed(`Missing required PR governance sections: ${missingSections.join(', ')}`)
+              return
+            }
+
+            for (const matcher of requiredCheckboxes) {
+              if (!matcher.test(body)) {
+                core.setFailed('Required governance checklist items must be explicitly checked as done (with [x])')
+                return
+              }
+            }
+
+            for (const matcher of requiredLinks) {
+              if (!matcher.test(body)) {
+                core.setFailed('Governance evidence URLs must be non-empty HTTP/HTTPS links')
+                return
+              }
+            }
+
+            for (const matcher of requiredEvidenceFields) {
+              if (!matcher.test(body)) {
+                core.setFailed('Governance reviewer identity fields must be explicitly filled in')
+                return
+              }
+            }
+
+            const owner = context.repo.owner
+            const repo = context.repo.repo
+            const pull_number = pr.number
+            const reviewerField = new Set()
+
+            const allReviews = await github.paginate(github.rest.pulls.listReviews, {
+              owner,
+              repo,
+              pull_number,
+              per_page: 100
+            })
+
+            for (const review of allReviews) {
+              if (
+                review.state === 'APPROVED' &&
+                review.user &&
+                review.user.login &&
+                review.user.login !== pr.user?.login
+              ) {
+                reviewerField.add(review.user.login)
+              }
+            }
+
+            if (reviewerField.size < 2) {
+              core.setFailed(
+                `Need at least 2 distinct approving reviewers excluding PR author, got ${reviewerField.size}`
+              )
+              return
+            }
+
+            core.info(
+              'Branch protection API verification is intentionally out of this workflow. ' +
+              'Use the offline admin checklist (docs/GST-108-branch-protection-checklist.md) for settings-layer validation.'
+            )

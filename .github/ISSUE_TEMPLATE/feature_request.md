@@ -1,19 +1,37 @@
 ---
 name: Feature request
-description: Suggest an idea for this project
+description: Propose a feature with scoring, owner, and evidence
 title: "[FEATURE] "
 labels: enhancement
 assignees: ''
 ---
 
-## Is your feature request related to a problem? Please describe.
-A clear and concise description of what the problem is. Ex. I'm always frustrated when [...]
+## Problem to solve
+Describe the user problem or opportunity clearly.
 
-## Describe the solution you'd like
-A clear and concise description of what you want to happen.
+## Proposed solution
+Describe what you want to happen.
 
-## Describe alternatives you've considered
-A clear and concise description of any alternative solutions or features you've considered.
+## Alternatives considered
+List alternatives you considered.
+
+## Scope and priority
+- Type: `feature-gap` / `ux-friction` / `growth-opportunity` / `revenue-opportunity`
+- User tier: `new user` / `active user` / `team buyer`
+- Impact (1-5):
+- Reach (1-5):
+- Urgency (1-5):
+- Effort (1-5):
+- Priority Score = (Impact * Reach * Urgency) / Effort:
+- Initial severity: `High` / `Medium` / `Low`
+
+## Ownership and evidence
+- Owner:
+- Deadline (BJT):
+- Evidence link:
+
+## Success signal
+Describe how success will be verified.
 
 ## Additional context
-Add any other context or screenshots about the feature request here.
+Add any other context or screenshots here.

@@ -623,6 +623,7 @@ async function main() {
         apiBase: config.secretaryApiBase ?? config.compileApiBase ?? '',
         apiKey: config.secretaryApiKey ?? config.compileApiKey ?? '',
         model: config.secretaryModel ?? 'Qwen/Qwen2.5-7B-Instruct',
+        runtimePlatform: config.platform,
         historyHints,
         profile,
       });

@@ -21,7 +21,12 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        run: |
+          npm ci
+          # Workaround: npm 8+ optional dep bug may miss @rollup/rollup-darwin-arm64 on arm64 runners
+          # Re-install the optional dep to ensure rollup can load
+          npm install @rollup/rollup-darwin-arm64@4.60.2 --no-save 2>/dev/null || true
+          npm install @rollup/rollup-darwin-x64@4.60.2 --no-save 2>/dev/null || true
 
       - name: Build
         run: npm run build
