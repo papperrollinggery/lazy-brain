@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v1.1.0] - 2026-04-23
+
+### Added
+- Add baseline token cost calculation for accurate token savings in session statistics and dashboard.
+
 ## [v1.0.2] - 2026-04-20
 
 ### Added
