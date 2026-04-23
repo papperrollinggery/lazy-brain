@@ -17,6 +17,8 @@
 7. `.github/workflows/critical-high-gates.yml`
 8. `docs/GST-140-hourly-comment-records.jsonl`
 9. `docs/GST-140-heartbeat-log-2026-04-23.md`
+10. `scripts/render-gst140-latest-comment.js`
+11. `docs/GST-140-latest-comment-ready.md`
 
 ## Board 决策路由包（提交 Strategic Advisor ZJ）
 
