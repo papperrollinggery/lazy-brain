@@ -13,7 +13,8 @@ const DAILY_LIMIT = 2.0;
 const MONTHLY_LIMIT = 30.0;
 
 function makeEntry(costUsd: number, daysAgo: number = 0, month?: string): UsageEntry {
-  const date = new Date('2026-04-18T12:00:00Z');
+  const date = new Date();
+  date.setUTCHours(12, 0, 0, 0);
   date.setDate(date.getDate() - daysAgo);
   const timestamp = month
     ? `${month}-${String(date.getUTCDate()).padStart(2, '0')}T${date.toISOString().split('T')[1]}`
