@@ -487,6 +487,7 @@ export interface LLMProviderConfig {
   model: string;
   apiBase: string;
   apiKey?: string;
+  runtimePlatform?: Platform;
 }
 
 export interface LLMResponse {

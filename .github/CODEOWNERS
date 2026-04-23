@@ -1,0 +1,6 @@
+# PR governance owners for repository-level ownership checks.
+# Replace with real CTO/QA/CEO accounts or teams during branch protection enablement.
+* @papperrollinggery
+/.github/CODEOWNERS @papperrollinggery
+/.github/ @papperrollinggery
+/.github/workflows/ @papperrollinggery

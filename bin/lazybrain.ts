@@ -391,6 +391,7 @@ async function cmdCompile() {
       model: config.compileModel,
       apiBase: config.compileApiBase,
       apiKey: config.compileApiKey,
+      runtimePlatform: config.platform,
     });
 
     // Load existing graph for incremental compilation (skip with --force)

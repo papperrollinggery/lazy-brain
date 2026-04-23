@@ -23,6 +23,15 @@ import { loadRecommendations } from '../history/tool-usage-tracker.js';
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT = 100; // per second per IP
 
+function getClientIp(req: http.IncomingMessage): string {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (forwarded && typeof forwarded === 'string') {
+    // Comma-separated list: client, proxy1, proxy2
+    return forwarded.split(',')[0].trim();
+  }
+  return req.socket.remoteAddress ?? '127.0.0.1';
+}
+
 function isRateLimited(ip: string): boolean {
   const now = Date.now();
   const entry = rateLimitMap.get(ip);
@@ -259,7 +268,7 @@ export interface RouterOptions {
 
 export function createRouter(opts: RouterOptions): http.RequestListener {
   return async (req, res) => {
-    const ip = req.socket.remoteAddress ?? '127.0.0.1';
+    const ip = getClientIp(req);
     if (isRateLimited(ip)) {
       return err(res, 429, 'Rate limit exceeded');
     }

@@ -10,7 +10,7 @@
  * - 输入精简：只发 top-20 候选的 name+category+scenario，约 1200 tokens
  */
 
-import type { Capability, SecretaryResponse, HistoryEntry, UserProfile } from '../types.js';
+import type { Capability, SecretaryResponse, HistoryEntry, UserProfile, Platform } from '../types.js';
 import { createLLMProvider } from '../compiler/llm-provider.js';
 import {
   SECRETARY_TIMEOUT_MS,
@@ -128,6 +128,7 @@ export interface SecretaryOptions {
   apiBase: string;
   apiKey: string;
   model: string;
+  runtimePlatform?: Platform;
   historyHints?: HistoryHint[];
   profile?: UserProfile | null;
 }
@@ -166,6 +167,7 @@ export async function askSecretary(
       model: options.model,
       apiBase: options.apiBase,
       apiKey: options.apiKey,
+      runtimePlatform: options.runtimePlatform,
     });
 
     const response = await Promise.race([

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v1.0.3] - 2026-04-23
+
+### Added
+- Added PR governance and quality-gate workflow artifacts for release-readiness orchestration.
+- Added explicit governance-oriented runtime guidance for secretary and routing paths.
+
+### Changed
+- Hardened governance checks in hook execution and decision routing to improve review safety.
+- Extended LLM provider governance handling and secretarial workflow guardrails.
+- Added regression coverage for governance decision paths.
+
 ## [v1.0.2] - 2026-04-20
 
 ### Added
