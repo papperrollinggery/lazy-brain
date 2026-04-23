@@ -1,0 +1,30 @@
+name: Critical High Gates
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "scripts/run-critical-high-gates-local.sh"
+      - "scripts/verify-gst140-hourly-compliance.js"
+      - "scripts/critical-high-ledger-check.js"
+      - "scripts/verify-rollup-optional.js"
+      - "scripts/run-gst140-hourly-cycle.sh"
+      - "scripts/generate-gst140-hourly-post.js"
+      - "scripts/update-gst140-comment-records.js"
+      - "docs/GST-140-hourly-comment-records.jsonl"
+
+jobs:
+  critical-high-gates:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Run critical/high gates
+        run: bash scripts/run-critical-high-gates-local.sh
