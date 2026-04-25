@@ -36,9 +36,9 @@ describe('formatDashboard', () => {
       duplicatePairs: 0,
     };
     const output = formatDashboard(stats);
-    expect(output).toContain('推荐记录：540 次');
-    expect(output).toContain('接受 421');
-    expect(output).toContain('采用率：78%');
+    expect(output).toContain('路由记录：540 次');
+    expect(output).toContain('注入 421');
+    expect(output).toContain('注入率：78%');
     expect(output).toContain('/review-pr');
   });
 

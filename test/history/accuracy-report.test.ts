@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { normalizeTool, formatWeeklyReport } from '../../src/history/accuracy-report.js';
 import type { WeeklyStats } from '../../src/history/accuracy-report.js';
+import { extractUsedTools, parseTranscript } from '../../src/history/tool-usage-tracker.js';
 
 describe('normalizeTool', () => {
   it('lowercases agent: subagent format', () => {
@@ -82,5 +86,56 @@ describe('formatWeeklyReport', () => {
     };
     const output = formatWeeklyReport(stats);
     expect(output).not.toContain('把这些盲点加入 exampleQueries');
+  });
+});
+
+describe('parseTranscript', () => {
+  it('extracts Claude message.content tool_use events', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'lazybrain-transcript-'));
+    const file = join(dir, 'transcript.jsonl');
+    try {
+      writeFileSync(file, JSON.stringify({
+        type: 'assistant',
+        timestamp: '2026-04-25T00:00:00.000Z',
+        message: {
+          content: [
+            { type: 'text', text: 'checking' },
+            { type: 'tool_use', name: 'Bash', input: { command: 'npm test' } },
+            { type: 'tool_use', name: 'Task', subagent_type: 'executor' },
+          ],
+        },
+      }) + '\n', 'utf-8');
+
+      const events = parseTranscript(file, 'session-1');
+      expect(extractUsedTools(events)).toEqual(['Bash', 'agent:executor']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('extracts top-level tool_use events', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'lazybrain-transcript-'));
+    const file = join(dir, 'transcript.jsonl');
+    try {
+      writeFileSync(file, [
+        JSON.stringify({
+          type: 'tool_use',
+          timestamp: '2026-04-25T00:00:00.000Z',
+          tool_name: 'skill',
+          input: { skill: 'deep-dive' },
+        }),
+        JSON.stringify({
+          type: 'tool_use',
+          timestamp: '2026-04-25T00:00:01.000Z',
+          tool_name: 'Task',
+          input: { subagent_type: 'explorer' },
+        }),
+      ].join('\n') + '\n', 'utf-8');
+
+      const events = parseTranscript(file, 'session-1');
+      expect(extractUsedTools(events)).toEqual(['skill:deep-dive', 'agent:explorer']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

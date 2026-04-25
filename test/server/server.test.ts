@@ -4,6 +4,7 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as http from 'node:http';
+import { homedir } from 'node:os';
 import { createRouter } from '../../src/server/router.js';
 import { Graph } from '../../src/graph/graph.js';
 import type { UserConfig } from '../../src/types.js';
@@ -90,6 +91,44 @@ describe('GET /health', () => {
     expect(body.ok).toBe(true);
     expect(body.version).toBe('0.1.0-test');
     expect(body.graphSize).toBe(2);
+  });
+});
+
+describe('Lab routes', () => {
+  it('serves the Lab HTML page', async () => {
+    const res = await fetch(`${baseUrl}/lab`);
+    const text = await res.text();
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('text/html');
+    expect(text).toContain('LazyBrain Lab');
+  });
+
+  it('returns built-in Lab fixtures', async () => {
+    const { status, body } = await req('GET', '/lab/fixtures');
+    expect(status).toBe(200);
+    expect(Array.isArray(body)).toBe(true);
+    expect(body.length).toBeGreaterThan(0);
+    expect(body[0]).toHaveProperty('query');
+  });
+
+  it('returns sanitized agent inventory metadata', async () => {
+    const { status, body } = await req('GET', '/lab/agents');
+    expect(status).toBe(200);
+    expect(Array.isArray(body)).toBe(true);
+    expect(JSON.stringify(body)).not.toContain(homedir());
+    expect(JSON.stringify(body)).not.toContain('PRIVATE BODY SHOULD NOT LEAK');
+  });
+
+  it('evaluates Lab queries with stable schema', async () => {
+    const { status, body } = await req('POST', '/lab/evaluate', { queries: ['审查这次改动有没有回归风险'] });
+    expect(status).toBe(200);
+    expect(Array.isArray(body.evaluations)).toBe(true);
+    expect(body.evaluations[0]).toHaveProperty('match');
+    expect(body.evaluations[0]).toHaveProperty('team');
+    expect(body.evaluations[0]).toHaveProperty('modeDecision');
+    expect(body.evaluations[0]).toHaveProperty('agentMappings');
+    expect(body.evaluations[0]).toHaveProperty('hookReadiness');
+    expect(body.evaluations[0].hookReadiness.safeForLab).toBe(true);
   });
 });
 

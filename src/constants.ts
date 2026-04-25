@@ -13,6 +13,8 @@ import type { Platform, UserConfig } from './types.js';
 /** LazyBrain data directory */
 export const LAZYBRAIN_DIR = join(homedir(), '.lazybrain');
 export const GRAPH_PATH = join(LAZYBRAIN_DIR, 'graph.json');
+export const EMBEDDINGS_BIN_PATH = join(LAZYBRAIN_DIR, 'graph.embeddings.bin');
+export const EMBEDDINGS_INDEX_PATH = join(LAZYBRAIN_DIR, 'graph.embeddings.index.json');
 export const CONFIG_PATH = join(LAZYBRAIN_DIR, 'config.json');
 export const HISTORY_PATH = join(LAZYBRAIN_DIR, 'history.jsonl');
 export const WIKI_DIR = join(LAZYBRAIN_DIR, 'wiki');
@@ -24,6 +26,7 @@ export const OMC_STATE_DIR = join(homedir(), '.omc', 'state');
 export const STATUS_PATH = join(LAZYBRAIN_DIR, 'status.json');
 export const HOOK_ACTIVE_PATH = join(LAZYBRAIN_DIR, '.hook-pid');
 export const HOOK_INSTALL_STATE_PATH = join(LAZYBRAIN_DIR, 'hook-install.json');
+export const HOOK_INSTALL_STATE_MAP_PATH = join(LAZYBRAIN_DIR, 'hook-install-map.json');
 export const HOOK_RUNS_DIR = join(LAZYBRAIN_DIR, 'hook-runs');
 export const HOOK_HEALTH_PATH = join(LAZYBRAIN_DIR, 'hook-health.json');
 export const HOOK_EVENTS_PATH = join(LAZYBRAIN_DIR, 'hook-events.jsonl');
@@ -220,6 +223,8 @@ export const DEFAULT_CONFIG: UserConfig = {
   strategy: 'ask',
   compileApiBase: 'https://api.siliconflow.cn/v1',
   compileModel: 'Qwen/Qwen3-235B-A22B-Instruct-2507',
+  embeddingApiBase: 'https://api.siliconflow.cn/v1',
+  embeddingModel: 'BAAI/bge-m3',
   secretaryApiBase: 'https://api.siliconflow.cn/v1',
   secretaryModel: 'Qwen/Qwen2.5-7B-Instruct',
   externalDiscovery: false,

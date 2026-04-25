@@ -5,7 +5,7 @@
  * and provides aggregate accuracy statistics.
  */
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { parseTranscript, extractUsedTools, loadRecommendationsForSession } from './tool-usage-tracker.js';
@@ -35,14 +35,55 @@ export interface WeeklyStats {
  * Find transcript path for a given session ID.
  * Claude Code stores transcripts in ~/.claude/sessions/<session-id>/transcript.jsonl
  */
-function findTranscriptPath(sessionId: string): string | null {
+function findTranscriptPath(sessionId: string, recommendations: RecommendationEntry[] = []): string | null {
+  for (const rec of recommendations) {
+    if (rec.transcriptPath && existsSync(rec.transcriptPath)) return rec.transcriptPath;
+  }
+
   const base = join(homedir(), '.claude', 'sessions', sessionId);
   const candidates = [
     join(base, 'transcript.jsonl'),
     join(base, 'transcript'),
+    join(homedir(), '.claude', 'transcripts', `${sessionId}.jsonl`),
   ];
   for (const p of candidates) {
     if (existsSync(p)) return p;
+  }
+
+  if (sessionId && sessionId !== 'unknown') {
+    for (const root of [
+      join(homedir(), '.claude', 'transcripts'),
+      join(homedir(), '.claude', 'projects'),
+    ]) {
+      const found = findTranscriptFileByName(root, sessionId);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+function findTranscriptFileByName(root: string, sessionId: string, depth = 0): string | null {
+  if (depth > 4 || !existsSync(root)) return null;
+  let entries: string[];
+  try {
+    entries = readdirSync(root);
+  } catch {
+    return null;
+  }
+
+  for (const name of entries) {
+    const path = join(root, name);
+    let stat;
+    try {
+      stat = statSync(path);
+    } catch {
+      continue;
+    }
+    if (stat.isFile() && name.endsWith('.jsonl') && name.includes(sessionId)) return path;
+    if (stat.isDirectory()) {
+      const found = findTranscriptFileByName(path, sessionId, depth + 1);
+      if (found) return found;
+    }
   }
   return null;
 }
@@ -78,7 +119,7 @@ export function generateReport(sessionId: string): AccuracyReport {
   const recommendedTools = [...recommendedSet];
 
   // Parse transcript to get actual usage
-  const transcriptPath = findTranscriptPath(sessionId);
+  const transcriptPath = findTranscriptPath(sessionId, recommendations);
   let actuallyUsedTools: string[] = [];
   if (transcriptPath) {
     const events = parseTranscript(transcriptPath, sessionId);
@@ -169,7 +210,7 @@ export function computeWeeklyStats(days = 7): WeeklyStats {
     totalRecommendations += sessionRecs.length;
 
     // Get actual tools used
-    const transcriptPath = findTranscriptPath(sessionId);
+    const transcriptPath = findTranscriptPath(sessionId, recs);
     const usedSet = new Set<string>();
     if (transcriptPath) {
       const events = parseTranscript(transcriptPath, sessionId);
@@ -241,7 +282,7 @@ export function computeWeeklyStats(days = 7): WeeklyStats {
   };
 }
 
-export type RecommendationEntry = { sessionId: string; timestamp: string; query: string; recommended: string[] };
+export type RecommendationEntry = { sessionId: string; timestamp: string; query: string; recommended: string[]; transcriptPath?: string };
 
 export function loadAllRecommendations(): RecommendationEntry[] {
   const REC_PATH = join(homedir(), '.lazybrain', 'recommendations.jsonl');

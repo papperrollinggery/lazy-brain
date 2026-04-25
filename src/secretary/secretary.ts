@@ -56,6 +56,7 @@ function writeCircuitState(state: CircuitState): void {
 function recordFailure(): void {
   const state = readCircuitState();
   state.consecutiveFailures++;
+  state.lastCallAt = Date.now();
   if (state.consecutiveFailures >= SECRETARY_CIRCUIT_BREAKER_THRESHOLD) {
     state.openedAt = Date.now();
   }
@@ -168,12 +169,19 @@ export async function askSecretary(
       apiKey: options.apiKey,
     });
 
-    const response = await Promise.race([
-      llm.complete(prompt, SECRETARY_SYSTEM_PROMPT),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Secretary timeout')), SECRETARY_TIMEOUT_MS),
-      ),
-    ]);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), SECRETARY_TIMEOUT_MS);
+    let response: import('../types.js').LLMResponse;
+    try {
+      response = await llm.complete(prompt, SECRETARY_SYSTEM_PROMPT, { signal: controller.signal });
+    } catch (err) {
+      if (controller.signal.aborted) {
+        throw new Error('Secretary timeout');
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeout);
+    }
 
     const cleaned = response.content
       .replace(/<think>[\s\S]*?<\/think>/g, '')

@@ -50,10 +50,12 @@ describe('scanner', () => {
 
     const pluginAgent = result.capabilities.find(c => c.name === 'Test Plugin Agent');
     expect(pluginAgent?.kind).toBe('agent');
+    expect(pluginAgent?.origin).toBe('plugin:sample-plugin');
     expect(pluginAgent?.filePath).toContain('/fixtures/plugins/sample-plugin/agents/');
 
     const pluginCommand = result.capabilities.find(c => c.name === 'test-plugin-command');
     expect(pluginCommand?.kind).toBe('command');
+    expect(pluginCommand?.origin).toBe('plugin:sample-plugin');
     expect(pluginCommand?.filePath).toContain('/fixtures/plugins/sample-plugin/commands/');
   });
 

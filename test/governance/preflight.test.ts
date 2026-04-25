@@ -142,6 +142,17 @@ describe('runPreflight', () => {
         ],
         overallReason: 'plan then execute',
         suggestedCommand: '/team',
+        mainModel: {
+          model: 'sonnet',
+          reason: '主模型保留规划和合并判断',
+          decisionOwner: 'main_model_or_user',
+        },
+        tokenStrategy: {
+          summary: '主模型 sonnet 决策，子任务 1 个 sonnet + 1 个 haiku',
+          reason: '只把对应子任务提示词交给对应 agent',
+        },
+        runtimeGuides: [],
+        advisory: true,
         omcBridge: { workerType: 'test', workerCount: 2, command: 'team', leadBrief: '' },
       },
       budgetState: makeBudgetState(),

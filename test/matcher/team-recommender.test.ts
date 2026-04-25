@@ -240,6 +240,77 @@ describe('recommendTeam', () => {
     expect(result!.omcBridge.command).toContain(':executor');
   });
 
+  it('returns advisory model guidance and sub-agent prompts', () => {
+    const graph = makeGraph([
+      {
+        name: 'architect',
+        description: 'Architecture specialist for system design',
+        tags: ['architect', 'planning'],
+        category: 'planning',
+      },
+      {
+        name: 'security-reviewer',
+        description: 'Security review and privacy risk analysis',
+        tags: ['security', 'review'],
+        category: 'security',
+      },
+      {
+        name: 'test-engineer',
+        description: 'Regression test and verification specialist',
+        tags: ['test', 'qa'],
+        category: 'testing',
+      },
+    ]);
+
+    const result = recommendTeam('team模式 深度检查公开安装方案的安全、隐私和测试风险', graph, 3);
+
+    expect(result).not.toBeNull();
+    expect(result!.advisory).toBe(true);
+    expect(result!.mainModel.decisionOwner).toBe('main_model_or_user');
+    expect(result!.mainModel.model).toBe('opus');
+    expect(result!.tokenStrategy.reason).toContain('避免把完整上下文重复塞给所有子智能体');
+    expect(result!.members.every(m => m.prompt?.includes('是否执行由主模型或用户决定'))).toBe(true);
+    expect(result!.members.some(m => m.suggestedModel === 'haiku')).toBe(true);
+    expect(result!.omcBridge.leadBrief).toContain('Suggested sub-agent prompts');
+    expect(result!.runtimeGuides.map(g => g.target)).toEqual(['generic', 'claude_subagent', 'omc_team']);
+    expect(result!.runtimeGuides.find(g => g.target === 'claude_subagent')?.constraints.join(' ')).toContain('不要为了凑名字调用无关 agent');
+    expect(result!.runtimeGuides.every(g => g.memberPrompts.length === result!.members.length)).toBe(true);
+    expect(result!.runtimeGuides.find(g => g.target === 'omc_team')?.command).toBe(result!.omcBridge.command);
+  });
+
+  it('does not treat generic agent names as orchestration matches', () => {
+    const graph = makeGraph([
+      {
+        name: 'Agents Orchestrator',
+        description: 'Coordinates multi-agent workflows',
+        tags: ['orchestrator', 'multi-agent'],
+        category: 'orchestration',
+      },
+      {
+        name: 'Workflow Architect',
+        description: 'Designs workflow routing and task decomposition',
+        tags: ['workflow', 'architect'],
+        category: 'orchestration',
+      },
+      {
+        name: 'Accounts Payable Agent',
+        description: 'Processes invoices and finance approvals',
+        tags: ['agent', 'finance'],
+        category: 'finance',
+      },
+    ]);
+
+    const result = recommendTeam('team模式 这个项目有点乱，你看怎么安排', graph, 3);
+
+    expect(result).not.toBeNull();
+    expect(result!.members.map(m => m.agent.name)).not.toContain('Accounts Payable Agent');
+    expect(result!.members.map(m => m.agent.name)).toEqual(
+      expect.arrayContaining(['Agents Orchestrator', 'Workflow Architect']),
+    );
+    expect(result!.members.find(m => m.agent.name === 'Agents Orchestrator')?.role).toBe('orchestration');
+    expect(result!.members.find(m => m.agent.name === 'Workflow Architect')?.role).toBe('planning');
+  });
+
   it('normalizes explicit /team prompts instead of nesting commands', () => {
     const graph = makeGraph([
       {

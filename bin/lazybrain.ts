@@ -20,7 +20,20 @@
 import { existsSync, mkdirSync, writeFileSync, readFileSync, unlinkSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { LAZYBRAIN_DIR, GRAPH_PATH, GRAPH_VERSION, STATUS_PATH, HISTORY_PATH, getStatuslineChainPath } from '../src/constants.js';
+import { loadavg } from 'node:os';
+import {
+  EMBEDDINGS_BIN_PATH,
+  EMBEDDINGS_INDEX_PATH,
+  GRAPH_PATH,
+  GRAPH_VERSION,
+  HISTORY_PATH,
+  HOOK_INSTALL_STATE_MAP_PATH,
+  HOOK_INSTALL_STATE_PATH,
+  LAZYBRAIN_DIR,
+  STATUS_PATH,
+  getClaudeConfigDir,
+  getStatuslineChainPath,
+} from '../src/constants.js';
 import { Graph } from '../src/graph/graph.js';
 import { match } from '../src/matcher/matcher.js';
 import { recommendTeam } from '../src/matcher/team-recommender.js';
@@ -48,16 +61,106 @@ import {
   upsertLazyBrainUserPromptSubmit,
 } from '../src/hook/settings.js';
 import { getHookLifecycleStatus, loadLatestStopHookAudit } from '../src/hook/status.js';
-import { clearHookInstallState, readHookInstallState, writeHookInstallState } from '../src/hook/install-state.js';
+import { clearHookInstallState, readHookInstallStateForScope, writeHookInstallState } from '../src/hook/install-state.js';
 import { cleanHookRuntimeRecords, clearHookBreaker, getHookRuntimeSnapshot, getHookRuntimeStats } from '../src/hook/runtime.js';
+import { buildHookPlan, formatHookPlan } from '../src/hook/plan.js';
+import { createHookBackup, findHookBackup, restoreHookBackup } from '../src/hook/backup.js';
+import { evaluateReady } from '../src/hook/readiness.js';
 import type { HookInstallScope, HookStatuslineMode } from '../src/hook/types.js';
 
 const args = process.argv.slice(2);
 const cmd = args[0];
 
-// Ensure data directory exists
-if (!existsSync(LAZYBRAIN_DIR)) {
+// Ensure data directory exists. `hook plan` must stay read-only.
+const isReadOnlyHookPlan = cmd === 'hook' && args[1] === 'plan';
+if (!isReadOnlyHookPlan && !existsSync(LAZYBRAIN_DIR)) {
   mkdirSync(LAZYBRAIN_DIR, { recursive: true });
+}
+
+type StatuslineChain = {
+  upstreamCommand?: string;
+  upstreamType?: string;
+  hadOriginalStatusLine?: boolean;
+  originalStatusLine?: unknown;
+  installedAt?: string;
+};
+
+function getLegacyStatuslineChainPath(): string {
+  return join(LAZYBRAIN_DIR, 'statusline-chain.json');
+}
+
+function getScopedStatuslineChainPath(scope: HookInstallScope): string {
+  return scope === 'project'
+    ? join(resolve(process.cwd(), '.claude'), 'lazybrain-statusline-chain.json')
+    : getStatuslineChainPath();
+}
+
+function getStatuslineChainSearchPaths(scope: HookInstallScope): string[] {
+  return [...new Set([
+    getScopedStatuslineChainPath(scope),
+    getStatuslineChainPath(),
+    getLegacyStatuslineChainPath(),
+  ])];
+}
+
+function readStatuslineChain(scope: HookInstallScope): { path: string; chain: StatuslineChain } | null {
+  for (const path of getStatuslineChainSearchPaths(scope)) {
+    if (!existsSync(path)) continue;
+    try {
+      return { path, chain: JSON.parse(readFileSync(path, 'utf-8')) as StatuslineChain };
+    } catch {
+      return { path, chain: {} };
+    }
+  }
+  return null;
+}
+
+function restoreStatuslineFromChain(settings: Record<string, unknown>, scope: HookInstallScope): boolean {
+  const found = readStatuslineChain(scope);
+  if (!found) return false;
+  const { chain } = found;
+  if (chain.hadOriginalStatusLine === false) {
+    delete settings.statusLine;
+    return true;
+  }
+  if (chain.originalStatusLine !== undefined) {
+    settings.statusLine = chain.originalStatusLine;
+    return true;
+  }
+  if (typeof chain.upstreamCommand !== 'string' || !chain.upstreamCommand.trim()) return false;
+  settings.statusLine = chain.upstreamType === 'legacy-string'
+    ? chain.upstreamCommand
+    : { type: 'command', command: chain.upstreamCommand };
+  return true;
+}
+
+function removeStatuslineChain(scope: HookInstallScope): void {
+  for (const path of getStatuslineChainSearchPaths(scope)) {
+    try { unlinkSync(path); } catch {}
+  }
+}
+
+function getClaudeSettingsPath(scope: HookInstallScope): string {
+  return scope === 'project'
+    ? join(resolve(process.cwd(), '.claude'), 'settings.json')
+    : join(getClaudeConfigDir(), 'settings.json');
+}
+
+function readSettingsFile(path: string): Record<string, unknown> {
+  if (!existsSync(path)) return {};
+  return JSON.parse(readFileSync(path, 'utf-8')) as Record<string, unknown>;
+}
+
+function getStatusLineCommand(statusLine: unknown): string {
+  if (typeof statusLine === 'string') return statusLine;
+  if (statusLine && typeof statusLine === 'object' && typeof (statusLine as { command?: unknown }).command === 'string') {
+    return (statusLine as { command: string }).command;
+  }
+  return '';
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
 async function main() {
@@ -104,6 +207,9 @@ async function main() {
       break;
     case 'doctor':
       cmdDoctor();
+      break;
+    case 'ready':
+      cmdReady();
       break;
     case 'team':
       cmdTeam();
@@ -188,7 +294,7 @@ function cmdScan() {
   const oldCache: RawCapability[] = existsSync(scanCachePath)
     ? (() => { try { return JSON.parse(readFileSync(scanCachePath, 'utf-8')); } catch { return []; } })()
     : [];
-  const oldKey = (c: RawCapability) => `${c.origin}:${c.kind}:${c.name}`;
+  const oldKey = (c: RawCapability) => `${c.origin}:${c.platform ?? c.compatibility.join(',')}:${c.kind}:${c.name}`;
   const oldKeys = new Set(oldCache.map(oldKey));
   const newOnes = result.capabilities.filter((c: RawCapability) => !oldKeys.has(oldKey(c)));
   const removed = oldCache.filter((c: RawCapability) => !result.capabilities.find((n: RawCapability) => oldKey(n) === oldKey(c)));
@@ -371,9 +477,12 @@ async function cmdCompile() {
     }
   }
 
-  if (isOffline || !config.compileApiBase) {
+  if (isOffline || !config.compileApiBase || !config.compileApiKey) {
     // Offline mode: use category-classifier + raw triggers, no LLM
-    console.log('  Mode: offline (no LLM, using rule-based classification)');
+    const reason = !isOffline && config.compileApiBase && !config.compileApiKey
+      ? 'compileApiKey missing'
+      : 'no LLM, using rule-based classification';
+    console.log(`  Mode: offline (${reason})`);
     const graph = compileOffline(rawCapabilities);
     graph.save(GRAPH_PATH);
     const s = graph.stats();
@@ -400,6 +509,7 @@ async function cmdCompile() {
 
     const sigintHandler = () => {
       liveGraph.save(GRAPH_PATH);
+      writeFileSync(STATUS_PATH, JSON.stringify({ state: 'idle', updatedAt: Date.now(), interrupted: true }));
       console.log(`\n\nInterrupted. Saved ${liveGraph.getAllNodes().length} nodes to ${GRAPH_PATH}`);
       console.log('Run `lazybrain compile` (without --force) to resume.');
       process.exit(0);
@@ -433,6 +543,13 @@ async function cmdCompile() {
           phase2Bar.update(current);
         }
       },
+    }).catch((err) => {
+      writeFileSync(STATUS_PATH, JSON.stringify({
+        state: 'idle',
+        updatedAt: Date.now(),
+        lastError: err instanceof Error ? err.message : String(err),
+      }));
+      throw err;
     });
 
     process.removeListener('SIGINT', sigintHandler);
@@ -463,7 +580,7 @@ function compileOffline(rawCapabilities: RawCapability[]): Graph {
   const newNodeIds = new Set<string>();
 
   for (const raw of rawCapabilities) {
-    const id = makeCapabilityId(raw.kind, raw.name, raw.origin);
+    const id = makeCapabilityId(raw.kind, raw.name, raw.origin, raw.platform);
     const category = classifyCategory(raw);
 
     // Generate basic tags from name, description, triggers
@@ -478,7 +595,7 @@ function compileOffline(rawCapabilities: RawCapability[]): Graph {
       name: raw.name,
       description: raw.description,
       origin: raw.origin,
-      status: 'installed',
+      status: raw.disabled ? 'disabled' : 'installed',
       compatibility: raw.compatibility,
       filePath: raw.filePath,
       tags,
@@ -486,14 +603,16 @@ function compileOffline(rawCapabilities: RawCapability[]): Graph {
       category,
       triggers: raw.triggers,
       meta: raw.meta,
+      tier: raw.tier,
     };
 
     graph.addNode(capability);
     newNodeIds.add(id);
   }
 
-  // 恢复 links（只保留引用仍存在 node 的 links）
+  // 恢复 links（只保留引用仍存在 node 的非离线 composes 噪声 links）
   for (const link of existingLinks) {
+    if (link.type === 'composes_with' && link.description?.startsWith('同属 ')) continue;
     if (newNodeIds.has(link.source) && newNodeIds.has(link.target)) {
       graph.addLink(link);
     }
@@ -511,11 +630,13 @@ function compileOffline(rawCapabilities: RawCapability[]): Graph {
 /**
  * 基于规则生成 links（不需要 LLM）
  * - similar_to: tag 重叠度 > 40%
- * - composes_with: category 相同
+ * 离线模式不再基于“同分类”生成 composes_with，避免形成大 clique。
  */
 function generateOfflineLinks(graph: Graph): void {
   const nodes = graph.getAllNodes();
   const addedLinks = new Set<string>();
+  const degree = new Map<string, number>();
+  const maxDegree = 5;
 
   for (let i = 0; i < nodes.length; i++) {
     for (let j = i + 1; j < nodes.length; j++) {
@@ -532,7 +653,7 @@ function generateOfflineLinks(graph: Graph): void {
       const unionSize = aTags.size + bTags.size - overlap;
       const jaccard = unionSize > 0 ? overlap / unionSize : 0;
 
-      if (jaccard > 0.4) {
+      if (jaccard > 0.4 && (degree.get(a.id) ?? 0) < maxDegree && (degree.get(b.id) ?? 0) < maxDegree) {
         const linkKey = `${a.id}→${b.id}`;
         if (!addedLinks.has(linkKey)) {
           graph.addLink({
@@ -544,21 +665,8 @@ function generateOfflineLinks(graph: Graph): void {
             confidence: jaccard,
           });
           addedLinks.add(linkKey);
-        }
-      }
-
-      // composes_with: category 相同且不是 similar_to
-      if (a.category === b.category && jaccard <= 0.4) {
-        const linkKey = `${a.id}→${b.id}`;
-        if (!addedLinks.has(linkKey)) {
-          graph.addLink({
-            source: a.id,
-            target: b.id,
-            type: 'composes_with',
-            description: `同属 ${a.category} 分类`,
-            confidence: 0.6,
-          });
-          addedLinks.add(linkKey);
+          degree.set(a.id, (degree.get(a.id) ?? 0) + 1);
+          degree.set(b.id, (degree.get(b.id) ?? 0) + 1);
         }
       }
     }
@@ -692,10 +800,17 @@ async function cmdMatch(implicitQuery?: string) {
 
   if (result.matches.length === 0) {
     console.log(`No matches for "${query}".`);
+    if (result.warnings?.length) {
+      for (const warning of result.warnings) console.log(`Warning: ${warning}`);
+    }
     return;
   }
 
   console.log(`\n${result.matches.length} match(es) for "${query}"\n`);
+  if (result.warnings?.length) {
+    for (const warning of result.warnings) console.log(`Warning: ${warning}`);
+    console.log();
+  }
 
   for (const [i, m] of result.matches.entries()) {
     const pct = Math.round(m.score * 100);
@@ -805,21 +920,21 @@ function cmdStats() {
   // ─── History stats ─────────────────────────────────────────────────────
   if (existsSync(HISTORY_PATH)) {
     const lines = readFileSync(HISTORY_PATH, 'utf-8').trim().split('\n').filter(Boolean);
-    const total = lines.length;
-
     const reasonCount: Record<string, number> = {};
     const acceptedCount = { matched: 0, secretary: 0, total: 0 };
     const layerCount: Record<string, number> = {};
     const recentDates = new Set<string>();
-    const todayStr = new Date().toISOString().slice(0, 10);
+    let routedTotal = 0;
 
     for (const line of lines) {
       try {
         const e = JSON.parse(line);
         // reason breakdown
         reasonCount[e.reason ?? 'matched'] = (reasonCount[e.reason ?? 'matched'] ?? 0) + 1;
+        const routed = Boolean(e.query && e.matched && e.reason !== 'stop' && e.reason !== 'meta_bypass' && e.reason !== 'no_graph');
+        if (routed) routedTotal++;
         // acceptance
-        if (e.accepted) {
+        if (routed && e.accepted) {
           acceptedCount.total++;
           if (e.layer === 'llm') acceptedCount.secretary++;
           else acceptedCount.matched++;
@@ -832,12 +947,12 @@ function cmdStats() {
       } catch {}
     }
 
-    const acceptRate = total > 0 ? Math.round((acceptedCount.total / total) * 100) : 0;
+    const acceptRate = routedTotal > 0 ? Math.round((acceptedCount.total / routedTotal) * 100) : 0;
     const secretaryRate = acceptedCount.total > 0
       ? Math.round((acceptedCount.secretary / acceptedCount.total) * 100) : 0;
 
     console.log('\n📋 LazyBrain 历史 (history.jsonl):');
-    console.log(`   总查询: ${total} | 接受率: ${acceptRate}% | 覆盖天数: ${recentDates.size}`);
+    console.log(`   路由记录: ${routedTotal} | 注入率: ${acceptRate}% | 覆盖天数: ${recentDates.size}`);
     console.log('   激活结果:');
     const reasonLabels: Record<string, string> = {
       matched: '✅ 匹配注入', no_match: '❌ 无匹配', low_score: '⚠️ 分数太低',
@@ -888,15 +1003,22 @@ function cmdStats() {
   console.log('\n⚙️  当前配置:');
   console.log(`   策略: ${config.strategy} | 模式: ${config.mode} | 引擎: ${config.engine}`);
   console.log(`   自动阈值: ${config.autoThreshold} | 平台: ${config.platform}`);
-  if (config.compileApiBase) {
+  if (config.compileApiBase && config.compileApiKey) {
     console.log(`   Compile API: ✅ 已配置 (${config.compileModel})`);
+  } else if (config.compileApiBase) {
+    console.log('   Compile API: ⚠️ 仅配置 base，缺少 key（请用 --offline 或配置 compileApiKey）');
   } else {
     console.log('   Compile API: ❌ 未配置 (--offline 模式运行)');
   }
-  if (config.secretaryApiBase) {
+  if (config.secretaryApiBase && config.secretaryApiKey) {
     console.log(`   Secretary API: ✅ 已配置 (${config.secretaryModel})`);
+  } else if (config.secretaryApiBase) {
+    console.log('   Secretary API: ⚠️ 仅配置 base，缺少 key');
   } else {
     console.log('   Secretary API: ❌ 未配置 (不启用 Secretary 层)');
+  }
+  if ((config.engine === 'semantic' || config.engine === 'hybrid') && (!config.embeddingApiBase || !config.embeddingApiKey || !config.embeddingModel)) {
+    console.log('   Embedding API: ⚠️ 引擎需要 embedding，但配置不完整');
   }
 
   // ─── Duplicate detection ─────────────────────────────────────────────────
@@ -1064,18 +1186,34 @@ function cmdConfig() {
       let parsed: unknown = value;
       try { parsed = JSON.parse(value); } catch { /* keep as string */ }
       updateConfig(key, parsed);
-      console.log(`Config set: ${key} = ${JSON.stringify(parsed)}`);
+      const displayValue = isSensitiveConfigKey(key) && typeof parsed === 'string' && parsed
+        ? '<redacted>'
+        : parsed;
+      console.log(`Config set: ${key} = ${JSON.stringify(displayValue)}`);
       break;
     }
     case 'show': {
       const config = loadConfig();
-      console.log(JSON.stringify(config, null, 2));
+      console.log(JSON.stringify(redactConfig(config), null, 2));
       break;
     }
     default:
       console.error('Usage: lazybrain config [set|show]');
       process.exit(1);
   }
+}
+
+function redactConfig(config: UserConfig): UserConfig {
+  return JSON.parse(JSON.stringify(config, (key, value) => {
+    if (isSensitiveConfigKey(key) && typeof value === 'string') {
+      return value ? '<redacted>' : value;
+    }
+    return value;
+  })) as UserConfig;
+}
+
+function isSensitiveConfigKey(key: string): boolean {
+  return /(apiKey|token|secretKey|password)$/i.test(key);
 }
 
 // ─── Wiki ─────────────────────────────────────────────────────────────────
@@ -1182,16 +1320,33 @@ function cmdTeam() {
   const agentCount = graph.getAllNodes().filter(n => n.kind === 'agent').length;
   console.log(`\n## 🎯 Team 组合建议\n`);
   console.log(`检测到你想用 /team，基于任务**${query}**，从 ${agentCount} 个 agent 里筛选出：\n`);
-  console.log('| # | Agent | 领域 | 理由 |');
-  console.log('|---|-------|------|------|');
+  console.log(`> 决策权：建议模式，最终由主模型或用户决定是否启用。`);
+  console.log(`> 主模型建议：${composition.mainModel.model} — ${composition.mainModel.reason}`);
+  console.log(`> Token 策略：${composition.tokenStrategy.summary}；${composition.tokenStrategy.reason}\n`);
+  console.log('| # | Agent | 领域 | 模型 | 理由 |');
+  console.log('|---|-------|------|------|------|');
   for (let i = 0; i < composition.members.length; i++) {
     const m = composition.members[i];
-    console.log(`| ${i + 1} | **${m.agent.name}** | ${m.category} | ${m.reason} |`);
+    console.log(`| ${i + 1} | **${m.agent.name}** | ${m.category} | ${m.suggestedModel ?? 'sonnet'} | ${m.reason} |`);
   }
   console.log('\n> **组合理由**：' + composition.overallReason);
   console.log('\n> 建议命令：`' + composition.suggestedCommand + '`');
   console.log('\n> OMC 可执行命令：`' + composition.omcBridge.command + '`');
   console.log('\n> Lead brief:\n```text\n' + composition.omcBridge.leadBrief + '\n```');
+  console.log('\n## 运行时适配\n');
+  for (const guide of composition.runtimeGuides) {
+    console.log(`### ${guide.label}`);
+    console.log(`- 适用：${guide.whenToUse}`);
+    if (guide.command) console.log(`- 命令：\`${guide.command}\``);
+    console.log(`- 约束：${guide.constraints.join('；')}`);
+  }
+  console.log('\n## 子智能体提示词\n');
+  for (const m of composition.members) {
+    console.log(`### ${m.agent.name} (${m.suggestedModel ?? 'sonnet'})`);
+    console.log('```text');
+    console.log(m.prompt ?? '');
+    console.log('```');
+  }
   console.log('\n> 如果想默认 executor：`/team 3:executor "<task>"`');
 }
 
@@ -1257,31 +1412,72 @@ function cmdCompare() {
 
 function cmdHook() {
   const sub = args[1];
-  const settingsPath = join(
-    process.env.CLAUDE_CONFIG_DIR ?? join(process.env.HOME ?? '~', '.claude'),
-    'settings.json',
-  );
+  const commandScope: HookInstallScope = args.includes('--global') ? 'global' : 'project';
+  const settingsPath = getClaudeSettingsPath(commandScope);
 
   // Resolve the hook script path from this binary's location
   const binDir = dirname(fileURLToPath(import.meta.url));
   const hookScript = resolve(binDir, 'hook.js');
   const statuslineScript = resolve(binDir, 'statusline.js');
   const combinedStatuslineScript = resolve(binDir, 'statusline-combined.js');
+  const statuslineChainPath = getScopedStatuslineChainPath(commandScope);
+  const combinedStatuslineCommand = `env LAZYBRAIN_STATUSLINE_CHAIN=${shellQuote(statuslineChainPath)} node ${shellQuote(combinedStatuslineScript)}`;
   const shouldInstallStatusline = args.includes('--statusline') || args.includes('--install-statusline');
   const shouldReplaceStatusline = args.includes('--replace-statusline');
+  const isLazyBrainStatuslineCommand = (command: unknown): command is string => {
+    if (typeof command !== 'string') return false;
+    const normalized = command.replace(/\\/g, '/');
+    return normalized.includes(statuslineScript.replace(/\\/g, '/')) ||
+      normalized.includes(combinedStatuslineScript.replace(/\\/g, '/')) ||
+      /(?:lazy[-_]?brain|lazy_user).*\/(?:dist\/)?bin\/statusline(?:-combined)?\.js\b/.test(normalized);
+  };
   const isLazyBrainCommand = (command: unknown): command is string => (
     typeof command === 'string' &&
-    (command.includes('lazybrain') ||
-      command.includes('/lazy_user/') ||
-      isLazyBrainHookCommand(command) ||
-      command.includes('dist/bin/statusline.js') ||
-      command.includes('dist/bin/statusline-combined.js') ||
-      command.includes(statuslineScript) ||
-      command.includes(combinedStatuslineScript))
+    (isLazyBrainHookCommand(command) || isLazyBrainStatuslineCommand(command))
   );
 
   switch (sub) {
+    case 'plan': {
+      let settings: Record<string, unknown> = {};
+      let globalSettings: Record<string, unknown> = {};
+      try {
+        settings = readSettingsFile(settingsPath);
+      } catch {
+        console.error(`Failed to parse ${settingsPath}`);
+        process.exit(1);
+      }
+      try {
+        globalSettings = readSettingsFile(getClaudeSettingsPath('global'));
+      } catch {}
+
+      const plan = buildHookPlan({
+        scope: commandScope,
+        settingsPath,
+        settings,
+        globalSettings,
+        workspaceRoot: commandScope === 'project' ? resolve(process.cwd()) : undefined,
+        hookCommand: `node ${hookScript}`,
+        statuslineScript,
+        combinedStatuslineScript,
+        combinedStatuslineCommand,
+        installStatePath: HOOK_INSTALL_STATE_MAP_PATH,
+        shouldInstallStatusline,
+        shouldReplaceStatusline,
+        scriptsReady: existsSync(hookScript) && existsSync(statuslineScript) && existsSync(combinedStatuslineScript),
+      });
+
+      if (args.includes('--json')) {
+        console.log(JSON.stringify(plan, null, 2));
+      } else {
+        console.log(formatHookPlan(plan));
+      }
+      break;
+    }
     case 'install': {
+      if (commandScope === 'global' && !args.includes('--yes')) {
+        console.error('Global hook install affects every Claude project. Re-run with `--global --yes` to confirm.');
+        process.exit(1);
+      }
       if (!existsSync(hookScript)) {
         console.error(`Hook script not found: ${hookScript}`);
         console.error('Run `npm run build` first.');
@@ -1298,7 +1494,7 @@ function cmdHook() {
         process.exit(1);
       }
 
-      const installScope: HookInstallScope = args.includes('--global') ? 'global' : 'project';
+      const installScope: HookInstallScope = commandScope;
       const workspaceRoot = installScope === 'project' ? resolve(process.cwd()) : undefined;
 
       let settings: Record<string, unknown> = {};
@@ -1311,51 +1507,63 @@ function cmdHook() {
         }
       }
 
+      const backup = createHookBackup({
+        scope: installScope,
+        settingsPath,
+        statuslineChainPath,
+        installStateMapPath: HOOK_INSTALL_STATE_MAP_PATH,
+        legacyInstallStatePath: HOOK_INSTALL_STATE_PATH,
+      });
+
       settings = upsertLazyBrainUserPromptSubmit(settings, `node ${hookScript}`);
 
       const existingStatusline = settings.statusLine as { command?: unknown } | string | undefined;
-      const existingStatuslineCommand = typeof existingStatusline === 'string'
-        ? existingStatusline
-        : typeof existingStatusline?.command === 'string'
-          ? existingStatusline.command
-          : '';
+      let inheritedStatusline: unknown;
+      if (installScope === 'project' && existingStatusline === undefined) {
+        try {
+          inheritedStatusline = readSettingsFile(getClaudeSettingsPath('global')).statusLine;
+        } catch {}
+      }
+      const upstreamStatusline = existingStatusline ?? inheritedStatusline;
+      const existingStatuslineCommand = getStatusLineCommand(existingStatusline);
+      const upstreamStatuslineCommand = getStatusLineCommand(upstreamStatusline);
       let chainedUpstreamCommand = '';
-      const statuslineChainPath = getStatuslineChainPath();
       try {
-        const chain = existsSync(statuslineChainPath)
-          ? JSON.parse(readFileSync(statuslineChainPath, 'utf-8')) as { upstreamCommand?: unknown }
-          : {};
-        if (typeof chain.upstreamCommand === 'string') {
-          chainedUpstreamCommand = chain.upstreamCommand;
+        const foundChain = readStatuslineChain(commandScope);
+        if (typeof foundChain?.chain.upstreamCommand === 'string') {
+          chainedUpstreamCommand = foundChain.chain.upstreamCommand;
         }
       } catch {}
 
-      const hasOtherStatusline = Boolean(existingStatuslineCommand && !isLazyBrainCommand(existingStatuslineCommand));
-      const alreadyCombined = Boolean(existingStatuslineCommand && existingStatuslineCommand.includes(combinedStatuslineScript));
+      const hasOtherStatusline = Boolean(upstreamStatuslineCommand && !isLazyBrainStatuslineCommand(upstreamStatuslineCommand));
+      const alreadyCombined = Boolean(existingStatuslineCommand && existingStatuslineCommand.includes('statusline-combined.js'));
       const shouldComposeStatusline = shouldInstallStatusline && hasOtherStatusline && !shouldReplaceStatusline;
       const shouldUseLazyBrainOnlyStatusline = (
         shouldReplaceStatusline ||
-        (isLazyBrainCommand(existingStatuslineCommand) && !alreadyCombined) ||
-        (!existingStatuslineCommand && shouldInstallStatusline)
+        (isLazyBrainStatuslineCommand(existingStatuslineCommand) && !alreadyCombined) ||
+        (!upstreamStatuslineCommand && shouldInstallStatusline)
       );
 
       let statuslineMode: HookStatuslineMode = 'none';
 
       if (shouldComposeStatusline) {
+        mkdirSync(dirname(statuslineChainPath), { recursive: true });
         writeFileSync(statuslineChainPath, JSON.stringify({
-          upstreamCommand: existingStatuslineCommand,
-          upstreamType: typeof existingStatusline === 'string' ? 'legacy-string' : 'command-object',
+          upstreamCommand: upstreamStatuslineCommand,
+          upstreamType: typeof upstreamStatusline === 'string' ? 'legacy-string' : 'command-object',
+          hadOriginalStatusLine: existingStatusline !== undefined,
+          originalStatusLine: existingStatusline,
           installedAt: new Date().toISOString(),
         }, null, 2));
         settings.statusLine = {
           type: 'command',
-          command: `node ${combinedStatuslineScript}`,
+          command: combinedStatuslineCommand,
         };
         statuslineMode = 'combined';
       } else if (alreadyCombined && chainedUpstreamCommand) {
         settings.statusLine = {
           type: 'command',
-          command: `node ${combinedStatuslineScript}`,
+          command: combinedStatuslineCommand,
         };
         statuslineMode = 'combined';
       } else if (shouldUseLazyBrainOnlyStatusline) {
@@ -1368,6 +1576,7 @@ function cmdHook() {
         statuslineMode = 'skipped';
       }
 
+      mkdirSync(dirname(settingsPath), { recursive: true });
       writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
       writeHookInstallState({
         scope: installScope,
@@ -1383,6 +1592,7 @@ function cmdHook() {
       if (installScope === 'global') {
         console.log('  Warning: global scope 会让 LazyBrain 在所有 Claude 会话里被调起，仅建议明确需要时使用。');
       }
+      console.log(`  Backup: ${backup.id}`);
       if (shouldComposeStatusline) {
         console.log(`  Statusline: ${combinedStatuslineScript}`);
         console.log('  Statusline mode: combined with existing HUD');
@@ -1401,6 +1611,21 @@ function cmdHook() {
       console.log(`  Restart Claude Code to activate.`);
       break;
     }
+    case 'rollback': {
+      const toIdx = args.indexOf('--to');
+      const target = toIdx !== -1 ? args[toIdx + 1] : undefined;
+      const backup = findHookBackup(settingsPath, target);
+      if (!backup) {
+        console.error(target ? `No LazyBrain hook backup found: ${target}` : 'No LazyBrain hook backup found.');
+        process.exit(1);
+      }
+      restoreHookBackup(settingsPath, backup);
+      cleanHookRuntimeRecords({ forceHung: true });
+      console.log(`Hook rollback complete: ${backup.id}`);
+      console.log(`  Scope: ${backup.scope}`);
+      console.log(`  Settings: ${settingsPath}`);
+      break;
+    }
     case 'restore-statusline': {
       if (!existsSync(settingsPath)) {
         console.log('No settings file found.');
@@ -1414,38 +1639,24 @@ function cmdHook() {
         process.exit(1);
       }
 
-      const statuslineChainPath = getStatuslineChainPath();
-      if (!existsSync(statuslineChainPath)) {
+      const foundChain = readStatuslineChain(commandScope);
+      if (!foundChain) {
         console.error('No LazyBrain statusline chain backup found.');
         process.exit(1);
       }
 
       let upstreamCommand = '';
-      let upstreamType = 'command-object';
-      try {
-        const chain = JSON.parse(readFileSync(statuslineChainPath, 'utf-8')) as {
-          upstreamCommand?: unknown;
-          upstreamType?: unknown;
-        };
-        if (typeof chain.upstreamCommand === 'string') upstreamCommand = chain.upstreamCommand;
-        if (typeof chain.upstreamType === 'string') upstreamType = chain.upstreamType;
-      } catch {
-        console.error(`Failed to parse ${statuslineChainPath}`);
-        process.exit(1);
-      }
+      const chain = foundChain.chain;
+      if (typeof chain.upstreamCommand === 'string') upstreamCommand = chain.upstreamCommand;
 
-      if (!upstreamCommand) {
+      if (!restoreStatuslineFromChain(settings, commandScope)) {
         console.error('No upstream statusLine command found in chain backup.');
         process.exit(1);
       }
 
-      settings.statusLine = upstreamType === 'legacy-string'
-        ? upstreamCommand
-        : { type: 'command', command: upstreamCommand };
-
       writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
       console.log('Statusline restored from LazyBrain chain backup.');
-      console.log(`  Command: ${upstreamCommand}`);
+      if (upstreamCommand) console.log(`  Command: ${upstreamCommand}`);
       console.log('  Restart Claude Code to activate.');
       break;
     }
@@ -1463,7 +1674,7 @@ function cmdHook() {
       }
 
       settings = removeLazyBrainHookRegistrations(settings);
-      clearHookInstallState();
+      clearHookInstallState(commandScope, commandScope === 'project' ? resolve(process.cwd()) : undefined);
       cleanHookRuntimeRecords();
 
       const existingStatusline = settings.statusLine as { command?: unknown } | string | undefined;
@@ -1473,7 +1684,14 @@ function cmdHook() {
           ? existingStatusline.command
           : '';
       if (isLazyBrainCommand(existingStatuslineCommand)) {
-        delete settings.statusLine;
+        if (existingStatuslineCommand.includes('statusline-combined.js')) {
+          if (!restoreStatuslineFromChain(settings, commandScope)) {
+            delete settings.statusLine;
+          }
+          removeStatuslineChain(commandScope);
+        } else {
+          delete settings.statusLine;
+        }
       }
 
       writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
@@ -1495,7 +1713,10 @@ function cmdHook() {
 
       const config = loadConfig();
       const runtime = getHookRuntimeSnapshot({ config });
-      const status = getHookLifecycleStatus(settings, { runtime });
+      const status = getHookLifecycleStatus(settings, {
+        runtime,
+        installState: readHookInstallStateForScope(commandScope, commandScope === 'project' ? process.cwd() : undefined),
+      });
       const stopAudit = loadLatestStopHookAudit(process.cwd());
       const installState = status.installState;
 
@@ -1573,14 +1794,14 @@ function cmdHook() {
     }
     case 'clean': {
       const config = loadConfig();
-      const snapshot = cleanHookRuntimeRecords({ config });
+      const snapshot = cleanHookRuntimeRecords({ config, forceHung: args.includes('--force') });
       console.log(`Removed ${snapshot.staleRuns.length} stale hook records.`);
       console.log(`Active hooks remaining: ${snapshot.activeRuns.length}`);
       console.log(`Hung hooks retained: ${snapshot.hungRuns.length}`);
       break;
     }
     default:
-      console.error('Usage: lazybrain hook [install|uninstall|restore-statusline|status|ps|clean] [--statusline|--replace-statusline|--global]');
+      console.error('Usage: lazybrain hook [plan|install|rollback|uninstall|restore-statusline|status|ps|clean] [--statusline|--replace-statusline|--global|--yes]');
       process.exit(1);
   }
 }
@@ -1599,13 +1820,9 @@ function getBudgetCheckerState(): string {
   }
 }
 
-function cmdDoctor() {
-  const shouldFix = args.includes('--fix');
+function printDoctorForScope(doctorScope: HookInstallScope, shouldFix: boolean): void {
   const config = loadConfig();
-  const settingsPath = join(
-    process.env.CLAUDE_CONFIG_DIR ?? join(process.env.HOME ?? '~', '.claude'),
-    'settings.json',
-  );
+  const settingsPath = getClaudeSettingsPath(doctorScope);
   const budgetCheckerState = getBudgetCheckerState();
 
   let settings: Record<string, unknown> = {};
@@ -1620,10 +1837,11 @@ function cmdDoctor() {
   const repairs: string[] = [];
 
   if (shouldFix) {
-    const existingState = readHookInstallState();
+    const existingState = readHookInstallStateForScope(doctorScope, doctorScope === 'project' ? process.cwd() : undefined);
     if (existingState) {
       settings = removeLazyBrainHookRegistrations(settings);
       settings = upsertLazyBrainUserPromptSubmit(settings, hookCommand);
+      mkdirSync(dirname(settingsPath), { recursive: true });
       writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
 
       const repairedScope: HookInstallScope = existingState.scope;
@@ -1654,13 +1872,14 @@ function cmdDoctor() {
     }
   }
 
-  const installState = readHookInstallState();
+  const installState = readHookInstallStateForScope(doctorScope, doctorScope === 'project' ? process.cwd() : undefined);
   const runtime = getHookRuntimeSnapshot({ config });
   const runtimeStats = getHookRuntimeStats(runtime);
-  const lifecycle = getHookLifecycleStatus(settings, { runtime });
+  const lifecycle = getHookLifecycleStatus(settings, { runtime, installState });
 
-  console.log('LazyBrain doctor');
+  console.log(`LazyBrain doctor (${doctorScope})`);
   console.log(`  Mode: ${shouldFix ? 'diagnose+fix' : 'diagnose'}`);
+  console.log(`  Settings: ${settingsPath}`);
   console.log(`  Install state: ${installState ? 'present' : 'missing'}`);
   console.log(`  Scope: ${installState?.scope ?? 'unknown'}`);
   if (installState?.workspaceRoot) {
@@ -1682,6 +1901,76 @@ function cmdDoctor() {
     if (budgetCheckerState === 'enabled') {
       console.log('  Note: budget checker 已启用，但 doctor --fix 不会自动修改 LaunchAgent 状态。');
     }
+  }
+}
+
+function cmdDoctor() {
+  const shouldFix = args.includes('--fix');
+  const allScopes = args.includes('--all');
+  if (allScopes && shouldFix) {
+    console.error('doctor --all --fix is disabled. Run doctor --fix for one scope at a time.');
+    process.exit(1);
+  }
+  if (allScopes) {
+    printDoctorForScope('project', false);
+    console.log('');
+    printDoctorForScope('global', false);
+    return;
+  }
+  printDoctorForScope(args.includes('--global') ? 'global' : 'project', shouldFix);
+}
+
+function readJsonStatus(path: string): Record<string, unknown> | null {
+  if (!existsSync(path)) return null;
+  try {
+    return JSON.parse(readFileSync(path, 'utf-8')) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function cmdReady() {
+  const config = loadConfig();
+  const status = readJsonStatus(STATUS_PATH);
+  const runtime = getHookRuntimeSnapshot({ config });
+  const initialBlockers: string[] = [];
+  const scopes = (['project', 'global'] as const).map((scope) => {
+    const settingsPath = getClaudeSettingsPath(scope);
+    let settings: Record<string, unknown> = {};
+    try {
+      settings = readSettingsFile(settingsPath);
+    } catch {
+      initialBlockers.push(`${scope} settings is invalid JSON: ${settingsPath}`);
+    }
+
+    const installState = readHookInstallStateForScope(scope, scope === 'project' ? process.cwd() : undefined);
+    return { scope, settingsPath, settings, installState };
+  });
+
+  const report = evaluateReady({
+    graphExists: existsSync(GRAPH_PATH),
+    status,
+    runtime,
+    scopes,
+    cwd: process.cwd(),
+    config,
+    embeddingsIndexExists: existsSync(EMBEDDINGS_INDEX_PATH),
+    embeddingsBinExists: existsSync(EMBEDDINGS_BIN_PATH),
+    loadAverage1m: loadavg()[0],
+    initialBlockers,
+  });
+
+  console.log(report.state);
+  if (report.blockers.length > 0) {
+    console.log('BLOCKERS:');
+    for (const blocker of report.blockers) console.log(`  - ${blocker}`);
+  }
+  if (report.warnings.length > 0) {
+    console.log('WARNINGS:');
+    for (const warning of report.warnings) console.log(`  - ${warning}`);
+  }
+  if (report.blockers.length === 0 && report.warnings.length === 0) {
+    console.log('All checks passed.');
   }
 }
 
@@ -1845,12 +2134,19 @@ Usage:
   lazybrain server                   Start HTTP API server (foreground)
   lazybrain server --daemon          Start HTTP API server (background)
   lazybrain server --port <n>        Custom port (default: 18450)
+  LazyBrain Lab                      Open http://127.0.0.1:18450/lab after starting server
   lazybrain server stop              Stop background server
   lazybrain server status            Check server status
+  lazybrain ready                    Check graph, hook, HUD, and semantic readiness
+  lazybrain hook plan                Preview hook install changes without writing files
+  lazybrain hook install             Install project-scoped Claude Code hook
+  lazybrain hook install --global --yes
+                                     Install global hook after explicit confirmation
+  lazybrain hook rollback            Restore latest LazyBrain hook backup
   lazybrain hook status              Show LazyBrain hook lifecycle status
   lazybrain hook ps                  Show active LazyBrain hook runs
   lazybrain hook clean               Remove stale LazyBrain hook records
-  lazybrain doctor [--fix]           Show runtime diagnostics and optional self-repair
+  lazybrain doctor [--fix|--all]      Show runtime diagnostics and optional self-repair
   lazybrain summary                  Show manual session audit
   lazybrain --version                Show version
 `);

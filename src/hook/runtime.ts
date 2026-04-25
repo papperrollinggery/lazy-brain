@@ -38,6 +38,7 @@ type RuntimeOptions = {
   loadAverage1m?: number;
   pidExists?: (pid: number) => boolean;
   config?: UserConfig;
+  forceHung?: boolean;
 };
 
 type RuntimeEvent = {
@@ -180,6 +181,11 @@ export function cleanHookRuntimeRecords(options: RuntimeOptions = {}): HookRunti
     }
     if (ageMs > config.staleHookMs) {
       hungRuns.push(run);
+      if (options.forceHung) {
+        staleRuns.push(run);
+        deleteHookRun(run.runId);
+        continue;
+      }
     }
     activeRuns.push(run);
   }
@@ -209,7 +215,7 @@ export function cleanHookRuntimeRecords(options: RuntimeOptions = {}): HookRunti
 export function beginHookRun(input: BeginHookRunInput, options: RuntimeOptions = {}): BeginHookRunResult {
   const now = options.now ?? Date.now();
   const snapshot = cleanHookRuntimeRecords(options);
-  const installState = readHookInstallState();
+  const installState = readHookInstallState(input.cwd) ?? readHookInstallState();
   const config = getRuntimeConfig(options.config);
   const effectiveLoad = options.loadAverage1m ?? loadavg()[0];
 

@@ -28,8 +28,8 @@ export function formatDashboard(stats: SessionStats): string {
   lines.push(`## 🧠 LazyBrain · ${formatDate()}`);
   lines.push('');
   lines.push('启动摘要 / Startup recap');
-  lines.push(`- 推荐记录：${stats.totalRecommendations} 次（接受 ${stats.acceptedRecommendations} / 跳过 ${stats.skippedRecommendations}）`);
-  lines.push(`- 采用率：${stats.adoptionRate}%`);
+  lines.push(`- 路由记录：${stats.totalRecommendations} 次（注入 ${stats.acceptedRecommendations} / 跳过 ${stats.skippedRecommendations}）`);
+  lines.push(`- 注入率：${stats.adoptionRate}%`);
   lines.push(`- 当前能力库：${stats.totalCapabilities} 个`);
   lines.push('- 生命周期：UserPromptSubmit + SessionStart（不参与 Stop）');
   if (stats.lastRecommendedTool) {

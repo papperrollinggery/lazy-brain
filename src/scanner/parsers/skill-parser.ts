@@ -5,6 +5,7 @@
 import type { RawCapability } from '../../types.js';
 import { parseFrontmatter } from '../../utils/yaml.js';
 import { inferPlatformFromPath, inferSinglePlatformFromPath } from '../../constants.js';
+import { inferOrigin } from '../origin.js';
 
 /**
  * Parse a trigger value that might be a JSON array string or a plain string.
@@ -64,16 +65,10 @@ export function parseSkill(filePath: string, content: string): RawCapability | n
     name = description.slice(0, 50);
   }
 
-  let origin: string;
-  if (typeof frontmatter.origin === 'string' && frontmatter.origin) {
-    origin = frontmatter.origin;
-  } else if (filePath.includes('/ecc/')) {
-    origin = 'ECC';
-  } else if (filePath.includes('/plugins/')) {
-    origin = 'plugin';
-  } else {
-    origin = 'local';
-  }
+  const origin = inferOrigin(
+    filePath,
+    typeof frontmatter.origin === 'string' && frontmatter.origin ? frontmatter.origin : undefined,
+  );
 
   let triggers: string[] | undefined;
   if (frontmatter.triggers !== undefined) {

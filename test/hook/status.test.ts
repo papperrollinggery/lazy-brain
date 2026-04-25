@@ -6,7 +6,7 @@ describe('hook lifecycle status', () => {
     const status = getHookLifecycleStatus({
       hooks: {
         UserPromptSubmit: [
-          { matcher: '', hooks: [{ type: 'command', command: 'node /tmp/dist/bin/hook.js' }] },
+          { matcher: '', hooks: [{ type: 'command', command: 'node /tmp/lazybrain/dist/bin/hook.js' }] },
           { matcher: '', hooks: [{ type: 'command', command: 'python3 ~/.claude/hooks/codeisland-state.py' }] },
         ],
         Stop: [
@@ -35,14 +35,14 @@ describe('hook lifecycle status', () => {
     const status = getHookLifecycleStatus({
       hooks: {
         Stop: [
-          { hooks: [{ type: 'command', command: 'node /tmp/dist/bin/hook.js' }] },
+          { hooks: [{ type: 'command', command: 'node /tmp/lazybrain/dist/bin/hook.js' }] },
         ],
       },
     }, {
       installState: {
         scope: 'project',
         workspaceRoot: '/repo/lazy_user',
-        hookCommand: 'node /tmp/dist/bin/hook.js',
+        hookCommand: 'node /tmp/lazybrain/dist/bin/hook.js',
         installedAt: '2026-04-20T00:00:00.000Z',
         statuslineMode: 'none',
       },

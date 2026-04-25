@@ -306,7 +306,7 @@ export interface ProposalOption {
 // ─── User Config ────────────────────────────────────────────────────────────
 
 export type MatchMode = 'auto' | 'select' | 'ask';
-export type MatchEngine = 'tag' | 'llm';
+export type MatchEngine = 'tag' | 'semantic' | 'hybrid' | 'llm';
 export type RoutingStrategy = 'always-main' | 'optimal' | 'ask';
 
 export interface UserConfig {
@@ -328,6 +328,12 @@ export interface UserConfig {
   compileApiBase?: string;
   /** LLM API key */
   compileApiKey?: string;
+  /** Embedding API base URL */
+  embeddingApiBase?: string;
+  /** Embedding API key */
+  embeddingApiKey?: string;
+  /** Embedding model name */
+  embeddingModel?: string;
   /** Secretary API base URL (独立配置，SiliconFlow 免费) */
   secretaryApiBase?: string;
   /** Secretary API key */
@@ -496,5 +502,5 @@ export interface LLMResponse {
 }
 
 export interface LLMProvider {
-  complete(prompt: string, systemPrompt?: string): Promise<LLMResponse>;
+  complete(prompt: string, systemPrompt?: string, options?: { signal?: AbortSignal }): Promise<LLMResponse>;
 }

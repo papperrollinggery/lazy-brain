@@ -23,6 +23,7 @@ describe('hook runtime safety', () => {
         ...actual,
         HOOK_ACTIVE_PATH: join(tempDir, '.hook-pid'),
         HOOK_INSTALL_STATE_PATH: join(tempDir, 'hook-install.json'),
+        HOOK_INSTALL_STATE_MAP_PATH: join(tempDir, 'hook-install-map.json'),
         HOOK_EVENTS_PATH: join(tempDir, 'hook-events.jsonl'),
         HOOK_HEALTH_PATH: join(tempDir, 'hook-health.json'),
         HOOK_RUNS_DIR: join(tempDir, 'hook-runs'),

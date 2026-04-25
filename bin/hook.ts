@@ -288,10 +288,13 @@ function buildParchment(scene: ParchmentScene): string {
       lines.push(divider());
       for (let i = 0; i < scene.composition.members.length; i++) {
         const m = scene.composition.members[i];
-        lines.push(row(`${i + 1}. ${m.agent.name} (${m.category})`));
+        const model = m.suggestedModel ?? 'sonnet';
+        lines.push(row(`${i + 1}. ${m.agent.name} (${m.category}/${model})`));
         lines.push(row(`   ${m.reason}`));
       }
       lines.push(divider());
+      lines.push(row(`主模型: ${scene.composition.mainModel.model}`));
+      lines.push(row('建议模式，主模型/用户决定'));
       lines.push(row(`💡 ${scene.composition.overallReason}`));
       lines.push(row(`🔧 ${scene.composition.suggestedCommand}`));
       lines.push(row(`🚀 OMC: ${scene.composition.omcBridge.command}`));
@@ -362,7 +365,10 @@ function buildDuplicateWarning(
 
 function safeWriteRecommendation(entry: Parameters<typeof writeRecommendation>[0]): void {
   try {
-    writeRecommendation(entry);
+    writeRecommendation({
+      ...entry,
+      transcriptPath: entry.transcriptPath ?? (_transcriptPath || undefined),
+    });
   } catch (err) {
     if (process.env.LAZYBRAIN_DEBUG_HOOK === '1') {
       process.stderr.write(`[LazyBrain] Recommendation tracking error: ${err instanceof Error ? err.message : String(err)}\n`);
@@ -439,7 +445,7 @@ async function main() {
   // Control/meta prompts should not be routed through LazyBrain machinery.
   // Detect before match() so we skip all computation.
   if (isMetaPrompt(prompt)) {
-    // Bypass: no match, no decision card, no governance, no secretary, no last-match write
+    // Bypass: no match, no decision card, no governance, no secretary.
     appendHistory({
       timestamp: new Date().toISOString(),
       query: prompt,
@@ -449,6 +455,7 @@ async function main() {
       sessionId: process.env.CLAUDE_SESSION_ID ?? 'unknown',
       reason: 'meta_bypass',
     });
+    writeLastMatch(null, 0, undefined, 'skipped');
     output({ continue: true });
     return;
   }
@@ -468,7 +475,7 @@ async function main() {
       sessionId: process.env.CLAUDE_SESSION_ID ?? 'unknown',
       reason: 'no_graph',
     });
-    writeLastMatch(null, 0);
+    writeLastMatch(null, 0, undefined, 'no_match');
     output({ continue: true });
     return;
   }
@@ -500,7 +507,7 @@ async function main() {
 
     if (result.matches.length === 0) {
       if (config.mode === 'ask') renderParchment({ type: 'no_match' });
-      writeLastMatch(null, 0);
+      writeLastMatch(null, 0, undefined, 'no_match');
       const bridgeNoMatch = appendTeamBridge('', prompt, teamComposition);
       const govNoMatch = appendGovernance(bridgeNoMatch, prompt, result, teamComposition);
       output({
@@ -565,8 +572,12 @@ async function main() {
       return;
     }
 
+    const secretaryApiBase = config.secretaryApiBase ?? config.compileApiBase;
+    const secretaryApiKey = config.secretaryApiKey ?? config.compileApiKey;
+    const hasSecretaryApi = Boolean(secretaryApiBase && secretaryApiKey);
+
     // ─── Low confidence (< 0.4) and no API — skip injection ───
-    if (top.score < 0.4 && !(config.compileApiBase && config.compileApiKey)) {
+    if (top.score < 0.4 && !hasSecretaryApi) {
       if (config.mode === 'ask') renderParchment({ type: 'sleeping' });
       appendHistory({
         timestamp: new Date().toISOString(),
@@ -578,7 +589,7 @@ async function main() {
         sessionId: process.env.CLAUDE_SESSION_ID ?? 'unknown',
         reason: 'low_score',
       });
-      writeLastMatch(top.capability.name, top.score, top.historyBoost);
+      writeLastMatch(null, top.score, top.historyBoost, 'low_score');
       const bridgeLow = appendTeamBridge('', prompt, teamComposition);
       const govLow = appendGovernance(bridgeLow, prompt, result, teamComposition);
       output({
@@ -591,8 +602,6 @@ async function main() {
     // ─── Low confidence (< 0.4) with API — try Secretary below, log if it rejects ───
 
     // ─── Layer 2: Secretary (score 0.4-0.85, or <0.4 with API) ───
-    const secretaryApiBase = config.secretaryApiBase ?? config.compileApiBase;
-    const secretaryApiKey = config.secretaryApiKey ?? config.compileApiKey;
     // Warn if base is set but key is missing — otherwise Secretary silently skipped
     if (secretaryApiBase && !secretaryApiKey) {
       if (process.env.LAZYBRAIN_DEBUG_HOOK === '1') {
@@ -642,7 +651,7 @@ async function main() {
             sessionId: process.env.CLAUDE_SESSION_ID ?? 'unknown',
             reason: 'secretary_no_tool',
           });
-          writeLastMatch(null, 0);
+          writeLastMatch(null, 0, undefined, 'skipped');
           const bridgeSecNoTool = appendTeamBridge('', prompt, teamComposition);
           const govSecNoTool = appendGovernance(bridgeSecNoTool, prompt, result, teamComposition);
           output({
@@ -706,7 +715,7 @@ async function main() {
           sessionId: process.env.CLAUDE_SESSION_ID ?? 'unknown',
           reason: 'secretary_rejected',
         });
-        writeLastMatch(primaryAction ?? null, secretaryResult.confidence);
+        writeLastMatch(null, secretaryResult.confidence, undefined, 'skipped');
         const bridgeSecRej = appendTeamBridge('', prompt, teamComposition);
         const govSecRej = appendGovernance(bridgeSecRej, prompt, result, teamComposition);
         output({
@@ -776,7 +785,7 @@ async function main() {
       sessionId: process.env.CLAUDE_SESSION_ID ?? 'unknown',
       reason: 'no_match',
     });
-    writeLastMatch(null, 0);
+    writeLastMatch(null, 0, undefined, 'no_match');
     const bridgeFinal = appendTeamBridge('', prompt, teamComposition);
     const govFinal = appendGovernance(bridgeFinal, prompt, result, teamComposition);
     output({
@@ -802,7 +811,7 @@ async function main() {
       sessionId: process.env.CLAUDE_SESSION_ID ?? 'unknown',
       reason: 'error',
     });
-    writeLastMatch(null, 0);
+    writeLastMatch(null, 0, undefined, 'error');
     output({
       continue: true,
       runStatus: 'error',
@@ -849,14 +858,22 @@ function getHistoryStats(history: import('../src/types.js').HistoryEntry[], capN
   return { count: entries.length, acceptRate: accepted / entries.length };
 }
 
-function writeLastMatch(tool: string | null, score: number, historyBoost?: number): void {
+function writeLastMatch(
+  tool: string | null,
+  score: number,
+  historyBoost?: number,
+  state: 'matched' | 'skipped' | 'low_score' | 'no_match' | 'error' = tool ? 'matched' : 'skipped',
+): void {
   const config = loadConfig();
   try {
     writeFileSync(join(LAZYBRAIN_DIR, 'last-match.json'), JSON.stringify({
       tool,
       score,
       historyBoost: historyBoost ?? 0,
+      state,
       model: config.compileModel ?? 'unknown',
+      sessionId: _currentRun?.sessionId ?? process.env.CLAUDE_SESSION_ID ?? 'unknown',
+      promptHash: _currentRun?.promptHash,
       updatedAt: Date.now(),
     }));
   } catch {}
