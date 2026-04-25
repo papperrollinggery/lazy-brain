@@ -10,7 +10,7 @@
 [![Node](https://img.shields.io/badge/node-%E2%89%A518-brightgreen.svg)](https://nodejs.org)
 
 > A sidecar agent that turns a fragmented toolbelt into an intent-aware execution layer.  
-> Scan capabilities, compile a graph, route every prompt, and stay out of the `Stop` lifecycle.
+> Scan capabilities, compile a graph, route non-trivial work, and stay out of the `Stop` lifecycle.
 
 [English](README.md) | [中文文档](README_CN.md)
 
@@ -20,9 +20,9 @@
 
 ## Current Release
 
-Current version: **v1.4.0**
+Current version: **v1.4.5**
 
-Release position: **public-safe beta with advisory route planning**. This version is intended for trusted local evaluation, non-install recommendation testing, route-plan orchestration, project-scoped Claude Code hook installation, and single-maintainer release review. Hook safety and rollback are usable for public beta; automatic execution, cross-CLI sync, semantic coverage, and automatic alias promotion are still improving.
+Release position: **low-intrusion routing beta**. This version hardens `RouteSpec`, adds a read-only MCP server, adds copyable target prompts, and changes the Claude hook into a tiny gate. The hook only reminds the main model to call LazyBrain for non-trivial work; full recommendations stay in `lazybrain route`, `/api/route`, MCP, GUI, or explicit prompt output.
 
 ## Overview
 
@@ -40,8 +40,8 @@ LazyBrain sits beside the primary coding model as a **sidecar agent**:
 
 - it scans the local capability surface
 - compiles a knowledge graph over those capabilities
-- matches user intent to the right capability at prompt time
-- provides lightweight startup recap
+- builds advisory route plans for the main model
+- exposes the same route contract through CLI, HTTP API, MCP, and prompt output
 - avoids competing for `Stop` hooks with memory and notification plugins
 
 The result is a system where the user says what they want, and the router decides which capability should be brought into context.
@@ -69,7 +69,7 @@ LazyBrain: → /review-pr (92%) | /critic (78%) | /santa-loop (71%)
 - **Capability-agnostic**: covers skills, agents, commands, modes, and hooks
 - **Bilingual matching**: Chinese and English queries are both first-class
 - **Local-first pipeline**: scan, graph, wiki, and tag layers work from local artifacts
-- **Sidecar lifecycle**: defaults to `UserPromptSubmit`; can optionally add `SessionStart`; does not rely on `Stop`
+- **Low-intrusion lifecycle**: project-scoped `UserPromptSubmit` tiny gate only; no `Stop`, no default `SessionStart`
 
 ## How It Works / 工作方式
 
@@ -79,19 +79,19 @@ LazyBrain has three phases: **Scan → Compile → Route**. Routing can be teste
   ┌──────────┐     ┌──────────┐     ┌──────────────┐
   │   scan   │────▶│ compile  │────▶│ route / lab  │
   │ Discover │     │ LLM tags │     │ preview or   │
-  │ tools    │     │ + graph  │     │ hook match   │
+  │ tools    │     │ + graph  │     │ MCP / prompt │
   └──────────┘     └──────────┘     └──────────────┘
        │                 │                 │
   local capability  graph.json      Lab preview
   surfaces          wiki/           or UserPromptSubmit
-  MCP + built-ins   relations       low-latency routing
+  MCP + built-ins   relations       tiny hook gate
 ```
 
 1. **scan** — Discovers all skills, agents, MCP tools, and built-in commands  
    **scan**：扫描本地 skill、agent、MCP 工具和内置命令
 2. **compile** — Builds the graph offline, or uses an LLM when configured for richer tags and relationships
    **compile**：离线构建图谱；配置 LLM 后可生成更丰富的标签和关系
-3. **route** — Tests recommendations in Lab or installs a project-scoped Claude Code hook
+3. **route** — Returns an advisory `RouteSpec`; hook/MCP/prompt are just delivery surfaces
 
 ## Public-Safe Workflow
 
@@ -103,6 +103,7 @@ lazybrain compile --offline
 lazybrain ready
 lazybrain ui
 lazybrain route "review this PR"
+lazybrain prompt "review this PR" --target claude
 lazybrain hook plan
 lazybrain hook install
 ```
@@ -117,6 +118,8 @@ Safety defaults:
 - third-party hooks and HUD/statusline entries are preserved by default
 - GUI v1 does not install hooks directly; it shows status, previews, and CLI fallback commands
 - `lazybrain route` is advisory only; it does not execute skills or write target CLI config
+- `lazybrain mcp` is read-only and does not return agent bodies or private transcripts
+- installed hook only injects a short reminder: `Consider calling lazybrain.route for skill routing, context reduction, and verification planning.`
 
 ## What Counts as a Skill / Agent / Capability
 
@@ -195,16 +198,19 @@ When you type a prompt, LazyBrain uses the currently implemented routing layers 
   │  Embedding cache required                       │
   │  Falls back with warnings when cache is missing │
   └─────────────────┬───────────────────────────────┘
-                    │ Still ambiguous
+                    │ Build route contract
                     ▼
   ┌─────────────────────────────────────────────────┐
-  │  Layer 3: Secretary (LLM fallback in hook)      │
-  │  LLM second-pass judgment for low confidence    │
-  │  ~2s, requires API key                          │
+  │  RouteSpec                                      │
+  │  route_plan / needs_clarification /             │
+  │  no_route_needed                                │
+  │  token strategy + verification guidance         │
   └─────────────────────────────────────────────────┘
 ```
 
 **Offline capable**: manual aliases and tag matching work without any network connection. `semantic` / `hybrid` requires embedding config plus `graph.embeddings.*` cache; when cache is missing, LazyBrain falls back to the lower layers and reports a warning.
+
+The default hook does not run Secretary or inject full recommendations. Secretary/API checks are explicit through `lazybrain api test`; route planning stays advisory and compact.
 
 **支持离线**：手工别名和 tag-layer 不需要网络；`semantic` / `hybrid` 需要 embedding 配置和 `graph.embeddings.*` 缓存，缓存缺失时会降级并给出 warning。
 
@@ -214,9 +220,11 @@ When you type a prompt, LazyBrain uses the currently implemented routing layers 
 |------|------------------|-------|
 | Offline routing | Manual alias + tag/CJK bridge | Works without API keys |
 | Semantic / hybrid | Uses embedding cache when configured | Falls back with warnings when cache is missing |
-| Route plan | `lazybrain route` returns advisory `RouteSpec` | No automatic execution or target CLI config writes |
+| Route plan | `lazybrain route` returns v1.4.5 `RouteSpec` | Includes `route_plan`, `needs_clarification`, and `no_route_needed` |
+| MCP | `lazybrain mcp --stdio` exposes read-only route/search/card/combo tools | Does not write target CLI config or return agent bodies |
+| Manual prompt | `lazybrain prompt` renders target-specific copyable guidance | Useful when MCP is not configured |
 | Combo templates | Built-in high-frequency orchestration templates | `lazybrain combos [category]` is read-only |
-| Hook install | Project scope by default, dry-run plan, backup, rollback | Global install requires `--global --yes` |
+| Hook install | Project scope tiny gate, dry-run plan, backup, rollback | Global install requires `--global --yes`; hook injects only a short reminder |
 | Lab | Built-in fixtures, local agent metadata, team gate, token strategy, hook readiness | Does not read Claude transcripts or install hooks |
 | Team guidance | Advisory model split, runtime adapters, subagent prompts | Main model or user keeps final decision |
 | Auto-alias | Suggest/read-only path today | Fully automatic promotion is still planned |
@@ -325,9 +333,9 @@ lazybrain hook install                # Install project-scoped Claude Code hook
 # lazybrain hook rollback
 ```
 
-After hook install, prompts inside the recorded project workspace will be routed by LazyBrain. You can use the Lab before installing to inspect recommendation quality, team gating, token strategy, and local subagent mapping.
+After hook install, prompts inside the recorded project workspace pass through the tiny gate. Complex, vague, or high-risk prompts get a short reminder to call LazyBrain; full plans are pulled through CLI/API/MCP.
 
-安装 hook 后，当前记录的项目工作区会自动经过 LazyBrain 路由。安装前可以先用 Lab 检查推荐质量、team gate、token 策略和本地子智能体映射。
+安装 hook 后，当前记录的项目工作区只经过 tiny gate。复杂、模糊或高风险任务会收到短提醒；完整计划由 CLI/API/MCP 拉取。
 
 `lazybrain hook install` writes project `.claude/settings.json` by default and creates a LazyBrain backup first. Global install is refused unless `--global --yes` is present.
 
@@ -341,6 +349,8 @@ lazybrain scan                       # Refresh local capabilities
 lazybrain compile --offline          # Build graph without an API key
 lazybrain match "review this PR"     # Test recommendation quality in terminal
 lazybrain route "review this PR"     # Build advisory RouteSpec plan
+lazybrain prompt "review this PR" --target claude
+lazybrain mcp status                 # Check MCP readiness
 lazybrain ready                      # Check graph, hook, HUD, and semantic readiness
 lazybrain ui                         # Open the local GUI
 lazybrain hook plan                  # Preview hook changes
@@ -401,10 +411,23 @@ lazybrain find  "代码审查"           # Alias for match
 lazybrain route "把后台改成 CEO dashboard"
 lazybrain route "review this PR" --target codex
 lazybrain route "review this PR" --json
+lazybrain route stats
+lazybrain prompt "review this PR" --target claude
+lazybrain prompt "review this PR" --target codex --copy
+lazybrain mcp status
+lazybrain mcp --stdio
 lazybrain combos frontend
 ```
 
-`lazybrain route` upgrades raw matches into an advisory `RouteSpec`: scenario, skills, context needed, workflow, guardrails, verification, done conditions, and a target-specific prompt style for `generic`, `claude`, `codex`, or `cursor`. It is read-only. It does not execute skills, install hooks, or write Claude/Codex/Cursor configuration.
+`lazybrain route` upgrades raw matches into an advisory `RouteSpec`: `schemaVersion`, `mode`, scenario, skills, token strategy, context needed, workflow, guardrails, verification, done conditions, and a target-specific prompt style for `generic`, `claude`, `codex`, or `cursor`.
+
+Route modes:
+
+- `route_plan`: use LazyBrain's top-K compact skill plan.
+- `needs_clarification`: ask clarifying questions before loading skills.
+- `no_route_needed`: handle the task directly; do not spend routing context.
+
+`lazybrain prompt` renders the same plan as a copyable target prompt. `lazybrain mcp --stdio` exposes read-only tools: `lazybrain.route`, `lazybrain.search`, `lazybrain.skill_card`, and `lazybrain.combos`. These surfaces do not execute skills, install hooks, read transcripts, return agent bodies, or write Claude/Codex/Cursor configuration.
 
 ### Management / 管理
 
@@ -477,6 +500,7 @@ lazybrain hook install --global --yes # Explicit confirmed global install
 lazybrain hook rollback              # Restore latest LazyBrain hook backup
 lazybrain hook uninstall             # Uninstall hook
 lazybrain hook status                # Check hook status
+lazybrain hook status --json         # Machine-readable runtime status
 lazybrain hook ps                    # Show active hook runs
 lazybrain hook clean                 # Clean stale hook records
 lazybrain doctor                     # Diagnose LazyBrain runtime state
@@ -491,8 +515,10 @@ lazybrain doctor --all               # Report project and global scopes, no fix
 - `lazybrain hook install` creates a LazyBrain backup before writing settings
 - `lazybrain hook rollback` restores only files that LazyBrain backed up
 - `lazybrain hook install --global` is refused unless `--yes` is also present
-- runtime routing only applies inside the recorded workspace root
+- runtime tiny gate only applies inside the recorded workspace root
 - if a prompt comes from another cwd, LazyBrain returns no-op immediately
+- the default hook does not run Secretary, wiki-card generation, full matching output, or agent/team expansion
+- high load, concurrency limit, breaker, missing graph, and non-`UserPromptSubmit` events fail closed with no user-facing delay
 - `Stop` is still outside the product lifecycle
 - third-party hooks and mixed hook entries are preserved
 - existing third-party HUD/statusline is skipped by default; `--statusline` combines, `--replace-statusline` replaces
@@ -522,6 +548,7 @@ Rollback restores only files that were captured by LazyBrain backups. It does no
 - no third-party HUD overwrite by default
 - no config writes during `hook plan`
 - no silent semantic claim when embedding cache is missing
+- no full skill body injection from the hook
 
 ## Troubleshooting
 
@@ -532,7 +559,8 @@ Rollback restores only files that were captured by LazyBrain backups. It does no
 | Lab shows no agents | No readable agent metadata found | Add project agents under `.claude/agents/` or user agents under `~/.claude/agents/`, then refresh Lab |
 | `hook plan` reports `needs_attention` because of LazyBrain in `Stop` | Older LazyBrain hook registration remains | Review the plan; `lazybrain hook install` will clean LazyBrain-owned `Stop` entries |
 | `hook install --global` fails | Global install requires explicit confirmation | Use `lazybrain hook install --global --yes` only if you want every Claude project affected |
-| Hook is installed but no recommendation appears | Workspace guard, missing graph, or low-confidence match | Run `lazybrain ready`, `lazybrain hook status`, and test with `lazybrain match "<same query>"` |
+| Hook is installed but no recommendation appears | v1.4.5 hook is a tiny gate, not a full recommender | Run `lazybrain hook status --json`; test the full plan with `lazybrain route "<same query>"` |
+| Main model ignores LazyBrain | MCP is not configured or the task looked trivial | Use `lazybrain prompt "<same query>" --target claude`, or configure `lazybrain mcp --stdio` in the client |
 | Hook seems stuck or returns no output after a long run | Runtime breaker or stale record may be active | Run `lazybrain hook ps`, then `lazybrain hook clean`, then `lazybrain ready` |
 | Third-party HUD/statusline is present | LazyBrain skips it by default | Use `lazybrain hook install --statusline` to combine, or `--replace-statusline` only when you intentionally want replacement |
 | `lazybrain api test` reports 401 | API key is invalid or not accepted by the configured base/model | Reset the key with `lazybrain config set ...ApiKey <key>` and rerun `lazybrain api test` |
@@ -544,12 +572,15 @@ Safe recovery commands:
 ```bash
 lazybrain ready
 lazybrain hook status
+lazybrain hook status --json
 lazybrain hook ps
 lazybrain hook clean
 lazybrain hook rollback
 lazybrain doctor
 lazybrain api test
 lazybrain embeddings status
+lazybrain route stats
+lazybrain mcp status
 ```
 
 `doctor --fix` only repairs LazyBrain-owned state in the current scope. `doctor --all --fix` is intentionally disabled.
@@ -568,7 +599,7 @@ The smoke test verifies / 这个测试会验证：
 - `lazybrain hook plan` previews install changes without writing settings
 - `lazybrain hook install` correctly modifies project `.claude/settings.json`
 - `lazybrain scan && lazybrain compile` produces `~/.lazybrain/graph.json`
-- Hook returns non-empty `additionalSystemPrompt` for a test prompt
+- Hook returns the tiny route reminder for a complex test prompt
 - `lazybrain hook rollback` restores the latest LazyBrain backup
 
 See [`scripts/smoke-test.sh`](scripts/smoke-test.sh) for the full test implementation.
@@ -592,39 +623,23 @@ Public package contents are limited to `dist`, `README.md`, `README_CN.md`, `CHA
 
 Optional Codex review instructions are in [`docs/REVIEW.md`](docs/REVIEW.md).
 
-#### SessionStart Dashboard / 启动回顾
+#### MCP and Manual Fallback
 
-LazyBrain 默认只依赖 `UserPromptSubmit`。如果你希望在每次打开新会话时看到一段轻量启动回顾，可以额外配置 `SessionStart` hook。
+Use MCP when the primary model should pull structured advice itself:
 
-By default, LazyBrain only depends on `UserPromptSubmit`. If you want a lightweight startup recap when a new session opens, you can additionally wire `SessionStart`.
-
-```json
-{
-  "hooks": {
-    "SessionStart": [
-      {
-        "command": "node",
-        "args": ["${CLAUDE_CONFIG_DIR}/../../.local/lib/node_modules/lazybrain/dist/bin/hook.js"]
-      }
-    ]
-  }
-}
+```bash
+lazybrain mcp status
+lazybrain mcp --stdio
 ```
 
-这个启动回顾只读取 LazyBrain 自己已经写下的轻量数据，例如最近推荐、接受率、常用能力和重复能力提示。
+Use prompt output when MCP is not configured:
 
-The startup recap only reads lightweight local LazyBrain data such as recent recommendations, adoption rate, top capabilities, and duplicate-capability hints.
+```bash
+lazybrain prompt "review this PR" --target claude
+lazybrain prompt "debug this stuck hook" --target codex --copy
+```
 
-它不会 / It will not:
-
-- 依赖 `Stop` hook
-- 重解析 transcript
-- 调用 LLM 做总结
-- 与记忆/通知类插件竞争会话收尾生命周期
-
-`lazybrain hook install` 现在只会安装 `UserPromptSubmit`，并自动清理旧版本残留的 LazyBrain `Stop` 注册。
-
-`lazybrain hook install` now installs `UserPromptSubmit` only, and automatically removes stale LazyBrain `Stop` registrations left by older versions.
+`lazybrain hook install` installs `UserPromptSubmit` only and automatically removes stale LazyBrain `Stop` registrations left by older versions. The default hook is a tiny reminder gate; it does not run the old startup dashboard, Secretary path, or full recommendation injection.
 
 ### Config
 
@@ -674,14 +689,14 @@ src/
 
 | Mode | Top-1 | Top-3 |
 |------|-------|-------|
-| Full pipeline (tag + Secretary) | varies by local graph | varies by local graph |
+| Route pipeline (tag + optional semantic) | varies by local graph | varies by local graph |
 | Tag-only (offline) | baseline local match quality | baseline local match quality |
 
 Benchmark results depend on:
 
 - what capabilities exist on the current machine
 - whether offline or LLM-assisted compile was used
-- whether Secretary / governance layers are enabled
+- whether semantic cache is configured and current
 - which evaluation set is being used
 
 ## License

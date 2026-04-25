@@ -76,10 +76,15 @@ describe('buildRouteSpec', () => {
     });
 
     expect(spec.mode).toBe('route_plan');
+    expect(spec.schemaVersion).toBe('1.4.5');
     expect(spec.combo).toBe('dashboard_ceo');
+    expect(spec.whyRoute).toContain('dashboard_ceo');
+    expect(spec.tokenStrategy.includeFullSkillBody).toBe(false);
+    expect(spec.tokenStrategy.topKSkills).toBeGreaterThan(0);
     expect(spec.skills.some(skill => skill.name === 'dashboard-builder')).toBe(true);
     expect(spec.verification.some(check => check.id === 'dashboard-operating-questions')).toBe(true);
     expect(spec.doneWhen.join(' ')).toContain('CEO');
+    expect(spec.skills.every(skill => !skill.reason || skill.reason.length <= 220)).toBe(true);
   });
 
   it('returns redesign combo with screenshot and console checks', async () => {
@@ -123,8 +128,21 @@ describe('buildRouteSpec', () => {
     });
 
     expect(spec.mode).toBe('needs_clarification');
+    expect(spec.tokenStrategy.shouldClarifyFirst).toBe(true);
     expect(spec.clarificationQuestions?.length).toBeGreaterThan(0);
     expect(spec.skills).toEqual([]);
+  });
+
+  it('returns no_route_needed for simple direct tasks', async () => {
+    const spec = await buildRouteSpec('what is TypeScript?', {
+      graph: makeGraph(),
+      config: { ...DEFAULT_CONFIG },
+    });
+
+    expect(spec.mode).toBe('no_route_needed');
+    expect(spec.skills).toEqual([]);
+    expect(spec.tokenStrategy.topKSkills).toBe(0);
+    expect(spec.tokenStrategy.includeFullSkillBody).toBe(false);
   });
 
   it('renders target-specific adapter prompt without changing the plan', async () => {

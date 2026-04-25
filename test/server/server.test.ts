@@ -214,9 +214,13 @@ describe('POST /api/route', () => {
     const { status, body } = await req('POST', '/api/route', { query: 'review code for regressions', target: 'codex' });
     expect(status).toBe(200);
     expect(body).toHaveProperty('query');
+    expect(body).toHaveProperty('schemaVersion', '1.4.5');
     expect(body).toHaveProperty('mode');
     expect(body).toHaveProperty('intent');
+    expect(body).toHaveProperty('whyRoute');
     expect(body).toHaveProperty('skills');
+    expect(body).toHaveProperty('tokenStrategy');
+    expect(body.tokenStrategy.includeFullSkillBody).toBe(false);
     expect(body).toHaveProperty('executionPlan');
     expect(body).toHaveProperty('contextNeeded');
     expect(body).toHaveProperty('guardrails');
@@ -231,6 +235,12 @@ describe('POST /api/route', () => {
     const { status, body } = await req('POST', '/api/route', { query: 'review code', target: 'bad' });
     expect(status).toBe(400);
     expect(body.error).toContain('Invalid target');
+  });
+
+  it('rejects oversized route queries', async () => {
+    const { status, body } = await req('POST', '/api/route', { query: 'x'.repeat(2001) });
+    expect(status).toBe(413);
+    expect(body.error).toContain('too long');
   });
 });
 

@@ -28,6 +28,9 @@ import { getEmbeddingCacheStatus } from '../embeddings/cache.js';
 import { rebuildEmbeddingCache } from '../embeddings/rebuild.js';
 import { EMBEDDINGS_INDEX_PATH } from '../constants.js';
 import { buildRouteSpec, isRouteTarget } from '../orchestrator/route.js';
+import { loadRecentHistory } from '../history/history.js';
+import { loadProfile } from '../history/profile.js';
+import { recordRouteSpec } from '../orchestrator/route-events.js';
 
 // ─── Rate Limiter ────────────────────────────────────────────────────────────
 
@@ -68,10 +71,19 @@ function err(res: http.ServerResponse, code: number, message: string): void {
   json(res, code, { error: message, code });
 }
 
-async function readBody(req: http.IncomingMessage): Promise<string> {
+async function readBody(req: http.IncomingMessage, maxBytes = 64 * 1024): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on('data', (c: Buffer) => chunks.push(c));
+    let total = 0;
+    req.on('data', (c: Buffer) => {
+      total += c.length;
+      if (total > maxBytes) {
+        req.destroy();
+        reject(new Error('Request body too large'));
+        return;
+      }
+      chunks.push(c);
+    });
     req.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
     req.on('error', reject);
   });
@@ -107,11 +119,14 @@ async function handleRoute(
   let body: { query?: string; target?: RouteTarget };
   try {
     body = JSON.parse(await readBody(req));
-  } catch {
-    return err(res, 400, 'Invalid JSON body');
+  } catch (error) {
+    return err(res, error instanceof Error && error.message.includes('large') ? 413 : 400, 'Invalid JSON body');
   }
   if (!body.query || typeof body.query !== 'string') {
     return err(res, 400, 'Missing required field: query');
+  }
+  if (body.query.length > 2000) {
+    return err(res, 413, 'Query is too long. Limit: 2000 characters.');
   }
   if (body.target !== undefined && (typeof body.target !== 'string' || !isRouteTarget(body.target))) {
     return err(res, 400, 'Invalid target. Use generic, claude, codex, or cursor.');
@@ -119,8 +134,11 @@ async function handleRoute(
   const result = await buildRouteSpec(body.query, {
     graph,
     config,
+    history: loadRecentHistory(50),
+    profile: loadProfile() ?? undefined,
     target: body.target ?? 'generic',
   });
+  recordRouteSpec(result, 'api');
   json(res, 200, result);
 }
 

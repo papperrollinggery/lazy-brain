@@ -1,6 +1,6 @@
 {
   "name": "lazybrain",
-  "version": "1.4.0",
+  "version": "1.4.5",
   "description": "Semantic skill router for AI coding agents — your second brain for capabilities",
   "type": "module",
   "bin": {

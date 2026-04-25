@@ -22,6 +22,7 @@ export const HISTORY_PATH = join(LAZYBRAIN_DIR, 'history.jsonl');
 export const WIKI_DIR = join(LAZYBRAIN_DIR, 'wiki');
 export const EXTERNAL_CATALOG_PATH = join(LAZYBRAIN_DIR, 'external-catalog.json');
 export const PROFILE_PATH = join(LAZYBRAIN_DIR, 'profile.json');
+export const ROUTE_EVENTS_PATH = join(LAZYBRAIN_DIR, 'route-events.jsonl');
 
 /** OMC state directory — read to detect active execution mode */
 export const OMC_STATE_DIR = join(homedir(), '.omc', 'state');

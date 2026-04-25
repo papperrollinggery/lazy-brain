@@ -74,14 +74,18 @@ import { getEmbeddingCacheStatus } from '../src/embeddings/cache.js';
 import { rebuildEmbeddingCache } from '../src/embeddings/rebuild.js';
 import { buildStatusReport } from '../src/server/status.js';
 import { buildRouteSpec, formatRouteSpec, isRouteTarget } from '../src/orchestrator/route.js';
+import { readRouteStats, recordRouteSpec } from '../src/orchestrator/route-events.js';
 import { formatComboList, listCombos } from '../src/combos/registry.js';
+import { getMcpToolNames, runMcpStdioServer } from '../src/mcp/server.js';
 
 const args = process.argv.slice(2);
 const cmd = args[0];
 
-// Ensure data directory exists. `hook plan` must stay read-only.
-const isReadOnlyHookPlan = cmd === 'hook' && args[1] === 'plan';
-if (!isReadOnlyHookPlan && !existsSync(LAZYBRAIN_DIR)) {
+// Ensure data directory exists only for commands that may write runtime records.
+const isReadOnlyCommand = (cmd === 'hook' && args[1] === 'plan') ||
+  (cmd === 'route' && args[1] === 'stats') ||
+  cmd === 'mcp';
+if (!isReadOnlyCommand && !existsSync(LAZYBRAIN_DIR)) {
   mkdirSync(LAZYBRAIN_DIR, { recursive: true });
 }
 
@@ -186,6 +190,9 @@ async function main() {
     case 'route':
       await cmdRoute();
       break;
+    case 'prompt':
+      await cmdPrompt();
+      break;
     case 'combos':
       cmdCombos();
       break;
@@ -245,6 +252,9 @@ async function main() {
       break;
     case 'embeddings':
       await cmdEmbeddings();
+      break;
+    case 'mcp':
+      await cmdMcp();
       break;
     case 'home':
       cmdHome(args.includes('--json'));
@@ -917,10 +927,40 @@ function parseRouteArgs(): { query: string; target: RouteTarget; asJson: boolean
   return { query: queryParts.join(' ').trim(), target, asJson };
 }
 
+function parsePromptArgs(): { query: string; target: RouteTarget; asJson: boolean; copy: boolean } {
+  let target: RouteTarget = 'generic';
+  const asJson = args.includes('--json');
+  const copy = args.includes('--copy');
+  const queryParts: string[] = [];
+
+  for (let i = 1; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--json' || arg === '--copy') continue;
+    if (arg === '--target') {
+      const value = args[i + 1];
+      if (!value || !isRouteTarget(value)) {
+        console.error('Usage: lazybrain prompt "<query>" --target claude|codex|cursor|generic');
+        process.exit(1);
+      }
+      target = value;
+      i++;
+      continue;
+    }
+    queryParts.push(arg);
+  }
+
+  return { query: queryParts.join(' ').trim(), target, asJson, copy };
+}
+
 async function cmdRoute() {
+  if (args[1] === 'stats') {
+    console.log(JSON.stringify(readRouteStats(), null, 2));
+    return;
+  }
+
   const { query, target, asJson } = parseRouteArgs();
   if (!query) {
-    console.error('Usage: lazybrain route "<query>" [--target generic|claude|codex|cursor] [--json]');
+    console.error('Usage: lazybrain route "<query>" [--target generic|claude|codex|cursor] [--json] | lazybrain route stats');
     process.exit(1);
   }
 
@@ -934,6 +974,7 @@ async function cmdRoute() {
   const history = loadRecentHistory(50);
   const profile = loadProfile() ?? undefined;
   const spec = await buildRouteSpec(query, { graph, config, history, profile, target });
+  recordRouteSpec(spec, 'cli');
 
   if (asJson) {
     console.log(JSON.stringify(spec, null, 2));
@@ -941,6 +982,70 @@ async function cmdRoute() {
   }
 
   console.log(formatRouteSpec(spec));
+}
+
+async function cmdPrompt() {
+  const { query, target, asJson, copy } = parsePromptArgs();
+  if (!query) {
+    console.error('Usage: lazybrain prompt "<query>" [--target claude|codex|cursor|generic] [--json] [--copy]');
+    process.exit(1);
+  }
+  if (!existsSync(GRAPH_PATH)) {
+    console.error('No graph found. Run `lazybrain scan && lazybrain compile` first.');
+    process.exit(1);
+  }
+
+  const graph = Graph.load(GRAPH_PATH);
+  const config = loadConfig();
+  const history = loadRecentHistory(50);
+  const profile = loadProfile() ?? undefined;
+  const spec = await buildRouteSpec(query, { graph, config, history, profile, target });
+  recordRouteSpec(spec, 'prompt');
+  const prompt = spec.adapters[target]?.prompt ?? spec.adapters.generic.prompt;
+
+  if (copy) {
+    try {
+      execFileSync('pbcopy', { input: prompt });
+    } catch {
+      console.error('Failed to copy prompt to clipboard.');
+      process.exit(1);
+    }
+  }
+
+  if (asJson) {
+    console.log(JSON.stringify({ target, prompt, route: spec, copied: copy }, null, 2));
+    return;
+  }
+  console.log(prompt);
+  if (copy) console.log('\nCopied to clipboard.');
+}
+
+async function cmdMcp() {
+  const sub = args[1];
+  if (sub === 'status') {
+    const graph = existsSync(GRAPH_PATH) ? Graph.load(GRAPH_PATH) : new Graph();
+    console.log(JSON.stringify({
+      status: graph.getNodeCount() > 0 ? 'READY' : 'NOT_READY',
+      graphNodes: graph.getNodeCount(),
+      transport: 'stdio',
+      tools: getMcpToolNames(),
+      writes: 'disabled for MCP tool calls',
+    }, null, 2));
+    return;
+  }
+
+  if (sub && sub !== '--stdio') {
+    console.error('Usage: lazybrain mcp [--stdio] | lazybrain mcp status');
+    process.exit(1);
+  }
+  if (!existsSync(GRAPH_PATH)) {
+    console.error('No graph found. Run `lazybrain scan && lazybrain compile` first.');
+    process.exit(1);
+  }
+  runMcpStdioServer({
+    graph: Graph.load(GRAPH_PATH),
+    config: loadConfig(),
+  });
 }
 
 function cmdCombos() {
@@ -1779,6 +1884,30 @@ function cmdHook() {
     }
     case 'status': {
       if (!existsSync(settingsPath)) {
+        if (args.includes('--json')) {
+          const config = loadConfig();
+          const runtime = getHookRuntimeSnapshot({ config });
+          const stats = getHookRuntimeStats(runtime);
+          console.log(JSON.stringify({
+            scope: commandScope,
+            settingsPath,
+            lazybrainUserPromptSubmit: false,
+            lazybrainStop: false,
+            lazybrainSessionStart: false,
+            runtime: {
+              activeRuns: runtime.activeRuns.length,
+              hungRuns: runtime.hungRuns.length,
+              staleRuns: runtime.staleRuns.length,
+              lastSkipReason: runtime.health.lastSkipReason,
+              lastDurationMs: runtime.health.lastDurationMs,
+              breakerUntil: runtime.health.breakerUntil,
+              avgDurationMs: stats.avgDurationMs,
+              p95DurationMs: stats.p95DurationMs,
+              breakerOpen: stats.breakerOpen,
+            },
+          }, null, 2));
+          return;
+        }
         console.log('No settings file found.');
         return;
       }
@@ -1798,6 +1927,33 @@ function cmdHook() {
       });
       const stopAudit = loadLatestStopHookAudit(process.cwd());
       const installState = status.installState;
+
+      if (args.includes('--json')) {
+        console.log(JSON.stringify({
+          scope: commandScope,
+          settingsPath,
+          lazybrainUserPromptSubmit: status.lazybrainUserPromptSubmit,
+          lazybrainStop: status.lazybrainStop,
+          lazybrainSessionStart: status.lazybrainSessionStart,
+          userPromptSubmitCommands: status.userPromptSubmitCommands,
+          stopCommands: status.stopCommands,
+          sessionStartCommands: status.sessionStartCommands,
+          installState,
+          runtime: {
+            activeRuns: status.runtime.activeRuns.length,
+            hungRuns: status.runtime.hungRuns.length,
+            staleRuns: status.runtime.staleRuns.length,
+            lastSkipReason: status.runtime.health.lastSkipReason,
+            lastDurationMs: status.runtime.health.lastDurationMs,
+            breakerUntil: status.runtime.health.breakerUntil,
+            avgDurationMs: status.avgDurationMs,
+            p95DurationMs: status.p95DurationMs,
+            breakerOpen: status.breakerOpen,
+          },
+          stopAudit,
+        }, null, 2));
+        break;
+      }
 
       console.log('LazyBrain hook 状态：');
       console.log(`  UserPromptSubmit: ${status.lazybrainUserPromptSubmit ? '✅ 已安装' : '❌ 未安装'}`);
@@ -2368,6 +2524,12 @@ Usage:
   lazybrain route "<query>" --json   Output stable RouteSpec JSON
   lazybrain route "<query>" --target generic|claude|codex|cursor
                                      Render target-specific advisory prompt
+  lazybrain route stats              Show privacy-preserving routing counters
+  lazybrain prompt "<query>" --target claude|codex|cursor
+                                     Print a copyable target-specific route prompt
+  lazybrain prompt "<query>" --copy  Copy the target prompt to clipboard
+  lazybrain mcp [--stdio]            Start read-only MCP stdio server
+  lazybrain mcp status               Show MCP readiness and tools
   lazybrain combos [category]        List built-in route combo templates
   lazybrain list [--category <c>]    List indexed capabilities
   lazybrain stats                    Show graph statistics

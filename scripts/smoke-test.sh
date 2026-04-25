@@ -8,7 +8,7 @@
 #   3. lazybrain scan && lazybrain compile --offline
 #   4. lazybrain ready && lazybrain hook plan
 #   5. lazybrain hook install → modifies project .claude/settings.json
-#   6. Send a test prompt via stdin to the hook → verify non-empty additionalSystemPrompt
+#   6. Send a test prompt via stdin to the hook → verify tiny route reminder
 #   7. Cleanup (rollback hook + remove temp dir)
 #
 # Usage: ./scripts/smoke-test.sh
@@ -194,7 +194,7 @@ EOF
 )
 
 log_info "  Sending prompt: $TEST_PROMPT"
-OUTPUT=$("$TEMP_DIR/dist/bin/hook.js" <<< "$HOOK_INPUT" 2>/dev/null || echo '{"continue":true,"additionalSystemPrompt":""}')
+OUTPUT=$("$TEMP_DIR/dist/bin/hook.js" <<< "$HOOK_INPUT" 2>/dev/null || echo '{"continue":true}')
 
 log_info "  Raw hook output: $OUTPUT"
 
@@ -205,28 +205,27 @@ if ! echo "$OUTPUT" | grep -q '"continue":true'; then
   exit 1
 fi
 
-# Verify additionalSystemPrompt is non-empty (hook matched something)
-ADDL_PROMPT=$(echo "$OUTPUT" | grep -o '"additionalSystemPrompt":"[^"]*"' || true)
+# Verify the tiny gate injected the short route reminder.
+ADDL_PROMPT=$(echo "$OUTPUT" | grep -o '"additionalContext":"[^"]*"' || true)
 if [[ -z "$ADDL_PROMPT" ]]; then
-  # Try alternate key format
-  ADDL_PROMPT=$(echo "$OUTPUT" | grep -o '"additionalSystemPrompt":[^,}]*' || true)
+  ADDL_PROMPT=$(echo "$OUTPUT" | grep -o '"additionalContext":[^,}]*' || true)
 fi
 
-if echo "$OUTPUT" | grep -qE '"additionalSystemPrompt":\s*""'; then
-  log_error "additionalSystemPrompt is empty — hook did not inject context"
+if [[ -z "$ADDL_PROMPT" ]] || ! echo "$OUTPUT" | grep -q 'Consider calling lazybrain.route'; then
+  log_error "Hook did not inject the tiny route reminder"
   exit 1
 fi
 
-log_pass "Hook returned non-empty additionalSystemPrompt"
+log_pass "Hook returned tiny route reminder"
 echo
 
-# Step 13: Test SessionStart hook
-log_info "Step 13: Test SessionStart hook"
+# Step 13: Test non-UserPromptSubmit events fail closed
+log_info "Step 13: Test non-UserPromptSubmit hook event"
 SESSION_OUTPUT=$("$TEMP_DIR/dist/bin/hook.js" <<< '{"session_id":"smoke-test","hook_event_name":"SessionStart","cwd":"'"$TEMP_DIR"'"}' 2>/dev/null || echo '{"continue":true}')
 if ! echo "$SESSION_OUTPUT" | grep -q '"continue":true'; then
-  log_warn "SessionStart hook did not return continue:true (may still be ok)"
+  log_warn "Non-UserPromptSubmit hook did not return continue:true (may still be ok)"
 else
-  log_pass "SessionStart hook responded correctly"
+  log_pass "Non-UserPromptSubmit hook fails closed"
 fi
 echo
 
@@ -255,8 +254,8 @@ log_info "  • lazybrain ready: OK"
 log_info "  • hook plan:       OK"
 log_info "  • hook install:    OK"
 log_info "  • project settings: Modified correctly"
-log_info "  • UserPromptSubmit: Returns non-empty additionalSystemPrompt"
-log_info "  • SessionStart:     OK"
+log_info "  • UserPromptSubmit: Tiny route reminder"
+log_info "  • Other hook events: Fail closed"
 log_info "  • hook rollback:    OK"
 log_info ""
 log_info "Cleanup: EXIT trap will remove temp dir"
