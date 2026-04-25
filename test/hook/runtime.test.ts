@@ -16,7 +16,7 @@ describe('hook runtime safety', () => {
     vi.resetModules();
   });
 
-  async function loadRuntimeModule(scope: 'project' | 'global' = 'global', workspaceRoot = '/repo/lazy_user', missingInstallState = false) {
+  async function loadRuntimeModule(scope: 'project' | 'global' = 'global', workspaceRoot = '/repo/lazybrain', missingInstallState = false) {
     vi.doMock('../../src/constants.js', async () => {
       const actual = await vi.importActual<any>('../../src/constants.js');
       return {
@@ -44,7 +44,7 @@ describe('hook runtime safety', () => {
   }
 
   it('skips execution outside project scope', async () => {
-    const runtime = await loadRuntimeModule('project', '/repo/lazy_user');
+    const runtime = await loadRuntimeModule('project', '/repo/lazybrain');
     const result = runtime.beginHookRun({
       cwd: '/repo/other',
       hookEventName: 'UserPromptSubmit',
@@ -55,9 +55,9 @@ describe('hook runtime safety', () => {
   });
 
   it('fails closed when install metadata is missing', async () => {
-    const runtime = await loadRuntimeModule('project', '/repo/lazy_user', true);
+    const runtime = await loadRuntimeModule('project', '/repo/lazybrain', true);
     const result = runtime.beginHookRun({
-      cwd: '/repo/lazy_user',
+      cwd: '/repo/lazybrain',
       hookEventName: 'UserPromptSubmit',
       prompt: 'hello',
     }, { now: 1000 });
@@ -68,7 +68,7 @@ describe('hook runtime safety', () => {
   it('registers and finishes active runs', async () => {
     const runtime = await loadRuntimeModule();
     const begin = runtime.beginHookRun({
-      cwd: '/repo/lazy_user',
+      cwd: '/repo/lazybrain',
       hookEventName: 'UserPromptSubmit',
       sessionId: 's1',
       prompt: 'hello',
@@ -94,7 +94,7 @@ describe('hook runtime safety', () => {
     }), 'utf-8');
 
     const result = runtime.beginHookRun({
-      cwd: '/repo/lazy_user',
+      cwd: '/repo/lazybrain',
       hookEventName: 'UserPromptSubmit',
       prompt: 'hello',
     }, { now: 2000, loadAverage1m: 0 });
@@ -107,7 +107,7 @@ describe('hook runtime safety', () => {
   it('retains hung live runs instead of deleting them as stale', async () => {
     const runtime = await loadRuntimeModule();
     const begin = runtime.beginHookRun({
-      cwd: '/repo/lazy_user',
+      cwd: '/repo/lazybrain',
       hookEventName: 'UserPromptSubmit',
       prompt: 'long task',
     }, {

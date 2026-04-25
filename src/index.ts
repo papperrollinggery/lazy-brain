@@ -17,9 +17,18 @@ export type {
   Platform,
   RawCapability,
   Recommendation,
+  RouteAdapterPayload,
+  RouteMode,
+  RouteSkillRef,
+  RouteSpec,
+  RouteTarget,
   SecretaryResponse,
   SecretaryTask,
+  SkillSchema,
   TaskChain,
+  VerificationRequirement,
+  WorkflowStep,
+  GuardrailRule,
   ToolAffinity,
   UserConfig,
   UserProfile,
@@ -27,6 +36,11 @@ export type {
 
 export type { LabCase, LabMode } from './lab/fixtures.js';
 export type { AgentInventoryEntry, AgentScope } from './lab/agent-inventory.js';
+export type { ApiTestReport, ApiTestResult, ApiTestTarget } from './health/api-test.js';
+export type { EmbeddingCacheState, EmbeddingCacheStatus } from './embeddings/cache.js';
+export type { EmbeddingRebuildResult } from './embeddings/rebuild.js';
+export { buildRouteSpec, formatRouteSpec } from './orchestrator/route.js';
+export { COMBOS, findCombo, listCombos } from './combos/registry.js';
 export type {
   AgentMapping,
   LabEvaluation,

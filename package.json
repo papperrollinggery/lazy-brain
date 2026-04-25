@@ -1,6 +1,6 @@
 {
   "name": "lazybrain",
-  "version": "1.2.0",
+  "version": "1.4.0",
   "description": "Semantic skill router for AI coding agents — your second brain for capabilities",
   "type": "module",
   "bin": {
@@ -27,6 +27,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "tsc --noEmit",
+    "audit:public": "node scripts/audit-public.js",
     "prepublishOnly": "npm run build"
   },
   "keywords": [

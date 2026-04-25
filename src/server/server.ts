@@ -13,6 +13,7 @@ import { Graph } from '../graph/graph.js';
 import { loadConfig } from '../config/config.js';
 import { GRAPH_PATH, LAZYBRAIN_DIR } from '../constants.js';
 import { createRouter } from './router.js';
+import { getPackageVersion } from '../version.js';
 
 export const DEFAULT_PORT = 18450;
 export const SERVER_RUNNING_FLAG = join(LAZYBRAIN_DIR, '.server-running');
@@ -31,7 +32,7 @@ export function createServer(port: number = DEFAULT_PORT): ServerInstance {
   const router = createRouter({
     getGraph: () => graph,
     config,
-    version: '0.1.0',
+    version: getPackageVersion(),
     onReload: () => {
       graph = Graph.load(GRAPH_PATH);
     },

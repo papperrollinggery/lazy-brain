@@ -14,20 +14,60 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node.js 18
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Node 18 install, build, test, lint
+        run: |
+          npm ci
+          npm run build
+          npm test
+          npm run lint
+
+      - name: Setup Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Node 20 install, build, test, lint, audit
+        run: |
+          npm ci
+          npm run build
+          npm test
+          npm run lint
+          npm run audit:public
+          npm pack --dry-run --json
 
-      - name: Build
-        run: npm run build
+      - name: Lab and API smoke
+        run: |
+          node dist/bin/lazybrain.js --version
+          node dist/bin/lazybrain.js embeddings status
+          node dist/bin/lazybrain.js api test --json
+          node dist/bin/lazybrain.js server --port 18450 > /tmp/lazybrain-server.log 2>&1 &
+          pid=$!
+          for i in 1 2 3 4 5; do
+            curl -fsS http://127.0.0.1:18450/api/health && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:18450/ >/dev/null
+          curl -fsS http://127.0.0.1:18450/lab >/dev/null
+          curl -fsS http://127.0.0.1:18450/api/status >/dev/null
+          curl -fsS http://127.0.0.1:18450/api/lab/fixtures >/dev/null
+          kill "$pid"
 
-      - name: Run tests
-        run: npm test
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
 
-      - name: Type check
-        run: npm run lint
+      - name: Node 22 install, build, test, lint
+        run: |
+          npm ci
+          npm run build
+          npm test
+          npm run lint

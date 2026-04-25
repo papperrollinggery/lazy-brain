@@ -224,6 +224,7 @@ export async function compile(
           triggers: raw.triggers,
           meta: raw.meta,
           tier: raw.tier,
+          schema: raw.schema,
         });
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
@@ -246,6 +247,8 @@ export async function compile(
           exampleQueries: [],
           category: 'other',
           meta: raw.meta,
+          tier: raw.tier,
+          schema: raw.schema,
         });
       }
 

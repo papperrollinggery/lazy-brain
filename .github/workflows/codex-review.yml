@@ -1,0 +1,60 @@
+name: Codex Review
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  codex-review:
+    name: Optional Codex Review
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build review prompt
+        run: |
+          mkdir -p codex-review
+          git diff --no-ext-diff --unified=80 origin/${{ github.base_ref }}...HEAD > codex-review/pr.diff
+          cat > codex-review/prompt.md <<'PROMPT'
+          Review this PR for LazyBrain.
+
+          Return:
+          - findings: file, line, severity, issue, fix
+          - risk: low/medium/high
+          - verdict: pass/fail/needs_changes
+          - confidence: 0..1
+
+          Focus on:
+          - hook safety and non-destructive behavior
+          - privacy leaks, private paths, keys, transcripts, internal workflow docs
+          - version/package consistency
+          - API calls only when explicitly requested
+          - GUI routes staying read-only unless a user confirms an action
+          PROMPT
+
+      - name: Run Codex review when configured
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "OPENAI_API_KEY is not configured. Optional Codex review skipped." > codex-review/result.md
+            exit 0
+          fi
+          {
+            echo "Codex review input prepared."
+            echo "Run the prompt in codex-review/prompt.md against codex-review/pr.diff."
+            echo "This optional workflow is advisory and does not block PRs."
+          } > codex-review/result.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codex-review
+          path: codex-review/

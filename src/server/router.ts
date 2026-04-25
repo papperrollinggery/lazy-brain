@@ -6,11 +6,11 @@
  */
 
 import type * as http from 'node:http';
-import { readdirSync, existsSync } from 'node:fs';
+import { readdirSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import type { Graph } from '../graph/graph.js';
-import type { UserConfig } from '../types.js';
+import type { Platform, RouteTarget, UserConfig } from '../types.js';
 import { buildGraphView, formatGraphMermaid } from '../graph/graph-view.js';
 import { match } from '../matcher/matcher.js';
 import { recommendTeam } from '../matcher/team-recommender.js';
@@ -21,6 +21,13 @@ import { LAB_HTML } from '../lab/html.js';
 import { LAB_FIXTURES, type LabCase } from '../lab/fixtures.js';
 import { evaluateLab } from '../lab/evaluator.js';
 import { scanAgentInventory } from '../lab/agent-inventory.js';
+import { UI_HTML } from '../ui/html.js';
+import { buildStatusReport } from './status.js';
+import { runApiTests, type ApiTestTarget } from '../health/api-test.js';
+import { getEmbeddingCacheStatus } from '../embeddings/cache.js';
+import { rebuildEmbeddingCache } from '../embeddings/rebuild.js';
+import { EMBEDDINGS_INDEX_PATH } from '../constants.js';
+import { buildRouteSpec, isRouteTarget } from '../orchestrator/route.js';
 
 // ─── Rate Limiter ────────────────────────────────────────────────────────────
 
@@ -88,6 +95,32 @@ async function handleMatch(
     return err(res, 400, 'Missing required field: query');
   }
   const result = await match(body.query, { graph, config });
+  json(res, 200, result);
+}
+
+async function handleRoute(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  graph: Graph,
+  config: UserConfig,
+): Promise<void> {
+  let body: { query?: string; target?: RouteTarget };
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch {
+    return err(res, 400, 'Invalid JSON body');
+  }
+  if (!body.query || typeof body.query !== 'string') {
+    return err(res, 400, 'Missing required field: query');
+  }
+  if (body.target !== undefined && (typeof body.target !== 'string' || !isRouteTarget(body.target))) {
+    return err(res, 400, 'Invalid target. Use generic, claude, codex, or cursor.');
+  }
+  const result = await buildRouteSpec(body.query, {
+    graph,
+    config,
+    target: body.target ?? 'generic',
+  });
   json(res, 200, result);
 }
 
@@ -179,13 +212,51 @@ function handleSearch(
 ): void {
   const url = new URL(req.url ?? '/', 'http://localhost');
   const q = url.searchParams.get('q') ?? '';
-  if (!q) return json(res, 200, []);
+  const kind = url.searchParams.get('kind') ?? '';
+  const platform = url.searchParams.get('platform') ?? '';
+  const category = url.searchParams.get('category') ?? '';
+  const origin = url.searchParams.get('origin') ?? '';
+  const status = url.searchParams.get('status') ?? '';
+  const semanticMissing = url.searchParams.get('semanticMissing') === 'true';
+  const duplicatesOnly = url.searchParams.get('duplicatesOnly') === 'true';
+  const hasFilter = Boolean(kind || platform || category || origin || status || semanticMissing || duplicatesOnly);
+  if (!q && !hasFilter) return json(res, 200, []);
+
+  let embeddedIds = new Set<string>();
+  if (existsSync(EMBEDDINGS_INDEX_PATH)) {
+    try {
+      const raw = JSON.parse(readFileSync(EMBEDDINGS_INDEX_PATH, 'utf-8')) as unknown;
+      if (Array.isArray(raw)) embeddedIds = new Set(raw.filter((id): id is string => typeof id === 'string'));
+    } catch {}
+  }
+
+  let duplicateIds = new Set<string>();
+  if (duplicatesOnly) {
+    const pairs = detectDuplicates(graph);
+    duplicateIds = new Set(pairs.flatMap(pair => [pair.a.id, pair.b.id]));
+  }
+
   const lower = q.toLowerCase();
-  const results = graph.getAllNodes().filter(n =>
-    n.name.toLowerCase().includes(lower) ||
-    n.tags.some(t => t.toLowerCase().includes(lower)) ||
-    n.description.toLowerCase().includes(lower),
-  ).slice(0, 20);
+  const limitRaw = parseInt(url.searchParams.get('limit') ?? '100', 10);
+  const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 500) : 100;
+  const results = graph.getAllNodes().filter((n) => {
+    if (q && !(
+      n.name.toLowerCase().includes(lower) ||
+      n.tags.some(t => t.toLowerCase().includes(lower)) ||
+      n.description.toLowerCase().includes(lower)
+    )) return false;
+    if (kind && n.kind !== kind) return false;
+    if (category && n.category !== category) return false;
+    if (origin && n.origin !== origin) return false;
+    if (status && n.status !== status) return false;
+    if (platform && !n.compatibility.includes(platform as Platform)) return false;
+    if (semanticMissing && embeddedIds.has(n.id)) return false;
+    if (duplicatesOnly && !duplicateIds.has(n.id)) return false;
+    return true;
+  }).slice(0, limit).map(node => ({
+    ...node,
+    embeddingCovered: embeddedIds.has(node.id),
+  }));
   json(res, 200, results);
 }
 
@@ -196,6 +267,68 @@ function handleHealth(
   version: string,
 ): void {
   json(res, 200, { ok: true, version, graphSize: graph.getAllNodes().length });
+}
+
+function handleUiPage(
+  _req: http.IncomingMessage,
+  res: http.ServerResponse,
+): void {
+  html(res, 200, UI_HTML);
+}
+
+function handleStatus(
+  _req: http.IncomingMessage,
+  res: http.ServerResponse,
+  graph: Graph,
+  config: UserConfig,
+): void {
+  json(res, 200, buildStatusReport(graph, config));
+}
+
+async function handleApiTest(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  config: UserConfig,
+): Promise<void> {
+  let body: { targets?: ApiTestTarget[] } = {};
+  try {
+    const raw = await readBody(req);
+    body = raw.trim() ? JSON.parse(raw) as { targets?: ApiTestTarget[] } : {};
+  } catch {
+    return err(res, 400, 'Invalid JSON body');
+  }
+  const allowed = new Set<ApiTestTarget>(['compile', 'secretary', 'embedding']);
+  const targets = Array.isArray(body.targets)
+    ? body.targets.filter((target): target is ApiTestTarget => allowed.has(target))
+    : undefined;
+  json(res, 200, await runApiTests(config, targets));
+}
+
+function handleEmbeddingStatus(
+  _req: http.IncomingMessage,
+  res: http.ServerResponse,
+  graph: Graph,
+): void {
+  json(res, 200, getEmbeddingCacheStatus(graph.getAllNodes()));
+}
+
+async function handleEmbeddingRebuild(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  graph: Graph,
+  config: UserConfig,
+): Promise<void> {
+  let body: { confirm?: string };
+  try {
+    body = JSON.parse(await readBody(req)) as { confirm?: string };
+  } catch {
+    return err(res, 400, 'Invalid JSON body');
+  }
+  if (body.confirm !== 'rebuild') {
+    return err(res, 400, 'Embedding rebuild requires {"confirm":"rebuild"}.');
+  }
+  const result = await rebuildEmbeddingCache(graph.getAllNodes(), config);
+  json(res, result.ok ? 200 : 500, result);
 }
 
 function handleLabPage(
@@ -336,20 +469,26 @@ export function createRouter(opts: RouterOptions): http.RequestListener {
     const pathname = rawUrl.split('?')[0];
     const graph = opts.getGraph();
 
+    if (method === 'GET' && (pathname === '/' || pathname === '/ui')) {
+      return handleUiPage(req, res);
+    }
     // POST /match
-    if (method === 'POST' && pathname === '/match') {
+    if (method === 'POST' && (pathname === '/match' || pathname === '/api/match')) {
       return handleMatch(req, res, graph, opts.config);
     }
+    if (method === 'POST' && (pathname === '/route' || pathname === '/api/route')) {
+      return handleRoute(req, res, graph, opts.config);
+    }
     // POST /team
-    if (method === 'POST' && pathname === '/team') {
+    if (method === 'POST' && (pathname === '/team' || pathname === '/api/team')) {
       return handleTeam(req, res, graph);
     }
     // GET /stats
-    if (method === 'GET' && pathname === '/stats') {
+    if (method === 'GET' && (pathname === '/stats' || pathname === '/api/stats')) {
       return handleStats(req, res, graph);
     }
     // GET /graph
-    if (method === 'GET' && pathname === '/graph') {
+    if (method === 'GET' && (pathname === '/graph' || pathname === '/api/graph')) {
       return handleGraphView(req, res, graph);
     }
     // GET /dups
@@ -362,23 +501,35 @@ export function createRouter(opts: RouterOptions): http.RequestListener {
       return handleCapability(req, res, graph, decodeURIComponent(capMatch[1]));
     }
     // GET /search?q=xxx
-    if (method === 'GET' && pathname === '/search') {
+    if (method === 'GET' && (pathname === '/search' || pathname === '/api/search')) {
       return handleSearch(req, res, graph);
     }
     // GET /health
-    if (method === 'GET' && pathname === '/health') {
+    if (method === 'GET' && (pathname === '/health' || pathname === '/api/health')) {
       return handleHealth(req, res, graph, opts.version);
+    }
+    if (method === 'GET' && pathname === '/api/status') {
+      return handleStatus(req, res, graph, opts.config);
+    }
+    if (method === 'POST' && pathname === '/api/test') {
+      return handleApiTest(req, res, opts.config);
+    }
+    if (method === 'GET' && pathname === '/api/embeddings/status') {
+      return handleEmbeddingStatus(req, res, graph);
+    }
+    if (method === 'POST' && pathname === '/api/embeddings/rebuild') {
+      return handleEmbeddingRebuild(req, res, graph, opts.config);
     }
     if (method === 'GET' && pathname === '/lab') {
       return handleLabPage(req, res);
     }
-    if (method === 'GET' && pathname === '/lab/fixtures') {
+    if (method === 'GET' && (pathname === '/lab/fixtures' || pathname === '/api/lab/fixtures')) {
       return handleLabFixtures(req, res);
     }
-    if (method === 'GET' && pathname === '/lab/agents') {
+    if (method === 'GET' && (pathname === '/lab/agents' || pathname === '/api/lab/agents')) {
       return handleLabAgents(req, res);
     }
-    if (method === 'POST' && pathname === '/lab/evaluate') {
+    if (method === 'POST' && (pathname === '/lab/evaluate' || pathname === '/api/lab/evaluate')) {
       return handleLabEvaluate(req, res, graph, opts.config);
     }
     // POST /reload

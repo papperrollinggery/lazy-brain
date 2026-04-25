@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v1.4.0] - 2026-04-25
+
+### Added
+- Advisory Route Plan orchestrator via `lazybrain route "<query>"`, `--json`, and `--target generic|claude|codex|cursor`.
+- Stable `RouteSpec` output with intent, scenario, skills, workflow, context needed, guardrails, verification, done conditions, adapter prompts, warnings, and clarification questions.
+- Optional SKILL.md frontmatter schema fields: `useWhen`, `avoidWhen`, `inputs`, `workflow`, `verification`, `doneWhen`, `contextNeeded`, and `guardrails`.
+- Built-in combo templates for frontend pages, redesigns, CEO dashboards, public install docs, regression review, stuck-runtime debugging, and public release audit.
+- `lazybrain combos [category]` for read-only combo discovery.
+- Verification catalog for UI screenshots, dashboard operating questions, docs readability, code checks, hook dry-run, rollback, privacy scan, and package dry-run.
+- `POST /api/route` and GUI Try Router Route Plan display.
+
+### Changed
+- Route planning stays outside the matcher; `match()` remains retrieval-only while the orchestrator builds execution guidance.
+- README and README_CN now document RouteSpec, combo templates, advisory-only behavior, and schema metadata.
+
+### Security
+- Route planning does not execute skills, install hooks, read transcripts, return agent bodies, or write Claude/Codex/Cursor configuration.
+
+## [v1.3.0] - 2026-04-25
+
+### Added
+- Local Web GUI via `lazybrain ui`, with Overview, Try Router, Skill DB, Hook Safety, Lab, Health, Troubleshooting, and Settings pages.
+- Read-only GUI/status APIs: `/`, `/ui`, `/api/status`, `/api/health`, `/api/stats`, `/api/search`, `/api/embeddings/status`, and Lab API aliases.
+- Explicit action APIs for `POST /api/test` and `POST /api/embeddings/rebuild` with confirmation gates.
+- CLI status homepage as the default `lazybrain` output.
+- `lazybrain api test` for compile LLM, secretary LLM, and embedding checks without printing keys.
+- `lazybrain embeddings status` and `lazybrain embeddings rebuild --yes` with temp-file atomic cache writes.
+- Public audit gate through `npm run audit:public`, PR template, optional Codex review guide, and GitHub release workflow.
+
+### Changed
+- `lazybrain --version`, `/health`, `/api/health`, package metadata, and changelog now share one package-version source.
+- CI keeps a stable required `Test` check while covering Node 18, 20, and 22, package dry-run, public privacy scan, hook tests, and Lab/server smoke.
+- README and README_CN now document GUI usage, API testing, embedding cache rebuild, release gates, and bug recovery.
+
+### Security
+- Public audit blocks private paths, local planning docs, personal email markers, token-like secrets, private runtime directory markers, and internal workspace-name leaks.
+- Root `AGENTS.md` is no longer tracked in the public repository.
+- GUI v1 does not install hooks, read Claude transcripts, return agent body text, or write `.claude/settings.json`.
+
 ## [v1.2.0] - 2026-04-25
 
 ### Added

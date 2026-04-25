@@ -20,9 +20,9 @@
 
 ## Current Release
 
-Current version: **v1.2.0**
+Current version: **v1.4.0**
 
-Release position: **public-safe beta**. This version is intended for trusted local evaluation, non-install recommendation testing, and project-scoped Claude Code hook installation. The hook safety path is mature enough for public beta use; recommendation quality, semantic cache coverage, and automatic alias promotion are still improving.
+Release position: **public-safe beta with advisory route planning**. This version is intended for trusted local evaluation, non-install recommendation testing, route-plan orchestration, project-scoped Claude Code hook installation, and single-maintainer release review. Hook safety and rollback are usable for public beta; automatic execution, cross-CLI sync, semantic coverage, and automatic alias promotion are still improving.
 
 ## Overview
 
@@ -60,7 +60,7 @@ LazyBrain addresses that by turning a loose toolbelt into a structured capabilit
 ```
 You type: "帮我审查这个 PR"
 LazyBrain: → /review-pr (92%) | /critic (78%) | /santa-loop (71%)
-           ✅ Auto-injected /review-pr into system prompt
+           → Route Plan: use code review + regression checks + test evidence
 ```
 
 ## Core Properties
@@ -101,8 +101,8 @@ Default flow for public users:
 lazybrain scan
 lazybrain compile --offline
 lazybrain ready
-lazybrain server --daemon
-open http://127.0.0.1:18450/lab
+lazybrain ui
+lazybrain route "review this PR"
 lazybrain hook plan
 lazybrain hook install
 ```
@@ -115,6 +115,8 @@ Safety defaults:
 - global install requires `lazybrain hook install --global --yes`
 - LazyBrain does not use `Stop` as a product lifecycle
 - third-party hooks and HUD/statusline entries are preserved by default
+- GUI v1 does not install hooks directly; it shows status, previews, and CLI fallback commands
+- `lazybrain route` is advisory only; it does not execute skills or write target CLI config
 
 ## What Counts as a Skill / Agent / Capability
 
@@ -128,6 +130,7 @@ LazyBrain treats the local AI tool surface as **capabilities**. A capability can
 For skills, LazyBrain reads:
 
 - `name`, `description`, `trigger`, `triggers`, and `origin` from frontmatter when present
+- optional route schema fields: `useWhen`, `avoidWhen`, `inputs`, `workflow`, `verification`, `doneWhen`, `contextNeeded`, and `guardrails`
 - the first useful body paragraph as a fallback description
 - the parent directory name as a fallback skill name
 
@@ -151,6 +154,12 @@ description: Review code for correctness, regressions, maintainability, and miss
 triggers:
   - review code
   - 审查代码
+useWhen: ["review code changes", "check regression risk"]
+workflow: [{"title":"Inspect changed files"},{"title":"Prioritize behavioral findings"}]
+verification: [{"title":"Run tests","command":"npm test"}]
+doneWhen: ["Findings are grounded in file evidence or tests pass"]
+contextNeeded: ["diff or branch", "expected behavior"]
+guardrails: [{"title":"Lead with bugs and regressions","strength":"strict"}]
 ---
 
 Use this skill when the user asks for a focused engineering review.
@@ -205,6 +214,8 @@ When you type a prompt, LazyBrain uses the currently implemented routing layers 
 |------|------------------|-------|
 | Offline routing | Manual alias + tag/CJK bridge | Works without API keys |
 | Semantic / hybrid | Uses embedding cache when configured | Falls back with warnings when cache is missing |
+| Route plan | `lazybrain route` returns advisory `RouteSpec` | No automatic execution or target CLI config writes |
+| Combo templates | Built-in high-frequency orchestration templates | `lazybrain combos [category]` is read-only |
 | Hook install | Project scope by default, dry-run plan, backup, rollback | Global install requires `--global --yes` |
 | Lab | Built-in fixtures, local agent metadata, team gate, token strategy, hook readiness | Does not read Claude transcripts or install hooks |
 | Team guidance | Advisory model split, runtime adapters, subagent prompts | Main model or user keeps final decision |
@@ -298,8 +309,10 @@ lazybrain compile --offline           # Build tag-layer graph without API key
 lazybrain ready                       # Check graph, hook, HUD, and semantic readiness
 
 # Non-install visual check / 非安装式可视化检查
-lazybrain server --daemon
-open http://127.0.0.1:18450/lab
+lazybrain ui                          # Opens http://127.0.0.1:18450/
+lazybrain route "review this PR"      # Advisory execution plan, no writes
+# lazybrain ui --no-open
+# open http://127.0.0.1:18450/lab
 
 # Install only after reviewing the plan / 审查预演后再安装
 lazybrain hook plan                   # Preview settings changes, no writes
@@ -327,15 +340,17 @@ lazybrain --version                  # Confirm the installed version
 lazybrain scan                       # Refresh local capabilities
 lazybrain compile --offline          # Build graph without an API key
 lazybrain match "review this PR"     # Test recommendation quality in terminal
+lazybrain route "review this PR"     # Build advisory RouteSpec plan
 lazybrain ready                      # Check graph, hook, HUD, and semantic readiness
-lazybrain server --daemon            # Open the local Lab
+lazybrain ui                         # Open the local GUI
 lazybrain hook plan                  # Preview hook changes
 lazybrain hook install               # Install project-scoped hook
 ```
 
-Use Lab before hook install when you want a visual check:
+Use the GUI before hook install when you want a visual check:
 
 ```bash
+lazybrain ui
 open http://127.0.0.1:18450/lab
 ```
 
@@ -359,6 +374,9 @@ lazybrain config set embeddingApiBase https://api.siliconflow.cn/v1
 lazybrain config set embeddingApiKey  <your-key>
 lazybrain config set embeddingModel   BAAI/bge-m3
 lazybrain config set engine           hybrid
+lazybrain api test                    # Explicit external API check
+lazybrain embeddings status           # Read-only cache coverage check
+lazybrain embeddings rebuild --yes    # Writes ~/.lazybrain/graph.embeddings.*
 
 # Optional / 可选：Secretary LLM（可回退到 compile key）
 lazybrain config set secretaryApiKey  <your-key>
@@ -380,7 +398,13 @@ Config file / 配置文件：`~/.lazybrain/config.json`
 ```bash
 lazybrain match "重构这段代码"       # Find matching tools
 lazybrain find  "代码审查"           # Alias for match
+lazybrain route "把后台改成 CEO dashboard"
+lazybrain route "review this PR" --target codex
+lazybrain route "review this PR" --json
+lazybrain combos frontend
 ```
+
+`lazybrain route` upgrades raw matches into an advisory `RouteSpec`: scenario, skills, context needed, workflow, guardrails, verification, done conditions, and a target-specific prompt style for `generic`, `claude`, `codex`, or `cursor`. It is read-only. It does not execute skills, install hooks, or write Claude/Codex/Cursor configuration.
 
 ### Management / 管理
 
@@ -392,8 +416,30 @@ lazybrain compile --offline          # Compile without LLM (tag-based only)
 lazybrain list                       # List all tools
 lazybrain stats                      # Graph statistics
 lazybrain ready                      # Check graph, hook, HUD, and semantic readiness
-lazybrain server --daemon            # Start local API and Lab UI
+lazybrain ui                         # Start local Web GUI
+lazybrain server --daemon            # Start local API server directly
 ```
+
+### Local Web GUI / 本地 GUI
+
+```bash
+lazybrain ui
+lazybrain ui --no-open
+lazybrain ui --port 18451
+lazybrain ui status
+lazybrain ui stop
+```
+
+GUI entrypoints:
+
+- `GET /` and `GET /ui` — local status GUI
+- `GET /lab` — non-install recommendation Lab
+- `GET /api/status` — readiness, graph, routing, hook, API, embedding, agent, and server status
+- `POST /api/route` — advisory route plan; no execution and no target CLI config writes
+- `POST /api/test` — explicit API test only after user action
+- `POST /api/embeddings/rebuild` — requires `{ "confirm": "rebuild" }`
+
+GUI v1 is status-first: it does not read Claude transcripts, return agent body text, install hooks, or write `.claude/settings.json`.
 
 ### Lab / Non-install visual testing
 
@@ -482,14 +528,15 @@ Rollback restores only files that were captured by LazyBrain backups. It does no
 | Symptom | Check | Fix |
 |---------|-------|-----|
 | `lazybrain ready` says graph is missing | `~/.lazybrain/graph.json` does not exist | Run `lazybrain scan && lazybrain compile --offline` |
-| Lab page does not open | Server is not running or port is different | Run `lazybrain server --daemon`, then open `http://127.0.0.1:18450/lab` |
+| GUI or Lab page does not open | Server is not running or port is different | Run `lazybrain ui`, or `lazybrain ui --port 18451` |
 | Lab shows no agents | No readable agent metadata found | Add project agents under `.claude/agents/` or user agents under `~/.claude/agents/`, then refresh Lab |
 | `hook plan` reports `needs_attention` because of LazyBrain in `Stop` | Older LazyBrain hook registration remains | Review the plan; `lazybrain hook install` will clean LazyBrain-owned `Stop` entries |
 | `hook install --global` fails | Global install requires explicit confirmation | Use `lazybrain hook install --global --yes` only if you want every Claude project affected |
 | Hook is installed but no recommendation appears | Workspace guard, missing graph, or low-confidence match | Run `lazybrain ready`, `lazybrain hook status`, and test with `lazybrain match "<same query>"` |
 | Hook seems stuck or returns no output after a long run | Runtime breaker or stale record may be active | Run `lazybrain hook ps`, then `lazybrain hook clean`, then `lazybrain ready` |
 | Third-party HUD/statusline is present | LazyBrain skips it by default | Use `lazybrain hook install --statusline` to combine, or `--replace-statusline` only when you intentionally want replacement |
-| semantic/hybrid does not improve matches | Embedding config or cache is missing | Configure embedding settings, rebuild the graph, or keep using offline tag-layer routing |
+| `lazybrain api test` reports 401 | API key is invalid or not accepted by the configured base/model | Reset the key with `lazybrain config set ...ApiKey <key>` and rerun `lazybrain api test` |
+| semantic/hybrid does not improve matches | Embedding config or cache is missing/stale/dimension-mismatched | Run `lazybrain embeddings status`; rebuild with `lazybrain embeddings rebuild --yes` after config is correct |
 | A skill is missing from results | The skill path or metadata is incomplete | Ensure the skill has `SKILL.md` with `name` or `description`, then run `lazybrain scan` |
 
 Safe recovery commands:
@@ -501,6 +548,8 @@ lazybrain hook ps
 lazybrain hook clean
 lazybrain hook rollback
 lazybrain doctor
+lazybrain api test
+lazybrain embeddings status
 ```
 
 `doctor --fix` only repairs LazyBrain-owned state in the current scope. `doctor --all --fix` is intentionally disabled.
@@ -523,6 +572,25 @@ The smoke test verifies / 这个测试会验证：
 - `lazybrain hook rollback` restores the latest LazyBrain backup
 
 See [`scripts/smoke-test.sh`](scripts/smoke-test.sh) for the full test implementation.
+
+### Release and Review Gate
+
+Required before release PRs:
+
+```bash
+npm ci
+npm run build
+npm test
+npm run lint
+npm run audit:public
+npm pack --dry-run --json
+```
+
+The stable required GitHub check is `Test`. It runs Node 18/20/22, package dry-run, public privacy scan, version consistency checks, hook-focused tests, and Lab/server smoke.
+
+Public package contents are limited to `dist`, `README.md`, `README_CN.md`, `CHANGELOG.md`, `LICENSE`, and package metadata. npm publishing is handled by the GitHub Release workflow.
+
+Optional Codex review instructions are in [`docs/REVIEW.md`](docs/REVIEW.md).
 
 #### SessionStart Dashboard / 启动回顾
 
@@ -561,7 +629,7 @@ The startup recap only reads lightweight local LazyBrain data such as recent rec
 ### Config
 
 ```bash
-lazybrain config list                # Show current config
+lazybrain config show                # Show current redacted config
 lazybrain config set <key> <val>     # Set config value
 ```
 

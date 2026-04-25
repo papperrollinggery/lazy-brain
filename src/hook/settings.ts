@@ -21,7 +21,7 @@ function nestedHooks(entry: HookEntry): HookCommand[] {
 export function isLazyBrainHookCommand(command: unknown): boolean {
   if (typeof command !== 'string') return false;
   const normalized = command.replace(/\\/g, '/');
-  return /(?:lazy[-_]?brain|lazy_user).*\/(?:dist\/)?bin\/hook\.js\b/.test(normalized);
+  return /lazy[-_]?brain.*\/(?:dist\/)?bin\/hook\.js\b/.test(normalized);
 }
 
 function stripLazyBrainEntries(entries: HookEntry[]): HookEntry[] {

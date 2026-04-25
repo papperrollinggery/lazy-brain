@@ -117,7 +117,7 @@ export function isLazyBrainStatuslineCommand(command: unknown, statuslineScript?
   const combined = combinedStatuslineScript?.replace(/\\/g, '/');
   return Boolean(statusline && normalized.includes(statusline)) ||
     Boolean(combined && normalized.includes(combined)) ||
-    /(?:lazy[-_]?brain|lazy_user).*\/(?:dist\/)?bin\/statusline(?:-combined)?\.js\b/.test(normalized);
+    /lazy[-_]?brain.*\/(?:dist\/)?bin\/statusline(?:-combined)?\.js\b/.test(normalized);
 }
 
 function hasLazyBrainEntry(entry: HookEntry): boolean {
