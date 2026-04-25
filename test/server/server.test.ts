@@ -209,6 +209,31 @@ describe('POST /match', () => {
   });
 });
 
+describe('POST /api/route', () => {
+  it('returns stable RouteSpec schema', async () => {
+    const { status, body } = await req('POST', '/api/route', { query: 'review code for regressions', target: 'codex' });
+    expect(status).toBe(200);
+    expect(body).toHaveProperty('query');
+    expect(body).toHaveProperty('mode');
+    expect(body).toHaveProperty('intent');
+    expect(body).toHaveProperty('skills');
+    expect(body).toHaveProperty('executionPlan');
+    expect(body).toHaveProperty('contextNeeded');
+    expect(body).toHaveProperty('guardrails');
+    expect(body).toHaveProperty('verification');
+    expect(body).toHaveProperty('doneWhen');
+    expect(body).toHaveProperty('adapters');
+    expect(body.adapters.codex.prompt).toContain('Codex advisory route plan');
+    expect(JSON.stringify(body)).not.toContain(homedir());
+  });
+
+  it('rejects invalid route target', async () => {
+    const { status, body } = await req('POST', '/api/route', { query: 'review code', target: 'bad' });
+    expect(status).toBe(400);
+    expect(body.error).toContain('Invalid target');
+  });
+});
+
 describe('API aliases', () => {
   it('keeps /api/match and /api/team compatible', async () => {
     const matchRes = await req('POST', '/api/match', { query: 'python code review' });

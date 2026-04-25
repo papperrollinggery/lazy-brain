@@ -81,6 +81,35 @@ This skill does something useful.`;
     expect(result!.origin).toBe('local');
   });
 
+  it('parses route schema metadata without reading beyond skill metadata', () => {
+    const content = `---
+name: dashboard-builder
+description: Build operational dashboards.
+useWhen: ["CEO dashboard", "operations metrics"]
+workflow: [{"title":"Define operating questions"},{"title":"Build dashboard"}]
+verification: [{"title":"Run build","command":"npm run build"}]
+doneWhen: ["operator can identify next action"]
+contextNeeded: ["target operator", "metric source"]
+guardrails: [{"title":"Do not make a marketing layout","strength":"strict"}]
+---
+
+# Dashboard Builder
+
+Private body text should not be part of the route schema.`;
+
+    const result = parseSkill(
+      '/home/user/.claude/skills/dashboard-builder/SKILL.md',
+      content
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.schema).toBeDefined();
+    expect(result!.schema!.useWhen).toContain('CEO dashboard');
+    expect(result!.schema!.workflow.map(step => step.title)).toEqual(['Define operating questions', 'Build dashboard']);
+    expect(result!.schema!.verification[0].command).toBe('npm run build');
+    expect(JSON.stringify(result!.schema)).not.toContain('Private body text');
+  });
+
   it('returns null when name and description are missing', () => {
     const result = parseSkill('/SKILL.md', '');
     expect(result).toBeNull();

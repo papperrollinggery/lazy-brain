@@ -144,10 +144,24 @@ export const UI_HTML = `<!doctype html>
       ['overview', 'Overview'], ['router', 'Try Router'], ['skills', 'Skill DB'], ['hook', 'Hook Safety'],
       ['lab', 'Lab'], ['health', 'Health'], ['trouble', 'Troubleshooting'], ['settings', 'Settings']
     ];
-    const state = { status: null, skills: [], queryResult: null };
+    const state = { status: null, skills: [], queryResult: null, routeResult: null };
     const $ = id => document.getElementById(id);
     const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const cls = v => v === 'READY' || v === 'ok' || v === 'OK' ? 'ok' : v === 'NOT_READY' || v === 'blocked' || v === 'missing' || v === 'invalid' ? 'bad' : 'warn';
+    function routeText(route) {
+      if (!route) return 'No route plan yet.';
+      const lines = ['Route Plan: ' + route.intent, 'Mode: ' + route.mode, 'Scenario: ' + route.scenario];
+      if (route.combo) lines.push('Combo: ' + route.combo);
+      if (route.warnings?.length) lines.push('', 'Warnings:', ...route.warnings.map(w => '  - ' + w));
+      if (route.clarificationQuestions?.length) lines.push('', 'Clarify first:', ...route.clarificationQuestions.map(q => '  - ' + q));
+      if (route.skills?.length) lines.push('', 'Use:', ...route.skills.map(s => '  - ' + s.name + ' [' + (s.available ? 'available' : 'missing') + ']'));
+      if (route.contextNeeded?.length) lines.push('', 'Context needed:', ...route.contextNeeded.map(c => '  - ' + c));
+      if (route.executionPlan?.length) lines.push('', 'Workflow:', ...route.executionPlan.map((s, i) => '  ' + (i + 1) + '. ' + s.title + (s.detail ? '\\n     ' + s.detail : '')));
+      if (route.guardrails?.length) lines.push('', 'Guardrails:', ...route.guardrails.map(g => '  - ' + g.title));
+      if (route.verification?.length) lines.push('', 'Verification:', ...route.verification.map(v => '  - ' + v.title + (v.command ? ': ' + v.command : '')));
+      if (route.doneWhen?.length) lines.push('', 'Done when:', ...route.doneWhen.map(d => '  - ' + d));
+      return lines.join('\\n');
+    }
     async function json(url, opts) {
       const res = await fetch(url, opts);
       if (!res.ok) throw new Error(await res.text());
@@ -190,16 +204,30 @@ export const UI_HTML = `<!doctype html>
         <div class="panel">
           <h2>Try Router</h2>
           <textarea id="query" placeholder="输入一个任务，例如：审查这次改动有没有回归风险"></textarea>
-          <div class="toolbar"><button class="primary" id="runMatch">Evaluate</button><button id="clearMatch">Clear</button></div>
-          <div id="matchOut" class="result">\${state.queryResult ? esc(JSON.stringify(state.queryResult, null, 2)) : 'No result yet.'}</div>
+          <div class="toolbar">
+            <select id="routeTarget"><option value="generic">Generic</option><option value="claude">Claude</option><option value="codex">Codex</option><option value="cursor">Cursor</option></select>
+            <button class="primary" id="runRoute">Route Plan</button>
+            <button id="runMatch">Lab Evaluate</button>
+            <button id="clearMatch">Clear</button>
+          </div>
+          <div class="grid two">
+            <div class="panel"><h3>Route Plan</h3><div id="routeOut" class="result">\${esc(routeText(state.routeResult))}</div></div>
+            <div class="panel"><h3>Lab Evaluation</h3><div id="matchOut" class="result">\${state.queryResult ? esc(JSON.stringify(state.queryResult, null, 2)) : 'No result yet.'}</div></div>
+          </div>
         </div>\`;
+      $('runRoute').onclick = async () => {
+        const query = $('query').value.trim();
+        if (!query) return;
+        state.routeResult = await json('/api/route', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ query, target: $('routeTarget').value }) });
+        renderRouter();
+      };
       $('runMatch').onclick = async () => {
         const query = $('query').value.trim();
         if (!query) return;
         state.queryResult = await json('/api/lab/evaluate', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ query }) });
         renderRouter();
       };
-      $('clearMatch').onclick = () => { state.queryResult = null; renderRouter(); };
+      $('clearMatch').onclick = () => { state.queryResult = null; state.routeResult = null; renderRouter(); };
     }
     function renderSkills() {
       const s = state.status;

@@ -10,7 +10,7 @@ import { readdirSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import type { Graph } from '../graph/graph.js';
-import type { Platform, UserConfig } from '../types.js';
+import type { Platform, RouteTarget, UserConfig } from '../types.js';
 import { buildGraphView, formatGraphMermaid } from '../graph/graph-view.js';
 import { match } from '../matcher/matcher.js';
 import { recommendTeam } from '../matcher/team-recommender.js';
@@ -27,6 +27,7 @@ import { runApiTests, type ApiTestTarget } from '../health/api-test.js';
 import { getEmbeddingCacheStatus } from '../embeddings/cache.js';
 import { rebuildEmbeddingCache } from '../embeddings/rebuild.js';
 import { EMBEDDINGS_INDEX_PATH } from '../constants.js';
+import { buildRouteSpec, isRouteTarget } from '../orchestrator/route.js';
 
 // ─── Rate Limiter ────────────────────────────────────────────────────────────
 
@@ -94,6 +95,32 @@ async function handleMatch(
     return err(res, 400, 'Missing required field: query');
   }
   const result = await match(body.query, { graph, config });
+  json(res, 200, result);
+}
+
+async function handleRoute(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  graph: Graph,
+  config: UserConfig,
+): Promise<void> {
+  let body: { query?: string; target?: RouteTarget };
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch {
+    return err(res, 400, 'Invalid JSON body');
+  }
+  if (!body.query || typeof body.query !== 'string') {
+    return err(res, 400, 'Missing required field: query');
+  }
+  if (body.target !== undefined && (typeof body.target !== 'string' || !isRouteTarget(body.target))) {
+    return err(res, 400, 'Invalid target. Use generic, claude, codex, or cursor.');
+  }
+  const result = await buildRouteSpec(body.query, {
+    graph,
+    config,
+    target: body.target ?? 'generic',
+  });
   json(res, 200, result);
 }
 
@@ -448,6 +475,9 @@ export function createRouter(opts: RouterOptions): http.RequestListener {
     // POST /match
     if (method === 'POST' && (pathname === '/match' || pathname === '/api/match')) {
       return handleMatch(req, res, graph, opts.config);
+    }
+    if (method === 'POST' && (pathname === '/route' || pathname === '/api/route')) {
+      return handleRoute(req, res, graph, opts.config);
     }
     // POST /team
     if (method === 'POST' && (pathname === '/team' || pathname === '/api/team')) {

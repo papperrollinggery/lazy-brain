@@ -52,7 +52,7 @@ import { detectDuplicates, findCapabilityByNameOrId, compareCapabilities } from 
 import { buildGraphView, formatGraphMermaid } from '../src/graph/graph-view.js';
 import { createServer, isServerRunning, getServerPort, getServerPid, DEFAULT_PORT } from '../src/server/server.js';
 import { execFileSync, spawn } from 'node:child_process';
-import type { Capability, RawCapability, UserConfig } from '../src/types.js';
+import type { Capability, RawCapability, RouteTarget, UserConfig } from '../src/types.js';
 import { buildSessionSummary, formatSessionSummary } from '../src/stats/session-summary.js';
 import {
   hasLazyBrainHookRegistration,
@@ -73,6 +73,8 @@ import { runApiTests, type ApiTestTarget } from '../src/health/api-test.js';
 import { getEmbeddingCacheStatus } from '../src/embeddings/cache.js';
 import { rebuildEmbeddingCache } from '../src/embeddings/rebuild.js';
 import { buildStatusReport } from '../src/server/status.js';
+import { buildRouteSpec, formatRouteSpec, isRouteTarget } from '../src/orchestrator/route.js';
+import { formatComboList, listCombos } from '../src/combos/registry.js';
 
 const args = process.argv.slice(2);
 const cmd = args[0];
@@ -180,6 +182,12 @@ async function main() {
     case 'match':
     case 'find':
       cmdMatch();
+      break;
+    case 'route':
+      await cmdRoute();
+      break;
+    case 'combos':
+      cmdCombos();
       break;
     case 'list':
       cmdList();
@@ -624,6 +632,7 @@ function compileOffline(rawCapabilities: RawCapability[]): Graph {
       triggers: raw.triggers,
       meta: raw.meta,
       tier: raw.tier,
+      schema: raw.schema,
     };
 
     graph.addNode(capability);
@@ -880,6 +889,69 @@ async function cmdMatch(implicitQuery?: string) {
     }
     console.log();
   }
+}
+
+// ─── Route Plan ───────────────────────────────────────────────────────────
+
+function parseRouteArgs(): { query: string; target: RouteTarget; asJson: boolean } {
+  let target: RouteTarget = 'generic';
+  const asJson = args.includes('--json');
+  const queryParts: string[] = [];
+
+  for (let i = 1; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--json') continue;
+    if (arg === '--target') {
+      const value = args[i + 1];
+      if (!value || !isRouteTarget(value)) {
+        console.error('Usage: lazybrain route "<query>" --target generic|claude|codex|cursor');
+        process.exit(1);
+      }
+      target = value;
+      i++;
+      continue;
+    }
+    queryParts.push(arg);
+  }
+
+  return { query: queryParts.join(' ').trim(), target, asJson };
+}
+
+async function cmdRoute() {
+  const { query, target, asJson } = parseRouteArgs();
+  if (!query) {
+    console.error('Usage: lazybrain route "<query>" [--target generic|claude|codex|cursor] [--json]');
+    process.exit(1);
+  }
+
+  if (!existsSync(GRAPH_PATH)) {
+    console.error('No graph found. Run `lazybrain scan && lazybrain compile` first.');
+    process.exit(1);
+  }
+
+  const graph = Graph.load(GRAPH_PATH);
+  const config = loadConfig();
+  const history = loadRecentHistory(50);
+  const profile = loadProfile() ?? undefined;
+  const spec = await buildRouteSpec(query, { graph, config, history, profile, target });
+
+  if (asJson) {
+    console.log(JSON.stringify(spec, null, 2));
+    return;
+  }
+
+  console.log(formatRouteSpec(spec));
+}
+
+function cmdCombos() {
+  const asJson = args.includes('--json');
+  const category = args.slice(1).find(arg => !arg.startsWith('--'));
+  const combos = listCombos(category);
+  if (asJson) {
+    console.log(JSON.stringify(combos, null, 2));
+    return;
+  }
+  console.log(formatComboList(combos));
 }
 
 // ─── List ─────────────────────────────────────────────────────────────────
@@ -2292,6 +2364,11 @@ Usage:
   lazybrain compile --platform <p>   Compile specific platform only
   lazybrain compile --tier <n>       Compile specific tier (0/1/2)
   lazybrain match "<query>"          Match input to capabilities
+  lazybrain route "<query>"          Build an advisory route plan
+  lazybrain route "<query>" --json   Output stable RouteSpec JSON
+  lazybrain route "<query>" --target generic|claude|codex|cursor
+                                     Render target-specific advisory prompt
+  lazybrain combos [category]        List built-in route combo templates
   lazybrain list [--category <c>]    List indexed capabilities
   lazybrain stats                    Show graph statistics
   lazybrain graph [--mermaid] [--limit <n>] [--kind <k>] [--origin <o>] [--category <c>]

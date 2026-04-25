@@ -30,6 +30,46 @@ export interface CapabilityMeta {
   lastUpdated?: string;
 }
 
+// ─── Skill Schema (Frontmatter Extension) ──────────────────────────────────
+
+export type RouteTarget = 'generic' | 'claude' | 'codex' | 'cursor';
+export type RouteMode = 'route_plan' | 'needs_clarification';
+
+export interface WorkflowStep {
+  id?: string;
+  title: string;
+  detail?: string;
+  source?: 'schema' | 'combo' | 'verification' | 'fallback';
+}
+
+export interface VerificationRequirement {
+  id?: string;
+  title: string;
+  detail?: string;
+  command?: string;
+  required: boolean;
+  source?: 'schema' | 'catalog' | 'combo' | 'fallback';
+}
+
+export interface GuardrailRule {
+  title: string;
+  detail?: string;
+  strength?: 'light' | 'normal' | 'strict';
+  source?: 'schema' | 'target' | 'combo' | 'fallback';
+}
+
+export interface SkillSchema {
+  useWhen: string[];
+  avoidWhen: string[];
+  inputs: string[];
+  workflow: WorkflowStep[];
+  verification: VerificationRequirement[];
+  doneWhen: string[];
+  contextNeeded: string[];
+  guardrails: GuardrailRule[];
+  warnings?: string[];
+}
+
 /**
  * A single capability node in the knowledge graph.
  * Represents a skill, agent, command, mode, or hook.
@@ -95,6 +135,9 @@ export interface Capability {
   sourcePriority?: number;
   /** Other capability names this overlaps with (for duplicate warnings) */
   overlapsWith?: string[];
+
+  /** Machine-readable orchestration metadata parsed from SKILL.md frontmatter */
+  schema?: SkillSchema;
 }
 
 /**
@@ -219,6 +262,48 @@ export interface Recommendation {
     suggestedTools: string[];
     note: string;
   };
+}
+
+// ─── Route Plan ─────────────────────────────────────────────────────────────
+
+export interface RouteSkillRef {
+  id: string;
+  name: string;
+  kind: CapabilityKind;
+  category: string;
+  origin: string;
+  available: boolean;
+  score?: number;
+  layer?: MatchLayer;
+  reason?: string;
+}
+
+export interface RouteAdapterPayload {
+  target: RouteTarget;
+  prompt: string;
+}
+
+export interface RouteSpec {
+  query: string;
+  target: RouteTarget;
+  mode: RouteMode;
+  intent: string;
+  scenario: string;
+  combo?: string;
+  skills: RouteSkillRef[];
+  executionPlan: WorkflowStep[];
+  contextNeeded: string[];
+  guardrails: GuardrailRule[];
+  verification: VerificationRequirement[];
+  doneWhen: string[];
+  adapters: {
+    generic: RouteAdapterPayload;
+    claude?: RouteAdapterPayload;
+    codex?: RouteAdapterPayload;
+    cursor?: RouteAdapterPayload;
+  };
+  warnings: string[];
+  clarificationQuestions?: string[];
 }
 
 // ─── Wiki Card ────────────────────────────────────────────────────────────────
@@ -485,6 +570,8 @@ export interface RawCapability {
   disabled?: boolean;
   /** Primary platform this capability was scanned from */
   platform?: Platform;
+  /** Machine-readable orchestration metadata parsed from SKILL.md frontmatter */
+  schema?: SkillSchema;
 }
 
 // ─── LLM Provider ───────────────────────────────────────────────────────────

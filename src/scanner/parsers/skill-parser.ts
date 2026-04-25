@@ -6,6 +6,7 @@ import type { RawCapability } from '../../types.js';
 import { parseFrontmatter } from '../../utils/yaml.js';
 import { inferPlatformFromPath, inferSinglePlatformFromPath } from '../../constants.js';
 import { inferOrigin } from '../origin.js';
+import { parseSkillSchema } from '../../schema/skill-schema.js';
 
 /**
  * Parse a trigger value that might be a JSON array string or a plain string.
@@ -90,5 +91,6 @@ export function parseSkill(filePath: string, content: string): RawCapability | n
     triggers,
     compatibility: inferPlatformFromPath(filePath),
     platform: inferSinglePlatformFromPath(filePath),
+    schema: parseSkillSchema(frontmatter),
   };
 }

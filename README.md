@@ -20,9 +20,9 @@
 
 ## Current Release
 
-Current version: **v1.3.0**
+Current version: **v1.4.0**
 
-Release position: **public-safe beta with local GUI and review gates**. This version is intended for trusted local evaluation, non-install recommendation testing, project-scoped Claude Code hook installation, and single-maintainer release review. Hook safety and rollback are usable for public beta; recommendation quality, semantic coverage, and automatic alias promotion are still improving.
+Release position: **public-safe beta with advisory route planning**. This version is intended for trusted local evaluation, non-install recommendation testing, route-plan orchestration, project-scoped Claude Code hook installation, and single-maintainer release review. Hook safety and rollback are usable for public beta; automatic execution, cross-CLI sync, semantic coverage, and automatic alias promotion are still improving.
 
 ## Overview
 
@@ -60,7 +60,7 @@ LazyBrain addresses that by turning a loose toolbelt into a structured capabilit
 ```
 You type: "帮我审查这个 PR"
 LazyBrain: → /review-pr (92%) | /critic (78%) | /santa-loop (71%)
-           ✅ Auto-injected /review-pr into system prompt
+           → Route Plan: use code review + regression checks + test evidence
 ```
 
 ## Core Properties
@@ -102,6 +102,7 @@ lazybrain scan
 lazybrain compile --offline
 lazybrain ready
 lazybrain ui
+lazybrain route "review this PR"
 lazybrain hook plan
 lazybrain hook install
 ```
@@ -115,6 +116,7 @@ Safety defaults:
 - LazyBrain does not use `Stop` as a product lifecycle
 - third-party hooks and HUD/statusline entries are preserved by default
 - GUI v1 does not install hooks directly; it shows status, previews, and CLI fallback commands
+- `lazybrain route` is advisory only; it does not execute skills or write target CLI config
 
 ## What Counts as a Skill / Agent / Capability
 
@@ -128,6 +130,7 @@ LazyBrain treats the local AI tool surface as **capabilities**. A capability can
 For skills, LazyBrain reads:
 
 - `name`, `description`, `trigger`, `triggers`, and `origin` from frontmatter when present
+- optional route schema fields: `useWhen`, `avoidWhen`, `inputs`, `workflow`, `verification`, `doneWhen`, `contextNeeded`, and `guardrails`
 - the first useful body paragraph as a fallback description
 - the parent directory name as a fallback skill name
 
@@ -151,6 +154,12 @@ description: Review code for correctness, regressions, maintainability, and miss
 triggers:
   - review code
   - 审查代码
+useWhen: ["review code changes", "check regression risk"]
+workflow: [{"title":"Inspect changed files"},{"title":"Prioritize behavioral findings"}]
+verification: [{"title":"Run tests","command":"npm test"}]
+doneWhen: ["Findings are grounded in file evidence or tests pass"]
+contextNeeded: ["diff or branch", "expected behavior"]
+guardrails: [{"title":"Lead with bugs and regressions","strength":"strict"}]
 ---
 
 Use this skill when the user asks for a focused engineering review.
@@ -205,6 +214,8 @@ When you type a prompt, LazyBrain uses the currently implemented routing layers 
 |------|------------------|-------|
 | Offline routing | Manual alias + tag/CJK bridge | Works without API keys |
 | Semantic / hybrid | Uses embedding cache when configured | Falls back with warnings when cache is missing |
+| Route plan | `lazybrain route` returns advisory `RouteSpec` | No automatic execution or target CLI config writes |
+| Combo templates | Built-in high-frequency orchestration templates | `lazybrain combos [category]` is read-only |
 | Hook install | Project scope by default, dry-run plan, backup, rollback | Global install requires `--global --yes` |
 | Lab | Built-in fixtures, local agent metadata, team gate, token strategy, hook readiness | Does not read Claude transcripts or install hooks |
 | Team guidance | Advisory model split, runtime adapters, subagent prompts | Main model or user keeps final decision |
@@ -299,6 +310,7 @@ lazybrain ready                       # Check graph, hook, HUD, and semantic rea
 
 # Non-install visual check / 非安装式可视化检查
 lazybrain ui                          # Opens http://127.0.0.1:18450/
+lazybrain route "review this PR"      # Advisory execution plan, no writes
 # lazybrain ui --no-open
 # open http://127.0.0.1:18450/lab
 
@@ -328,6 +340,7 @@ lazybrain --version                  # Confirm the installed version
 lazybrain scan                       # Refresh local capabilities
 lazybrain compile --offline          # Build graph without an API key
 lazybrain match "review this PR"     # Test recommendation quality in terminal
+lazybrain route "review this PR"     # Build advisory RouteSpec plan
 lazybrain ready                      # Check graph, hook, HUD, and semantic readiness
 lazybrain ui                         # Open the local GUI
 lazybrain hook plan                  # Preview hook changes
@@ -385,7 +398,13 @@ Config file / 配置文件：`~/.lazybrain/config.json`
 ```bash
 lazybrain match "重构这段代码"       # Find matching tools
 lazybrain find  "代码审查"           # Alias for match
+lazybrain route "把后台改成 CEO dashboard"
+lazybrain route "review this PR" --target codex
+lazybrain route "review this PR" --json
+lazybrain combos frontend
 ```
+
+`lazybrain route` upgrades raw matches into an advisory `RouteSpec`: scenario, skills, context needed, workflow, guardrails, verification, done conditions, and a target-specific prompt style for `generic`, `claude`, `codex`, or `cursor`. It is read-only. It does not execute skills, install hooks, or write Claude/Codex/Cursor configuration.
 
 ### Management / 管理
 
@@ -416,6 +435,7 @@ GUI entrypoints:
 - `GET /` and `GET /ui` — local status GUI
 - `GET /lab` — non-install recommendation Lab
 - `GET /api/status` — readiness, graph, routing, hook, API, embedding, agent, and server status
+- `POST /api/route` — advisory route plan; no execution and no target CLI config writes
 - `POST /api/test` — explicit API test only after user action
 - `POST /api/embeddings/rebuild` — requires `{ "confirm": "rebuild" }`
 

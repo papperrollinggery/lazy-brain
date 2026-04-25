@@ -95,6 +95,7 @@ export class Graph {
           aliases: Array.isArray(node.aliases) ? node.aliases : undefined,
           tier: node.tier,
           evolvedTags: Array.isArray(node.evolvedTags) ? node.evolvedTags : undefined,
+          schema: node.schema,
         };
         g.nodes.set(validNode.id, validNode);
       }
