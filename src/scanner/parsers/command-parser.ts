@@ -5,6 +5,7 @@
 import type { RawCapability } from '../../types.js';
 import { parseFrontmatter } from '../../utils/yaml.js';
 import { inferPlatformFromPath, inferSinglePlatformFromPath } from '../../constants.js';
+import { inferOrigin } from '../origin.js';
 
 /**
  * Extract first non-heading paragraph from body.
@@ -48,7 +49,10 @@ export function parseCommand(filePath: string, content: string): RawCapability |
     kind: 'command',
     name,
     description,
-    origin: 'local',
+    origin: inferOrigin(
+      filePath,
+      typeof frontmatter.origin === 'string' && frontmatter.origin ? frontmatter.origin : undefined,
+    ),
     filePath,
     compatibility: inferPlatformFromPath(filePath),
     platform: inferSinglePlatformFromPath(filePath),

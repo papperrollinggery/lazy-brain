@@ -5,9 +5,11 @@
 # Validates the complete flow from a fresh clone to hook interception working:
 #   1. Copy repo to temp dir
 #   2. npm ci && npm run build
-#   3. lazybrain hook install → modifies ~/.claude/settings.json
-#   4. Send a test prompt via stdin to the hook → verify non-empty additionalSystemPrompt
-#   5. Cleanup (uninstall hook + remove temp dir)
+#   3. lazybrain scan && lazybrain compile --offline
+#   4. lazybrain ready && lazybrain hook plan
+#   5. lazybrain hook install → modifies project .claude/settings.json
+#   6. Send a test prompt via stdin to the hook → verify non-empty additionalSystemPrompt
+#   7. Cleanup (rollback hook + remove temp dir)
 #
 # Usage: ./scripts/smoke-test.sh
 
@@ -16,7 +18,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 TEMP_DIR=""
-SETTINGS_BACKUP=""
 HOOK_INSTALLED=0
 
 # Colors
@@ -33,22 +34,15 @@ log_fail()  { echo -e "${RED}[FAIL]${NC}  $1"; }
 
 cleanup() {
   log_info "Cleaning up..."
+  if [[ "$HOOK_INSTALLED" -eq 1 && -n "$TEMP_DIR" && -x "$TEMP_DIR/dist/bin/lazybrain.js" ]]; then
+    (cd "$TEMP_DIR" && "$TEMP_DIR/dist/bin/lazybrain.js" hook rollback 2>/dev/null) || \
+      (cd "$TEMP_DIR" && "$TEMP_DIR/dist/bin/lazybrain.js" hook uninstall 2>/dev/null) || true
+    log_info "Rolled back lazybrain hook"
+  fi
+
   if [[ -n "$TEMP_DIR" && -d "$TEMP_DIR" ]]; then
     rm -rf "$TEMP_DIR"
     log_info "Removed temp dir: $TEMP_DIR"
-  fi
-
-  if [[ "$HOOK_INSTALLED" -eq 1 ]]; then
-    # Uninstall hook
-    "$TEMP_DIR/dist/bin/lazybrain.js" hook uninstall 2>/dev/null || true
-    log_info "Uninstalled lazybrain hook"
-  fi
-
-  if [[ -n "$SETTINGS_BACKUP" && -f "$SETTINGS_BACKUP" ]]; then
-    local settings_path="${CLAUDE_CONFIG_DIR:-"$HOME/.claude"}/settings.json"
-    cp "$SETTINGS_BACKUP" "$settings_path"
-    rm -f "$SETTINGS_BACKUP"
-    log_info "Restored original settings.json"
   fi
 }
 
@@ -77,7 +71,11 @@ echo
 # Step 1: Copy to temp dir
 TEMP_DIR=$(mktemp -d "/tmp/lazybrain-smoke.XXXXXX")
 log_info "Step 1: Copy repo to temp dir"
-cp -r "$REPO_DIR" "$TEMP_DIR"
+tar -C "$REPO_DIR" \
+  --exclude "./.git" \
+  --exclude "./node_modules" \
+  --exclude "./dist" \
+  -cf - . | tar -C "$TEMP_DIR" -xf -
 log_pass "Copied to $TEMP_DIR"
 echo
 
@@ -112,21 +110,57 @@ fi
 log_pass "Built files exist"
 echo
 
-# Step 5: Backup and install hook
-log_info "Step 5: Install LazyBrain hook"
-CLAUDE_CONFIG_DIR="${CLAUDE_CONFIG_DIR:-"$HOME/.claude"}"
-SETTINGS_PATH="$CLAUDE_CONFIG_DIR/settings.json"
-
-if [[ -f "$SETTINGS_PATH" ]]; then
-  SETTINGS_BACKUP=$(mktemp "/tmp/settings.json.backup.XXXXXX")
-  cp "$SETTINGS_PATH" "$SETTINGS_BACKUP"
-  log_info "Backed up settings.json → $SETTINGS_BACKUP"
-else
-  SETTINGS_BACKUP=""
-  log_info "No existing settings.json, will create fresh"
-fi
-
+# Step 5: Run lazybrain scan && compile (offline mode for CI)
 cd "$TEMP_DIR"
+log_info "Step 5: lazybrain scan"
+if ! "$TEMP_DIR/dist/bin/lazybrain.js" scan > /dev/null 2>&1; then
+  log_warn "lazybrain scan had issues (non-fatal for smoke test)"
+fi
+log_pass "scan complete"
+echo
+
+log_info "Step 6: lazybrain compile --offline"
+if ! "$TEMP_DIR/dist/bin/lazybrain.js" compile --offline > /dev/null 2>&1; then
+  log_error "lazybrain compile --offline failed"
+  exit 1
+fi
+log_pass "compile complete"
+echo
+
+# Step 7: Verify graph.json exists
+GRAPHPATH="${HOME}/.lazybrain/graph.json"
+log_info "Step 7: Verify graph.json exists"
+if [[ ! -f "$GRAPHPATH" ]]; then
+  log_error "graph.json not found at $GRAPHPATH"
+  exit 1
+fi
+log_pass "graph.json exists"
+echo
+
+# Step 8: Check readiness and preview hook install
+log_info "Step 8: lazybrain ready"
+READY_OUTPUT=$("$TEMP_DIR/dist/bin/lazybrain.js" ready || true)
+if ! echo "$READY_OUTPUT" | grep -qE '^(READY|NOT_READY)$'; then
+  log_error "lazybrain ready did not print READY or NOT_READY"
+  echo "$READY_OUTPUT"
+  exit 1
+fi
+log_pass "ready command responded"
+echo
+
+log_info "Step 9: lazybrain hook plan"
+PLAN_OUTPUT=$("$TEMP_DIR/dist/bin/lazybrain.js" hook plan)
+if ! echo "$PLAN_OUTPUT" | grep -q "LazyBrain hook plan"; then
+  log_error "hook plan did not produce plan output"
+  echo "$PLAN_OUTPUT"
+  exit 1
+fi
+log_pass "hook plan output"
+echo
+
+# Step 10: Install hook into project settings
+log_info "Step 10: Install LazyBrain hook"
+SETTINGS_PATH="$TEMP_DIR/.claude/settings.json"
 if ! "$TEMP_DIR/dist/bin/lazybrain.js" hook install; then
   log_error "lazybrain hook install failed"
   exit 1
@@ -135,43 +169,17 @@ HOOK_INSTALLED=1
 log_pass "Hook installed"
 echo
 
-# Step 6: Verify settings.json was modified
-log_info "Step 6: Verify settings.json contains LazyBrain hook"
+# Step 11: Verify settings.json was modified
+log_info "Step 11: Verify project settings.json contains LazyBrain hook"
 if ! grep -q "lazybrain" "$SETTINGS_PATH"; then
-  log_error "settings.json does not contain lazybrain hook"
+  log_error "project settings.json does not contain lazybrain hook"
   exit 1
 fi
-log_pass "settings.json modified"
+log_pass "project settings.json modified"
 echo
 
-# Step 7: Run lazybrain scan && compile (offline mode for CI)
-log_info "Step 7: lazybrain scan"
-if ! "$TEMP_DIR/dist/bin/lazybrain.js" scan > /dev/null 2>&1; then
-  log_warn "lazybrain scan had issues (non-fatal for smoke test)"
-fi
-log_pass "scan complete"
-echo
-
-log_info "Step 8: lazybrain compile --offline"
-if ! "$TEMP_DIR/dist/bin/lazybrain.js" compile --offline > /dev/null 2>&1; then
-  log_error "lazybrain compile --offline failed"
-  exit 1
-fi
-log_pass "compile complete"
-echo
-
-# Step 9: Verify graph.json exists
-GRAPHPATH="${HOME}/.lazybrain/graph.json"
-log_info "Step 9: Verify graph.json exists"
-if [[ ! -f "$GRAPHPATH" ]]; then
-  log_error "graph.json not found at $GRAPHPATH"
-  exit 1
-fi
-log_pass "graph.json exists"
-echo
-
-# Step 10: Send test prompt to hook via stdin and verify response
-log_info "Step 10: Test hook with UserPromptSubmit event"
+# Step 12: Send test prompt to hook via stdin and verify response
+log_info "Step 12: Test hook with UserPromptSubmit event"
 
 # Build the stdin payload matching Claude Code hook protocol
 TEST_PROMPT="帮我审查这段代码"
@@ -212,8 +220,8 @@ fi
 log_pass "Hook returned non-empty additionalSystemPrompt"
 echo
 
-# Step 11: Test SessionStart hook
-log_info "Step 11: Test SessionStart hook"
+# Step 13: Test SessionStart hook
+log_info "Step 13: Test SessionStart hook"
 SESSION_OUTPUT=$("$TEMP_DIR/dist/bin/hook.js" <<< '{"session_id":"smoke-test","hook_event_name":"SessionStart","cwd":"'"$TEMP_DIR"'"}' 2>/dev/null || echo '{"continue":true}')
 if ! echo "$SESSION_OUTPUT" | grep -q '"continue":true'; then
   log_warn "SessionStart hook did not return continue:true (may still be ok)"
@@ -222,12 +230,12 @@ else
 fi
 echo
 
-log_info "Step 12: Uninstall hook"
-if "$TEMP_DIR/dist/bin/lazybrain.js" hook uninstall 2>/dev/null; then
+log_info "Step 14: Rollback hook"
+if "$TEMP_DIR/dist/bin/lazybrain.js" hook rollback 2>/dev/null; then
   HOOK_INSTALLED=0
-  log_pass "Hook uninstalled"
+  log_pass "Hook rolled back"
 else
-  log_warn "Hook uninstall had issues (continuing)"
+  log_warn "Hook rollback had issues (continuing)"
 fi
 echo
 
@@ -240,13 +248,15 @@ log_info "Summary:"
 log_info "  • Fresh clone:      OK"
 log_info "  • npm ci:           OK"
 log_info "  • npm run build:    OK"
-log_info "  • hook install:    OK"
-log_info "  • settings.json:   Modified correctly"
 log_info "  • lazybrain scan:  OK"
 log_info "  • lazybrain compile: OK (offline)"
 log_info "  • graph.json:       Created at ~/.lazybrain/"
+log_info "  • lazybrain ready: OK"
+log_info "  • hook plan:       OK"
+log_info "  • hook install:    OK"
+log_info "  • project settings: Modified correctly"
 log_info "  • UserPromptSubmit: Returns non-empty additionalSystemPrompt"
 log_info "  • SessionStart:     OK"
-log_info "  • hook uninstall:   OK"
+log_info "  • hook rollback:    OK"
 log_info ""
-log_info "Cleanup: EXIT trap will restore original settings.json and remove temp dir"
+log_info "Cleanup: EXIT trap will remove temp dir"

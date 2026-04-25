@@ -9,6 +9,7 @@
 
 import { execSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { getStatuslineChainPath } from '../src/constants.js';
 import { simplifyUpstreamHud, isLowSignalLazyBrainLabel } from '../src/utils/hud-normalizer.js';
 
@@ -27,22 +28,21 @@ function readStdin(): string {
 }
 
 function readChainConfig(): ChainConfig {
-  try {
-    const chainPath = getStatuslineChainPath();
-    if (!existsSync(chainPath)) return {};
-    return JSON.parse(readFileSync(chainPath, 'utf-8')) as ChainConfig;
-  } catch {}
+  const candidates = [
+    process.env.LAZYBRAIN_STATUSLINE_CHAIN,
+    join(resolve(process.cwd(), '.claude'), 'lazybrain-statusline-chain.json'),
+    getStatuslineChainPath(),
+    `${process.env.HOME ?? ''}/.lazybrain/statusline-chain.json`,
+  ].filter((path): path is string => Boolean(path));
 
-  // Backward compatibility for earlier local builds that wrote this file to
-  // ~/.lazybrain/statusline-chain.json. Avoid importing the constant so new
-  // installs stay scoped to the active Claude config dir.
-  try {
-    const legacyPath = `${process.env.HOME ?? ''}/.lazybrain/statusline-chain.json`;
-    if (!existsSync(legacyPath)) return {};
-    return JSON.parse(readFileSync(legacyPath, 'utf-8')) as ChainConfig;
-  } catch {
-    return {};
+  for (const chainPath of candidates) {
+    try {
+      if (!existsSync(chainPath)) continue;
+      return JSON.parse(readFileSync(chainPath, 'utf-8')) as ChainConfig;
+    } catch {}
   }
+
+  return {};
 }
 
 function runCommand(command: string, stdin: string): string {

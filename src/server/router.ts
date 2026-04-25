@@ -17,6 +17,10 @@ import { recommendTeam } from '../matcher/team-recommender.js';
 import { detectDuplicates } from '../graph/duplicate-detector.js';
 import { generateReport, computeWeeklyStats } from '../history/accuracy-report.js';
 import { loadRecommendations } from '../history/tool-usage-tracker.js';
+import { LAB_HTML } from '../lab/html.js';
+import { LAB_FIXTURES, type LabCase } from '../lab/fixtures.js';
+import { evaluateLab } from '../lab/evaluator.js';
+import { scanAgentInventory } from '../lab/agent-inventory.js';
 
 // ─── Rate Limiter ────────────────────────────────────────────────────────────
 
@@ -43,6 +47,14 @@ function json(res: http.ServerResponse, status: number, body: unknown): void {
     'Content-Length': Buffer.byteLength(payload),
   });
   res.end(payload);
+}
+
+function html(res: http.ServerResponse, status: number, body: string): void {
+  res.writeHead(status, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Content-Length': Buffer.byteLength(body),
+  });
+  res.end(body);
 }
 
 function err(res: http.ServerResponse, code: number, message: string): void {
@@ -186,6 +198,61 @@ function handleHealth(
   json(res, 200, { ok: true, version, graphSize: graph.getAllNodes().length });
 }
 
+function handleLabPage(
+  _req: http.IncomingMessage,
+  res: http.ServerResponse,
+): void {
+  html(res, 200, LAB_HTML);
+}
+
+function handleLabFixtures(
+  _req: http.IncomingMessage,
+  res: http.ServerResponse,
+): void {
+  json(res, 200, LAB_FIXTURES);
+}
+
+function handleLabAgents(
+  _req: http.IncomingMessage,
+  res: http.ServerResponse,
+): void {
+  json(res, 200, scanAgentInventory());
+}
+
+async function handleLabEvaluate(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  graph: Graph,
+  config: UserConfig,
+): Promise<void> {
+  let body: { query?: string; queries?: string[]; cases?: LabCase[]; maxMembers?: number };
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch {
+    return err(res, 400, 'Invalid JSON body');
+  }
+  const hasQuery = typeof body.query === 'string' && body.query.trim().length > 0;
+  const hasQueries = Array.isArray(body.queries) && body.queries.some(q => typeof q === 'string' && q.trim().length > 0);
+  const hasCases = Array.isArray(body.cases) && body.cases.some(c => c && typeof c.query === 'string' && c.query.trim().length > 0);
+  if (!hasQuery && !hasQueries && !hasCases) {
+    return err(res, 400, 'Missing required field: query, queries, or cases');
+  }
+  const cases = hasCases
+    ? body.cases!.filter(c => c && typeof c.query === 'string' && c.query.trim().length > 0)
+    : undefined;
+  const queries = hasQuery
+    ? [body.query!.trim()]
+    : body.queries?.filter((q): q is string => typeof q === 'string' && q.trim().length > 0).map(q => q.trim());
+  const evaluations = await evaluateLab({
+    graph,
+    config,
+    cases,
+    queries,
+    maxMembers: body.maxMembers,
+  });
+  json(res, 200, { evaluations });
+}
+
 async function handleReload(
   _req: http.IncomingMessage,
   res: http.ServerResponse,
@@ -301,6 +368,18 @@ export function createRouter(opts: RouterOptions): http.RequestListener {
     // GET /health
     if (method === 'GET' && pathname === '/health') {
       return handleHealth(req, res, graph, opts.version);
+    }
+    if (method === 'GET' && pathname === '/lab') {
+      return handleLabPage(req, res);
+    }
+    if (method === 'GET' && pathname === '/lab/fixtures') {
+      return handleLabFixtures(req, res);
+    }
+    if (method === 'GET' && pathname === '/lab/agents') {
+      return handleLabAgents(req, res);
+    }
+    if (method === 'POST' && pathname === '/lab/evaluate') {
+      return handleLabEvaluate(req, res, graph, opts.config);
     }
     // POST /reload
     if (method === 'POST' && pathname === '/reload') {

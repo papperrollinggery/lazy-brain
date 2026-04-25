@@ -1,6 +1,6 @@
 {
   "name": "lazybrain",
-  "version": "1.0.2",
+  "version": "1.2.0",
   "description": "Semantic skill router for AI coding agents — your second brain for capabilities",
   "type": "module",
   "bin": {
@@ -18,7 +18,8 @@
   },
   "files": [
     "dist",
-    "src"
+    "README_CN.md",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "tsup",
@@ -56,5 +57,8 @@
     "@rollup/rollup-darwin-x64": "^4.60.2",
     "@rollup/rollup-linux-x64-gnu": "^4.60.1"
   },
-  "repository": "github:LazyBrain/lazybrain"
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/papperrollinggery/lazy-brain.git"
+  }
 }

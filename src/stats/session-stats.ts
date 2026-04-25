@@ -54,17 +54,23 @@ function formatTimestamp(iso: string): string {
 export function buildSessionStats(graph: Graph, duplicatePairs: DuplicatePair[] = []): SessionStats {
   const history = loadHistoryEntries();
   const recommendations = loadRecommendations();
+  const routedHistory = history.filter(h =>
+    h.query &&
+    h.matched &&
+    h.reason !== 'stop' &&
+    h.reason !== 'meta_bypass' &&
+    h.reason !== 'no_graph'
+  );
 
   const totalCapabilities = graph.getAllNodes().length;
-  const totalRecommendations = recommendations.length;
-  const acceptedRecommendations = history.filter(h => h.query && h.matched && h.accepted).length;
-  const skippedRecommendations = history.filter(h => h.query && h.matched && !h.accepted).length;
+  const totalRecommendations = routedHistory.length;
+  const acceptedRecommendations = routedHistory.filter(h => h.accepted).length;
+  const skippedRecommendations = routedHistory.filter(h => !h.accepted).length;
   const adoptionRate = totalRecommendations > 0
     ? Math.round((acceptedRecommendations / totalRecommendations) * 100)
     : 0;
 
-  const recentMatches = history
-    .filter(h => h.query && h.matched)
+  const recentMatches = routedHistory
     .slice(-10)
     .reverse()
     .map(h => ({
@@ -75,8 +81,7 @@ export function buildSessionStats(graph: Graph, duplicatePairs: DuplicatePair[] 
     }))
     .slice(0, 3);
 
-  const topCapabilities = [...history
-    .filter(h => h.matched)
+  const topCapabilities = [...routedHistory
     .reduce((acc, entry) => {
       acc.set(entry.matched, (acc.get(entry.matched) ?? 0) + 1);
       return acc;

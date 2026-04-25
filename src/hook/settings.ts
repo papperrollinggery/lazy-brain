@@ -1,6 +1,7 @@
 type HookCommand = {
   type?: string;
   command?: unknown;
+  timeout?: number;
 };
 
 type HookEntry = {
@@ -18,16 +19,33 @@ function nestedHooks(entry: HookEntry): HookCommand[] {
 }
 
 export function isLazyBrainHookCommand(command: unknown): boolean {
-  return typeof command === 'string'
-    && (command.includes('dist/bin/hook.js') || command.includes('/bin/hook.js'));
+  if (typeof command !== 'string') return false;
+  const normalized = command.replace(/\\/g, '/');
+  return /(?:lazy[-_]?brain|lazy_user).*\/(?:dist\/)?bin\/hook\.js\b/.test(normalized);
 }
 
 function stripLazyBrainEntries(entries: HookEntry[]): HookEntry[] {
-  return entries.filter((entry) => {
-    if (isLazyBrainHookCommand(entry.command)) return false;
-    if (nestedHooks(entry).some((hook) => isLazyBrainHookCommand(hook.command))) return false;
-    return true;
-  });
+  return entries
+    .map((entry) => {
+      const next: HookEntry = { ...entry };
+      if (isLazyBrainHookCommand(next.command)) {
+        delete next.command;
+      }
+      if (Array.isArray(next.hooks)) {
+        next.hooks = next.hooks.filter((hook) => !isLazyBrainHookCommand(hook.command));
+      }
+      const hasCommand = typeof next.command === 'string';
+      const hasHooks = Array.isArray(next.hooks) && next.hooks.length > 0;
+      return hasCommand || hasHooks ? next : null;
+    })
+    .filter((entry): entry is HookEntry => entry !== null);
+}
+
+function stripLazyBrainFromAllHookEvents(hooks: Record<string, unknown>): void {
+  for (const [eventName, entries] of Object.entries(hooks)) {
+    if (!Array.isArray(entries)) continue;
+    hooks[eventName] = stripLazyBrainEntries(entries as HookEntry[]);
+  }
 }
 
 export function upsertLazyBrainUserPromptSubmit(
@@ -35,32 +53,31 @@ export function upsertLazyBrainUserPromptSubmit(
   hookCommand: string,
 ): SettingsObject {
   const hooks = (settings.hooks ?? {}) as Record<string, unknown>;
+  stripLazyBrainFromAllHookEvents(hooks);
   const ups = (hooks.UserPromptSubmit ?? []) as HookEntry[];
-  const stop = (hooks.Stop ?? []) as HookEntry[];
 
   hooks.UserPromptSubmit = [
-    ...stripLazyBrainEntries(ups),
-    { matcher: '', hooks: [{ type: 'command', command: hookCommand }] },
+    ...ups,
+    { matcher: '', hooks: [{ type: 'command', command: hookCommand, timeout: 5 }] },
   ];
-  hooks.Stop = stripLazyBrainEntries(stop);
   settings.hooks = hooks;
   return settings;
 }
 
 export function removeLazyBrainHookRegistrations(settings: SettingsObject): SettingsObject {
   const hooks = (settings.hooks ?? {}) as Record<string, unknown>;
-  const ups = (hooks.UserPromptSubmit ?? []) as HookEntry[];
-  const stop = (hooks.Stop ?? []) as HookEntry[];
-
-  hooks.UserPromptSubmit = stripLazyBrainEntries(ups);
-  hooks.Stop = stripLazyBrainEntries(stop);
+  stripLazyBrainFromAllHookEvents(hooks);
   settings.hooks = hooks;
   return settings;
 }
 
 export function hasLazyBrainHookRegistration(settings: SettingsObject): boolean {
   const hooks = (settings.hooks ?? {}) as Record<string, unknown>;
-  const ups = (hooks.UserPromptSubmit ?? []) as HookEntry[];
-  const stop = (hooks.Stop ?? []) as HookEntry[];
-  return stripLazyBrainEntries(ups).length !== ups.length || stripLazyBrainEntries(stop).length !== stop.length;
+  return Object.values(hooks).some((entries) => {
+    if (!Array.isArray(entries)) return false;
+    return (entries as HookEntry[]).some((entry) =>
+      isLazyBrainHookCommand(entry.command) ||
+      nestedHooks(entry).some((hook) => isLazyBrainHookCommand(hook.command)),
+    );
+  });
 }

@@ -10,9 +10,9 @@
  *   4. no history / idle         → 待机中
  */
 
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { LAZYBRAIN_DIR, STATUS_PATH, HOOK_ACTIVE_PATH } from '../src/constants.js';
+import { LAZYBRAIN_DIR, STATUS_PATH, HOOK_ACTIVE_PATH, HOOK_RUNS_DIR } from '../src/constants.js';
 import { readOmcMode } from '../src/utils/omc-state.js';
 
 const lastMatchPath = join(LAZYBRAIN_DIR, 'last-match.json');
@@ -21,6 +21,19 @@ const lastMatchPath = join(LAZYBRAIN_DIR, 'last-match.json');
 
 /** Check if hook is currently running (PID file exists + process alive) */
 function isHookRunning(): boolean {
+  try {
+    if (existsSync(HOOK_RUNS_DIR)) {
+      for (const name of readdirSync(HOOK_RUNS_DIR)) {
+        if (!name.endsWith('.json')) continue;
+        const run = JSON.parse(readFileSync(join(HOOK_RUNS_DIR, name), 'utf-8')) as { pid?: unknown };
+        if (typeof run.pid !== 'number') continue;
+        try {
+          process.kill(run.pid, 0);
+          return true;
+        } catch {}
+      }
+    }
+  } catch {}
   try {
     if (!existsSync(HOOK_ACTIVE_PATH)) return false;
     const pid = parseInt(readFileSync(HOOK_ACTIVE_PATH, 'utf-8').trim(), 10);
@@ -65,12 +78,12 @@ function timeAgo(ms: number): string {
 }
 
 /** Read last-match data, return null if missing or invalid */
-function readLastMatch(): { tool: string; score: number; historyBoost: number; updatedAt: number } | null {
+function readLastMatch(): { tool: string | null; score: number; historyBoost: number; updatedAt: number; state?: string } | null {
   try {
     if (!existsSync(lastMatchPath)) return null;
     const data = JSON.parse(readFileSync(lastMatchPath, 'utf-8'));
     if (!data || typeof data.updatedAt !== 'number') return null;
-    return data as { tool: string; score: number; historyBoost: number; updatedAt: number };
+    return data as { tool: string | null; score: number; historyBoost: number; updatedAt: number; state?: string };
   } catch {
     return null;
   }
@@ -101,9 +114,10 @@ function getLabel(): string {
   const last = readLastMatch();
   if (last) {
     const age = Date.now() - last.updatedAt;
+    const fiveMin = 5 * 60 * 1000;
 
     // 有匹配工具：显示工具名 + 评分
-    if (last.tool) {
+    if (last.tool && (last.state ?? 'matched') === 'matched' && age < fiveMin) {
       const score = Math.round(last.score * 100);
       const boost = last.historyBoost > 0.01 ? ` ↑${Math.round(last.historyBoost * 100)}%` : '';
 
@@ -113,15 +127,13 @@ function getLabel(): string {
       } else {
         // 匹配过，带时间差
         const timeLabel = timeAgo(age);
-        // 超过 5 分钟不显示分数（防止误导 — 数据已旧）
-        const scoreLabel = age < 5 * 60 * 1000 ? ` [${score}%]${boost}` : '';
-        return `🧠 ${timeLabel} /${last.tool}${scoreLabel}${omcSuffix}`;
+        return `🧠 ${timeLabel} /${last.tool} [${score}%]${boost}${omcSuffix}`;
       }
     }
 
     // tool=null → 匹配过但没有合适候选（OmcModeQuery 等）或被 bypass
     // age < 5min 显示时间，否则待机
-    if (age < 5 * 60 * 1000) {
+    if (!last.tool && age < fiveMin) {
       return `🧠 ${timeAgo(age)} 已跳过${omcSuffix}`;
     }
   }

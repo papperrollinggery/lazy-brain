@@ -28,6 +28,7 @@ export interface RecommendationEntry {
   timestamp: string;
   query: string;
   recommended: string[]; // tools recommended by hook
+  transcriptPath?: string;
 }
 
 /**
@@ -52,18 +53,26 @@ export function parseTranscript(transcriptPath: string, sessionId: string): Tool
     for (const line of lines) {
       try {
         const entry = JSON.parse(line);
-        if (entry.type !== 'assistant') continue;
+        if (entry.type !== 'assistant' && entry.type !== 'tool_use') continue;
 
-        const toolList = entry.tool_use ?? [];
+        const messageContent = Array.isArray(entry.message?.content) ? entry.message.content : [];
+        const contentToolUses = messageContent.filter((item: unknown): item is Record<string, unknown> =>
+          Boolean(item && typeof item === 'object' && (item as { type?: unknown }).type === 'tool_use'),
+        );
+        const topLevelToolUses = entry.type === 'tool_use' ? [entry] : [];
+        const toolList = [...topLevelToolUses, ...(entry.tool_use ?? []), ...contentToolUses];
         for (const tool of toolList) {
           if (!tool || typeof tool !== 'object') continue;
 
-          const name: string = tool.name ?? '';
+          const name: string = tool.name ?? tool.tool_name ?? '';
           if (!name) continue;
+          const input = tool.input && typeof tool.input === 'object'
+            ? tool.input as Record<string, unknown>
+            : {};
 
           // Task(subagent_type="...") → toolName="agent", subagent
           if (name === 'Task' || name === 'task') {
-            const subagent = tool.subagent_type ?? tool.subagent ?? '';
+            const subagent = tool.subagent_type ?? tool.subagent ?? input.subagent_type ?? input.subagent ?? '';
             events.push({
               sessionId,
               timestamp: entry.timestamp ?? new Date().toISOString(),
@@ -75,7 +84,7 @@ export function parseTranscript(transcriptPath: string, sessionId: string): Tool
 
           // Skill(skill="...") → toolName="skill", skillName
           if (name === 'Skill' || name === 'skill') {
-            const skillName = tool.skill ?? tool.skillName ?? '';
+            const skillName = tool.skill ?? tool.skillName ?? input.skill ?? input.skillName ?? input.name ?? '';
             events.push({
               sessionId,
               timestamp: entry.timestamp ?? new Date().toISOString(),

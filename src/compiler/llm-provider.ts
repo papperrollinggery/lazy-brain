@@ -22,7 +22,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
     this.apiKey = config.apiKey ?? '';
   }
 
-  async complete(prompt: string, systemPrompt?: string): Promise<LLMResponse> {
+  async complete(prompt: string, systemPrompt?: string, options?: { signal?: AbortSignal }): Promise<LLMResponse> {
     const messages: Array<{ role: string; content: string }> = [];
     if (systemPrompt) {
       messages.push({ role: 'system', content: systemPrompt });
@@ -44,6 +44,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
         temperature: 0.3,
         max_tokens: 512,
       }),
+      signal: options?.signal,
     });
 
     if (!res.ok) {

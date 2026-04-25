@@ -17,6 +17,12 @@
 
 </div>
 
+## 当前版本
+
+当前版本：**v1.2.0**
+
+发布定位：**公开安全 beta 版**。这一版适合做本地可信评估、非安装式推荐测试、project-scoped Claude Code hook 安装。Hook 安全链路已经适合公开 beta；推荐质量、semantic cache 覆盖、自动别名提升仍在继续优化。
+
 ## 项目概览
 
 在现代 AI 编码环境里，真正的问题通常已经不是“能力不够”，而是：
@@ -60,6 +66,82 @@ LazyBrain: → /review-pr (92%) | /critic (78%) | /santa-loop (71%)
 - **本地优先**：scan、graph、wiki、tag-layer 都依赖本地产物
 - **副驾驶生命周期**：默认只接 `UserPromptSubmit`，可选 `SessionStart`，不依赖 `Stop`
 
+## 推荐公开使用流程
+
+公开用户默认走这条路径：
+
+```bash
+lazybrain scan
+lazybrain compile --offline
+lazybrain ready
+lazybrain server --daemon
+open http://127.0.0.1:18450/lab
+lazybrain hook plan
+lazybrain hook install
+```
+
+安全默认值：
+
+- Lab 不安装 hook，不写 `.claude/settings.json`
+- `hook plan` 只预演
+- `hook install` 默认 project scope，并且先备份
+- 全局安装必须显式使用 `lazybrain hook install --global --yes`
+- LazyBrain 不把 `Stop` 当作产品生命周期
+- 默认保留第三方 hook 和 HUD/statusline
+
+## 什么会被当成技能 / Agent / Capability
+
+LazyBrain 把本机 AI 工具体系统一看成 **capability**。一个 capability 可以是：
+
+- 带 `SKILL.md` 的 skill 目录
+- Claude / Agent Agency 的 agent markdown 文件
+- command markdown 文件
+- mode、hook 或插件扫描出来的能力入口
+
+对 skill，LazyBrain 会读取：
+
+- frontmatter 里的 `name`、`description`、`trigger`、`triggers`、`origin`
+- 没有 description 时，用正文第一个有效段落作为 fallback
+- 没有 name 时，用父目录名作为 fallback
+
+对 agent，Lab 只展示公开 metadata：
+
+- `name`
+- `description`
+- `scope`
+- `source`
+- `model`
+- `tools`
+
+Lab 不返回 agent 正文，不读取 Claude 私人 transcript，也不读取历史对话。scan/compile 会解析本地 markdown 来建图，但不会执行 skill 或 agent。
+
+推荐的 skill 写法：
+
+```markdown
+---
+name: code-review
+description: Review code for correctness, regressions, maintainability, and missing tests.
+triggers:
+  - review code
+  - 审查代码
+---
+
+Use this skill when the user asks for a focused engineering review.
+```
+
+如果某个 skill 没被扫到，先确认它在已扫描路径下，有 `SKILL.md`，并且有清晰的 `name` 或 `description`。
+
+## 已实现 / 规划中
+
+| 能力 | 当前状态 | 说明 |
+|------|----------|------|
+| 离线路由 | 已实现 | 手工别名 + tag/CJK bridge，无 API key 也可用 |
+| semantic / hybrid | 条件可用 | 需要 embedding 配置和 `graph.embeddings.*` 缓存；缺失时降级并提示 |
+| hook 安装 | 已实现 | project 默认、plan dry-run、备份、rollback、global 需 `--yes` |
+| Lab | 已实现 | 内置样例、本机 agent metadata、team gate、token 策略、hook readiness |
+| Team 建议 | 已实现为 advisory | 给模型/agent/prompt 建议，最终决定权在主模型或用户 |
+| 自动别名 | 规划中 | 当前是建议/只读路径，不宣称完全成熟 |
+
 ## Wiki 与图谱产物
 
 `lazybrain compile` 会把运行时产物写到 `~/.lazybrain/` 下。这些是你本机的图谱和知识文件，不是仓库源码的一部分。
@@ -67,31 +149,22 @@ LazyBrain: → /review-pr (92%) | /critic (78%) | /santa-loop (71%)
 ```
 ~/.lazybrain/wiki/
 ├── index.md
+├── kinds.md
+├── origins.md
 ├── development.md
 ├── operations.md
-├── orchestration.md
 └── ...
 ```
 
-这里有几个要点：
+要点：
 
 - 分类页来自**固定分类体系 + 本地动态归类**
-- 最终会生成多少个分类页，取决于你本机实际扫描到了哪些能力
-- README 里的数量如果出现，只能算示例，**不是固定事实**
-- wiki 覆盖的是 **capability**，不只是 skill
+- 最终分类数量取决于本机实际扫描到的能力
+- README 里的数量如果出现，只是示例，不是固定事实
+- wiki 覆盖的是 capability，包括 skill、agent、command、mode、hook
+- agent 和 command 当前收在分类页内部，也可以通过 `kinds.md`、`origins.md` 查看
 
-当前 wiki 输出方式是“按分类聚合”：
-
-- `index.md`：总索引
-- `*.md` 分类页：每页再细分为
-  - `Skills`
-  - `Agents`
-  - `Commands`
-  - `Other`
-
-所以 agent 和 command 并没有消失，它们目前是收在分类页内部，而不是单独放顶层索引。
-
-## 怎么用？（3 步，5 分钟）
+## 怎么用？（先测试，再安装）
 
 **环境要求**：Node.js ≥ 18
 
@@ -110,23 +183,32 @@ npm link        # 注册 lazybrain / lb 到全局
 
 ```bash
 lazybrain scan        # 找到你电脑上所有工具
-lazybrain compile     # 让 AI 给每个工具打标签、建关系
-
-# 或者不用 API key，纯离线编译（tag-layer 可用）
-lazybrain compile --offline
+lazybrain compile --offline  # 无 API key 也能先用 tag-layer
 ```
 
 编译完成后，LazyBrain 就知道你有哪些工具、每个工具是干嘛的了。
 
-### 第 3 步：安装到 Claude Code
+### 第 3 步：检查 + Lab 预览
 
 ```bash
-lazybrain hook install
-# 显式全局安装（不推荐）
-# lazybrain hook install --global
+lazybrain ready       # 检查图谱、hook、HUD、semantic 配置
+lazybrain server --daemon
+open http://127.0.0.1:18450/lab
 ```
 
-**就这样，完事了。**
+Lab 会用内置样例检查推荐质量、team gate、token 策略、hook 安全状态和本机 Claude/Agent Agency 子智能体映射。它不安装 hook，不写 `.claude/settings.json`，也不读取 Claude 私人 transcript。
+
+### 第 4 步：预演 + 安装到 Claude Code
+
+```bash
+lazybrain hook plan   # 只预演，不写 settings
+lazybrain hook install
+
+# 显式全局安装（不推荐）
+# lazybrain hook install --global --yes
+```
+
+`hook install` 默认只写当前项目的 `.claude/settings.json`。全局安装必须显式加 `--yes`。
 
 从当前版本开始，`lazybrain hook install` 只安装：
 
@@ -134,7 +216,13 @@ lazybrain hook install
 
 它会自动清理旧版本残留的 LazyBrain `Stop` 注册，不再让 LazyBrain 参与 `running stop hooks`。
 
-从此以后，你在**当前记录的项目工作区里**使用 Claude Code/CLI 时，LazyBrain 就会自动帮你匹配工具：
+安装前会自动备份 LazyBrain 触达的配置。需要回滚时：
+
+```bash
+lazybrain hook rollback
+```
+
+安装后，你在**当前记录的项目工作区里**使用 Claude Code/CLI 时，LazyBrain 就会自动帮你匹配工具：
 
 ```
 你说: "帮我审查代码"
@@ -152,6 +240,34 @@ LazyBrain: → 推荐 /DevOps Automator (85%)
 
 你不需要记任何命令，**说话就行**。
 
+## 日常使用方式
+
+公开版推荐这样用：
+
+```bash
+lazybrain --version                  # 确认版本
+lazybrain scan                       # 刷新本地能力
+lazybrain compile --offline          # 无 API key 构建基础图谱
+lazybrain match "帮我审查这个 PR"      # 在终端测试推荐质量
+lazybrain ready                      # 检查图谱、hook、HUD、semantic 状态
+lazybrain server --daemon            # 启动本地 Lab
+lazybrain hook plan                  # 预览 hook 改动
+lazybrain hook install               # 安装 project scope hook
+```
+
+安装 hook 前，先用 Lab 直观看效果：
+
+```bash
+open http://127.0.0.1:18450/lab
+```
+
+如果安装后效果不符合预期，直接回滚：
+
+```bash
+lazybrain hook rollback
+lazybrain hook status
+```
+
 ## 它是怎么做到的？
 
 LazyBrain 有三个阶段，全自动运行：
@@ -163,12 +279,12 @@ LazyBrain 有三个阶段，全自动运行：
 ```
 
 **扫描 (scan)**：找到你电脑上所有的 Skill、Agent、命令
-**编译 (compile)**：AI 阅读每个工具的说明，生成标签和关系，建成一张"知识图谱"
+**编译 (compile)**：离线生成基础图谱；配置 LLM 后可生成更丰富的标签和关系
 **挂钩 (hook)**：装进 Claude Code，每次你输入时自动匹配
 
-## 匹配引擎：五层过滤
+## 匹配引擎：当前实现
 
-你输入一句话后，LazyBrain 会按顺序通过五层来找到最合适的工具：
+你输入一句话后，LazyBrain 会按顺序查找最合适的工具：
 
 ```
 你输入: "帮我审查这个 PR"
@@ -183,15 +299,7 @@ LazyBrain 有三个阶段，全自动运行：
                │ 没有
                ▼
 ┌──────────────────────────────────────────┐
-│  第 2 层：自动别名（学出来的）             │
-│  你每次说"审查"都选 /review-pr？          │
-│  那以后"审查"就自动跳过去                  │
-│  ⚡ 0ms，越用越快                        │
-└──────────────┬───────────────────────────┘
-               │ 没有
-               ▼
-┌──────────────────────────────────────────┐
-│  第 3 层：标签匹配                        │
+│  第 2 层：标签匹配                        │
 │  "审查" → 扩展为 ["review", "audit"]      │
 │  然后找带这些标签的工具                    │
 │  ⚡ <1ms，不需要网络                     │
@@ -199,24 +307,23 @@ LazyBrain 有三个阶段，全自动运行：
                │ 拿不准
                ▼
 ┌──────────────────────────────────────────┐
-│  第 4 层：语义向量                        │
-│  用 AI 把你的话变成向量，算相似度          │
-│  "审查代码" 和 "code-review" 语义很近     │
-│  ⚡ ~100ms，需要联网                     │
+│  第 3 层：语义向量（semantic/hybrid）      │
+│  需要 embedding 配置和缓存可用             │
+│  缓存缺失或过期时会降级并给 warning        │
 └──────────────┬───────────────────────────┘
                │ 还是拿不准
                ▼
 ┌──────────────────────────────────────────┐
-│  第 5 层：AI 秘书                        │
+│  第 4 层：AI 秘书（Claude hook 内）        │
 │  让 AI 再想一遍："用户到底想要什么？"      │
-│  只在前四层都不确定时才启动                │
+│  只在 hook 低置信路径启动                 │
 │  ⚡ ~2s，需要联网                        │
 └──────────────────────────────────────────┘
 ```
 
-**简单理解**：先看有没有快捷方式 → 再看关键词 → 再看语义 → 实在不行让 AI 帮忙想
+**简单理解**：先看手工别名 → 再看关键词 → 低置信时补语义 → hook 内再用 Secretary 判断。
 
-**离线也能用**：前 3 层不需要网络；联网后可以进一步借助更高层判断提升模糊查询质量。
+**离线也能用**：别名和 tag-layer 不需要网络；semantic/hybrid 需要 embedding 配置与缓存。
 
 ## 越用越聪明：四种进化能力
 
@@ -229,11 +336,11 @@ LazyBrain 不只是帮你找工具，它会从你的使用习惯中学习：
 下次再说 "审查代码" → /wiki 排名自动下降
 ```
 
-**2. 自动别名** — 重复的选择变成快捷方式
+**2. 自动别名（规划中）** — 重复的选择变成快捷方式
 
 ```
 你说 "审查代码" → 选了 /code-review → 连续 3 次
-下次 "审查代码" → 直接跳到 /code-review，零延迟
+后续版本会把稳定重复选择提升为快捷方式
 ```
 
 **3. 标签进化** — 从你的搜索中学新词
@@ -307,32 +414,109 @@ LazyBrain: "通常审查完会重构，要不要用 /refactor-clean？"
 | `lazybrain list` | 列出所有工具 |
 | `lazybrain wiki` | 生成本地 wiki 目录与索引 |
 | `lazybrain stats` | 图谱统计 |
+| `lazybrain ready` | 检查是否可安全安装或使用 |
+| `lazybrain server --daemon` | 启动本地 API 和 Lab 页面 |
 | `lazybrain suggest-aliases` | 查看建议的快捷方式 |
 | `lazybrain evolve` | 从使用中学习新标签 |
 | `lazybrain evolve --dry-run` | 预览学习结果（不实际修改） |
 | `lazybrain evolve --rollback` | 撤销上次学习 |
+| `lazybrain hook plan` | 预演 Hook 安装，不写文件 |
 | `lazybrain hook install` | 安装 Hook（默认 project scope） |
+| `lazybrain hook install --global --yes` | 显式确认后全局安装 |
+| `lazybrain hook rollback` | 回滚最近一次 LazyBrain hook 安装 |
 | `lazybrain hook uninstall` | 卸载 |
 | `lazybrain hook status` | 检查 LazyBrain 是否仍参与 `Stop` |
 | `lazybrain hook ps` | 查看当前活跃 hook |
 | `lazybrain hook clean` | 清理失效 runtime 记录 |
 | `lazybrain doctor` | 诊断 LazyBrain 运行状态 |
 | `lazybrain doctor --fix` | 修复 LazyBrain 自身状态漂移 |
+| `lazybrain doctor --all` | 同时检查 project/global，不执行修复 |
 | `lazybrain config list` | 查看配置 |
 | `lazybrain config set <键> <值>` | 修改配置 |
+
+## Lab：非安装式可视化测试
+
+```bash
+lazybrain server --daemon
+open http://127.0.0.1:18450/lab
+```
+
+Lab 用内置样例检查匹配质量、team gate、token 策略、hook 安全状态和 Claude/Agent Agency 子智能体映射；不会安装 hook，也不会写 `.claude/settings.json`。
+
+Lab API：
+
+- `GET /lab`：本地无依赖页面
+- `GET /lab/fixtures`：内置评估样例
+- `GET /lab/agents`：只返回本机 agent metadata：名称、描述、scope、source、model、tools
+- `POST /lab/evaluate`：返回 match、team 建议、runtime adapters、token 策略、hook readiness 和 warnings
+
+agent inventory 不返回 agent 正文，也不读取 Claude 私人 transcript。
 
 ## Hook 安全模型
 
 - `lazybrain hook install` 默认是 **project scope**
+- `lazybrain hook plan` 只预演，不写 `.claude/settings.json` 或 `~/.lazybrain/*`
+- `lazybrain hook install` 会先创建 LazyBrain 备份，再写入配置
+- `lazybrain hook rollback` 只恢复 LazyBrain 自动备份过的文件
+- `lazybrain hook install --global` 必须加 `--yes`
 - LazyBrain 只会在记录的项目根目录下工作
 - 其他 cwd 的调用会直接 no-op 跳过
 - `Stop` 仍然不属于产品生命周期
+- 默认不覆盖第三方 HUD；如需同时显示，使用 `lazybrain hook install --statusline`
 - `doctor --fix` 只修 LazyBrain 自身状态：
   - 规范化 hook 注册
   - 清理 stale runtime 记录
   - 清除 breaker 状态
   - 在已有 metadata 前提下修复 install metadata
 - `doctor --fix` 不会自动修改第三方插件，也不会改系统服务
+- `doctor --all --fix` 被禁用，避免一次性误改多个 scope
+
+## 卸载与回滚
+
+```bash
+lazybrain hook uninstall
+lazybrain hook rollback
+lazybrain hook rollback --to <timestamp>
+```
+
+rollback 只恢复 LazyBrain 自动备份过的文件，不删除第三方 hook 文件。
+
+## 默认不会做什么
+
+- 不默认安装全局 hook
+- 不参与 `Stop`
+- 不删除第三方 hook
+- 不覆盖第三方 HUD
+- 不在 `hook plan` 中写任何配置文件
+- 不在 semantic cache 缺失时假装 semantic 已启用
+
+## 常见问题与故障处理
+
+| 现象 | 先检查 | 处理方式 |
+|------|--------|----------|
+| `lazybrain ready` 提示 graph 缺失 | `~/.lazybrain/graph.json` 不存在 | 运行 `lazybrain scan && lazybrain compile --offline` |
+| Lab 页面打不开 | server 没启动或端口不对 | 运行 `lazybrain server --daemon`，打开 `http://127.0.0.1:18450/lab` |
+| Lab 没有 agent | 没找到可读 agent metadata | 在 `.claude/agents/` 或 `~/.claude/agents/` 放 agent，再刷新 Lab |
+| `hook plan` 因 LazyBrain 残留在 `Stop` 显示 `needs_attention` | 老版本 Hook 注册残留 | 先看 plan；`lazybrain hook install` 会清理 LazyBrain 自己的 `Stop` 残留 |
+| `hook install --global` 失败 | 全局安装需要显式确认 | 只有确认影响所有 Claude 项目时，才用 `lazybrain hook install --global --yes` |
+| hook 已安装但没有推荐 | workspace guard、graph 缺失或匹配置信度低 | 运行 `lazybrain ready`、`lazybrain hook status`，再用 `lazybrain match "<同一句话>"` 对照 |
+| 长时间无输出后 hook 像是卡住 | breaker 或 stale runtime record 可能存在 | 运行 `lazybrain hook ps`、`lazybrain hook clean`、`lazybrain ready` |
+| 已有第三方 HUD/statusline | LazyBrain 默认跳过 | 需要组合时用 `lazybrain hook install --statusline`；确认替换时才用 `--replace-statusline` |
+| semantic/hybrid 没效果 | embedding 配置或缓存缺失 | 配置 embedding 后重新编译；或者继续使用离线 tag-layer |
+| 某个 skill 没出现在结果里 | 路径或 metadata 不完整 | 确认有 `SKILL.md`，包含 `name` 或 `description`，然后运行 `lazybrain scan` |
+
+安全恢复命令：
+
+```bash
+lazybrain ready
+lazybrain hook status
+lazybrain hook ps
+lazybrain hook clean
+lazybrain hook rollback
+lazybrain doctor
+```
+
+`doctor --fix` 只修当前 scope 下 LazyBrain 自己的状态。`doctor --all --fix` 被禁用，避免误改全局。
 
 ## 启动回顾（SessionStart）
 
@@ -383,7 +567,7 @@ SessionStart: ℹ️ 无 LazyBrain 注册
 
 ## 配置
 
-第一次使用需要配置 API key（用于编译和语义匹配）：
+第一次使用可以先离线编译；需要 LLM 编译或 semantic/hybrid 时再配置 API key：
 
 ```bash
 # 必需：编译用 LLM
@@ -391,7 +575,7 @@ lazybrain config set compileApiBase https://api.siliconflow.cn/v1
 lazybrain config set compileApiKey  <你的key>
 lazybrain config set compileModel   Qwen/Qwen3-235B-A22B-Instruct-2507
 
-# 推荐：语义搜索
+# 可选：语义搜索。需要 embedding 配置和 graph.embeddings.* 缓存可用。
 lazybrain config set embeddingApiKey  <你的key>
 lazybrain config set embeddingApiBase https://api.siliconflow.cn/v1
 lazybrain config set embeddingModel   BAAI/bge-m3
@@ -409,6 +593,8 @@ lazybrain config set mode auto        # 静默自动注入
 推荐用 [SiliconFlow](https://siliconflow.cn)，注册送免费额度，bge-m3 embedding 免费用。
 
 配置文件位置：`~/.lazybrain/config.json`
+
+`lazybrain config show` 会对 API key 做脱敏展示。
 
 ## 数据都在哪？
 

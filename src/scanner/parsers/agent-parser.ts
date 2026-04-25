@@ -5,6 +5,7 @@
 import type { RawCapability } from '../../types.js';
 import { parseFrontmatter } from '../../utils/yaml.js';
 import { inferPlatformFromPath, inferSinglePlatformFromPath } from '../../constants.js';
+import { inferOrigin } from '../origin.js';
 
 /**
  * Extract first non-heading paragraph from body.
@@ -44,14 +45,10 @@ export function parseAgent(filePath: string, content: string): RawCapability | n
 
   if (!name) name = description.slice(0, 50);
 
-  let origin: string;
-  if (typeof frontmatter.origin === 'string' && frontmatter.origin) {
-    origin = frontmatter.origin;
-  } else if (filePath.includes('/ecc/')) {
-    origin = 'ECC';
-  } else {
-    origin = 'local';
-  }
+  const origin = inferOrigin(
+    filePath,
+    typeof frontmatter.origin === 'string' && frontmatter.origin ? frontmatter.origin : undefined,
+  );
 
   return {
     kind: 'agent',

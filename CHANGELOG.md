@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v1.2.0] - 2026-04-25
+
+### Added
+- Non-install LazyBrain Lab at `/lab` for visual recommendation testing, agent mapping, team gating, token strategy, and hook readiness.
+- Agent inventory scanner for project, user, and plugin agents using metadata only.
+- Trusted hook install workflow with dry-run plan, automatic backups, rollback, readiness checks, and global-install confirmation.
+- Advisory team model guidance, runtime adapters, and subagent prompt suggestions.
+
+### Changed
+- Documentation now recommends scan, offline compile, ready check, Lab preview, hook plan, then project-scoped install.
+- Hook docs now separate implemented behavior from planned capabilities and clarify semantic fallback behavior.
+- `lazybrain ready` now blocks when hook breaker state, hung records, or host load would make the hook fail closed.
+- README and README_CN now include v1.2.0 release positioning, skill/agent metadata coverage, daily usage, and troubleshooting guidance.
+
+### Security
+- Redact sensitive config values in CLI output.
+- Lab and hook plan responses avoid agent body text, Claude private transcripts, local home paths, and statusline secret parameters.
+- Project-scope runtime guard now canonicalizes symlinked workspace paths before comparing cwd.
+- Remove internal agent workflow protocol documents from the public repository.
+
+## [v1.1.0] - 2026-04-23
+
+### Added
+- Add baseline token cost calculation for accurate token savings in session statistics and dashboard.
+
 ## [v1.0.2] - 2026-04-20
 
 ### Added

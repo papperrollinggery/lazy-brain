@@ -5,7 +5,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
-import type { UserConfig } from '../types.js';
+import type { Platform, UserConfig } from '../types.js';
 import { CONFIG_PATH, DEFAULT_CONFIG } from '../constants.js';
 
 function ensureDir(path: string): void {
@@ -22,7 +22,13 @@ export function loadConfig(): UserConfig {
 
   try {
     const raw = JSON.parse(readFileSync(CONFIG_PATH, 'utf-8')) as Partial<UserConfig>;
-    return { ...DEFAULT_CONFIG, ...raw };
+    return {
+      ...DEFAULT_CONFIG,
+      ...raw,
+      platforms: { ...DEFAULT_CONFIG.platforms, ...(raw.platforms ?? {}) } as Record<Platform, boolean>,
+      governance: { ...DEFAULT_CONFIG.governance, ...(raw.governance ?? {}) } as NonNullable<UserConfig['governance']>,
+      hookSafety: { ...DEFAULT_CONFIG.hookSafety, ...(raw.hookSafety ?? {}) } as NonNullable<UserConfig['hookSafety']>,
+    };
   } catch {
     return JSON.parse(JSON.stringify(DEFAULT_CONFIG)) as UserConfig;
   }

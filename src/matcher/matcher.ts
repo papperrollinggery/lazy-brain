@@ -20,6 +20,7 @@ import type {
 import { MAX_RESULTS, HISTORY_BOOST_CAP } from '../constants.js';
 import { Graph } from '../graph/graph.js';
 import { tagMatch } from './tag-layer.js';
+import { semanticMatch } from './embedding-layer.js';
 import { detectDecisionType, buildDecisionRecommendation } from './decision-type.js';
 import { normalizeQuery } from '../utils/query-normalizer.js';
 
@@ -90,6 +91,17 @@ function fillExplanation(
   return { ...result, explanation };
 }
 
+function mergeMatchResults(primary: MatchResult[], secondary: MatchResult[]): MatchResult[] {
+  const byId = new Map<string, MatchResult>();
+  for (const result of [...primary, ...secondary]) {
+    const existing = byId.get(result.capability.id);
+    if (!existing || result.score > existing.score) {
+      byId.set(result.capability.id, result);
+    }
+  }
+  return [...byId.values()].sort((a, b) => b.score - a.score).slice(0, MAX_RESULTS);
+}
+
 export interface MatchOptions {
   graph: Graph;
   config: UserConfig;
@@ -131,10 +143,29 @@ export async function match(
   // ─── Layer 1: Tag + example query match ───────────────────────────────
   // Prefer tier 0+1 (current platform + universal), fallback to tier 2
   const primaryNodes = allNodes.filter(n => n.tier === undefined || n.tier <= 1);
-  let results = tagMatch(normalizedQuery, primaryNodes, platform, MAX_RESULTS);
+  const warnings: string[] = [];
+  const engine = config.engine ?? 'tag';
+  let results = engine === 'semantic'
+    ? []
+    : tagMatch(normalizedQuery, primaryNodes, platform, MAX_RESULTS);
+
+  if (engine === 'llm') {
+    warnings.push('LLM engine is only available inside the Claude hook Secretary fallback; CLI/server matching uses tag routing.');
+  }
+
+  if (engine === 'semantic' || engine === 'hybrid') {
+    const shouldRunSemantic = engine === 'semantic' || results.length < 3 || (results[0]?.score ?? 0) < 0.85;
+    if (shouldRunSemantic) {
+      const semantic = await semanticMatch(normalizedQuery, primaryNodes, config, platform, MAX_RESULTS);
+      warnings.push(...semantic.warnings);
+      results = engine === 'semantic'
+        ? semantic.results
+        : mergeMatchResults(results, semantic.results);
+    }
+  }
 
   // Fallback: if < 3 results, search tier 2 as well
-  if (results.length < 3) {
+  if (engine !== 'semantic' && results.length < 3) {
     const tier2Nodes = allNodes.filter(n => n.tier === 2);
     if (tier2Nodes.length > 0) {
       const tier2Results = tagMatch(normalizedQuery, tier2Nodes, platform, MAX_RESULTS);
@@ -177,7 +208,7 @@ export async function match(
   // ─── Build enriched recommendation via graph traversal ────────────────
   const withExplanation = results.map(r => fillExplanation(r, normalizedQuery, history));
   const sessionId = process.env.CLAUDE_SESSION_ID ?? 'unknown';
-  const rec = buildRecommendation(withExplanation, graph, platform, history, sessionId);
+  const rec = buildRecommendation(withExplanation, graph, platform, history, sessionId, warnings);
   if (decisionType && rec) {
     const hint = buildDecisionRecommendation(decisionType);
     if (hint) {
@@ -277,6 +308,7 @@ function buildRecommendation(
   platform?: Platform,
   history?: HistoryEntry[],
   sessionId?: string,
+  warnings: string[] = [],
 ): Recommendation {
   const comparisons: Recommendation['comparisons'] = [];
   const compositions: Recommendation['compositions'] = [];
@@ -300,7 +332,8 @@ function buildRecommendation(
     }
 
     // Find composable capabilities
-    const composeLinks = graph.getLinksByType(nodeId, 'composes_with');
+    const composeLinks = graph.getLinksByType(nodeId, 'composes_with')
+      .filter((link) => !link.description?.startsWith('同属 '));
     if (composeLinks.length > 0) {
       const companions = composeLinks
         .map(l => graph.getNode(l.target))
@@ -350,6 +383,7 @@ function buildRecommendation(
     compositions,
     upgrades,
     external: external.slice(0, 3),
+    ...(warnings.length > 0 ? { warnings: [...new Set(warnings)] } : {}),
     ...(nextSteps.length > 0 ? { nextSteps } : {}),
   };
 }
