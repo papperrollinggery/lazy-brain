@@ -79,4 +79,48 @@ describe('semantic match engine', () => {
     expect(result.matches[0].layer).toBe('semantic');
     expect(result.warnings).toBeUndefined();
   });
+
+  it('blocks semantic results when query vector dimension differs from cache', async () => {
+    const indexPath = join(tempDir, 'graph.embeddings.index.json');
+    const binPath = join(tempDir, 'graph.embeddings.bin');
+    writeFileSync(indexPath, JSON.stringify(['cap-a']), 'utf-8');
+    writeFileSync(binPath, Buffer.from(new Float32Array([1, 0]).buffer));
+
+    vi.doMock('../../src/constants.js', async () => {
+      const actual = await vi.importActual<any>('../../src/constants.js');
+      return {
+        ...actual,
+        EMBEDDINGS_INDEX_PATH: indexPath,
+        EMBEDDINGS_BIN_PATH: binPath,
+      };
+    });
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ data: [{ embedding: [1, 0, 0] }] }),
+    })));
+
+    const { Graph } = await import('../../src/graph/graph.js');
+    const { match } = await import('../../src/matcher/matcher.js');
+    const graph = new Graph();
+    graph.addNode(makeCap('cap-a', 'alpha'));
+
+    const config: UserConfig = {
+      aliases: {},
+      scanPaths: [],
+      mode: 'ask',
+      autoThreshold: 0.85,
+      engine: 'semantic',
+      strategy: 'ask',
+      embeddingApiBase: 'https://example.test/v1',
+      embeddingApiKey: 'test-key',
+      embeddingModel: 'test-embedding',
+      platform: 'claude-code',
+      platforms: {},
+    };
+
+    const result = await match('find alpha', { graph, config });
+
+    expect(result.matches).toHaveLength(0);
+    expect(result.warnings?.join('\n')).toContain('dimension mismatch');
+  });
 });

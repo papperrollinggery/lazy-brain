@@ -41,7 +41,7 @@ describe('hook lifecycle status', () => {
     }, {
       installState: {
         scope: 'project',
-        workspaceRoot: '/repo/lazy_user',
+        workspaceRoot: '/repo/lazybrain',
         hookCommand: 'node /tmp/lazybrain/dist/bin/hook.js',
         installedAt: '2026-04-20T00:00:00.000Z',
         statuslineMode: 'none',

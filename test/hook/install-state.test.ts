@@ -30,7 +30,7 @@ describe('hook install state', () => {
 
     mod.writeHookInstallState({
       scope: 'project',
-      workspaceRoot: '/repo/lazy_user',
+      workspaceRoot: '/repo/lazybrain',
       hookCommand: 'node /repo/dist/bin/hook.js',
       installedAt: '2026-04-20T00:00:00.000Z',
       statuslineMode: 'combined',
@@ -38,7 +38,7 @@ describe('hook install state', () => {
 
     const state = mod.readHookInstallState();
     expect(state?.scope).toBe('project');
-    expect(state?.workspaceRoot).toBe('/repo/lazy_user');
+    expect(state?.workspaceRoot).toBe('/repo/lazybrain');
     expect(state?.statuslineMode).toBe('combined');
   });
 
@@ -105,9 +105,9 @@ describe('hook install state', () => {
   it('checks cwd against project scope', async () => {
     const mod = await import('../../src/hook/install-state.js');
 
-    expect(mod.isWithinWorkspaceScope('/repo/lazy_user/src', {
+    expect(mod.isWithinWorkspaceScope('/repo/lazybrain/src', {
       scope: 'project',
-      workspaceRoot: '/repo/lazy_user',
+      workspaceRoot: '/repo/lazybrain',
       hookCommand: 'node hook.js',
       installedAt: '2026-04-20T00:00:00.000Z',
       statuslineMode: 'none',
@@ -115,13 +115,13 @@ describe('hook install state', () => {
 
     expect(mod.isWithinWorkspaceScope('/repo/other', {
       scope: 'project',
-      workspaceRoot: '/repo/lazy_user',
+      workspaceRoot: '/repo/lazybrain',
       hookCommand: 'node hook.js',
       installedAt: '2026-04-20T00:00:00.000Z',
       statuslineMode: 'none',
     })).toBe(false);
 
-    expect(mod.isWithinWorkspaceScope('/repo/lazy_user', null)).toBe(false);
+    expect(mod.isWithinWorkspaceScope('/repo/lazybrain', null)).toBe(false);
   });
 
   it('treats symlinked workspace paths as the same project', async () => {

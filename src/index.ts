@@ -27,6 +27,9 @@ export type {
 
 export type { LabCase, LabMode } from './lab/fixtures.js';
 export type { AgentInventoryEntry, AgentScope } from './lab/agent-inventory.js';
+export type { ApiTestReport, ApiTestResult, ApiTestTarget } from './health/api-test.js';
+export type { EmbeddingCacheState, EmbeddingCacheStatus } from './embeddings/cache.js';
+export type { EmbeddingRebuildResult } from './embeddings/rebuild.js';
 export type {
   AgentMapping,
   LabEvaluation,

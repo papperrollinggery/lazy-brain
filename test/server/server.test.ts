@@ -92,6 +92,59 @@ describe('GET /health', () => {
     expect(body.version).toBe('0.1.0-test');
     expect(body.graphSize).toBe(2);
   });
+
+  it('keeps /api/health compatible', async () => {
+    const { status, body } = await req('GET', '/api/health');
+    expect(status).toBe(200);
+    expect(body.version).toBe('0.1.0-test');
+  });
+});
+
+describe('GUI routes', () => {
+  it('serves the Overview UI at / and /ui', async () => {
+    for (const path of ['/', '/ui']) {
+      const res = await fetch(`${baseUrl}${path}`);
+      const text = await res.text();
+      expect(res.status).toBe(200);
+      expect(res.headers.get('content-type')).toContain('text/html');
+      expect(text).toContain('LazyBrain');
+      expect(text).toContain('Try Router');
+    }
+  });
+
+  it('returns stable /api/status schema', async () => {
+    const { status, body } = await req('GET', '/api/status');
+    expect(status).toBe(200);
+    expect(body).toHaveProperty('version');
+    expect(body).toHaveProperty('readiness');
+    expect(body).toHaveProperty('graph');
+    expect(body).toHaveProperty('routing');
+    expect(body).toHaveProperty('embedding');
+    expect(body).toHaveProperty('hook');
+    expect(body).toHaveProperty('agents');
+    expect(body).toHaveProperty('server');
+    expect(body.config).not.toHaveProperty('compileApiKey');
+  });
+
+  it('reports embedding status through the GUI API', async () => {
+    const { status, body } = await req('GET', '/api/embeddings/status');
+    expect(status).toBe(200);
+    expect(body).toHaveProperty('state');
+    expect(body).toHaveProperty('coverage');
+  });
+
+  it('requires explicit confirmation for GUI embedding rebuild', async () => {
+    const { status, body } = await req('POST', '/api/embeddings/rebuild', {});
+    expect(status).toBe(400);
+    expect(body.error).toContain('confirm');
+  });
+
+  it('runs API tests only when explicitly requested', async () => {
+    const { status, body } = await req('POST', '/api/test', { targets: ['compile'] });
+    expect(status).toBe(200);
+    expect(body).toHaveProperty('results');
+    expect(body.results[0].target).toBe('compile');
+  });
 });
 
 describe('Lab routes', () => {
@@ -153,6 +206,17 @@ describe('POST /match', () => {
       body: 'not-json',
     });
     expect(res.status).toBe(400);
+  });
+});
+
+describe('API aliases', () => {
+  it('keeps /api/match and /api/team compatible', async () => {
+    const matchRes = await req('POST', '/api/match', { query: 'python code review' });
+    const teamRes = await req('POST', '/api/team', { query: 'build a web app' });
+    expect(matchRes.status).toBe(200);
+    expect(Array.isArray(matchRes.body.matches)).toBe(true);
+    expect(teamRes.status).toBe(200);
+    expect(Array.isArray(teamRes.body.members)).toBe(true);
   });
 });
 
@@ -226,6 +290,22 @@ describe('GET /search', () => {
     const { status, body } = await req('GET', '/search');
     expect(status).toBe(200);
     expect(body).toEqual([]);
+  });
+});
+
+describe('GET /api/search', () => {
+  it('keeps search API alias compatible', async () => {
+    const { status, body } = await req('GET', '/api/search?q=python');
+    expect(status).toBe(200);
+    expect(body[0].name).toBe('python-patterns');
+    expect(body[0]).toHaveProperty('embeddingCovered');
+  });
+
+  it('supports Skill DB filters', async () => {
+    const { status, body } = await req('GET', '/api/search?kind=agent&category=code-quality');
+    expect(status).toBe(200);
+    expect(body).toHaveLength(1);
+    expect(body[0].name).toBe('code-reviewer');
   });
 });
 

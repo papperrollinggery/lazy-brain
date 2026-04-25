@@ -67,6 +67,12 @@ import { buildHookPlan, formatHookPlan } from '../src/hook/plan.js';
 import { createHookBackup, findHookBackup, restoreHookBackup } from '../src/hook/backup.js';
 import { evaluateReady } from '../src/hook/readiness.js';
 import type { HookInstallScope, HookStatuslineMode } from '../src/hook/types.js';
+import { getPackageVersion } from '../src/version.js';
+import { redactConfig, isSensitiveConfigKey } from '../src/config/redaction.js';
+import { runApiTests, type ApiTestTarget } from '../src/health/api-test.js';
+import { getEmbeddingCacheStatus } from '../src/embeddings/cache.js';
+import { rebuildEmbeddingCache } from '../src/embeddings/rebuild.js';
+import { buildStatusReport } from '../src/server/status.js';
 
 const args = process.argv.slice(2);
 const cmd = args[0];
@@ -223,6 +229,18 @@ async function main() {
     case 'server':
       await cmdServer();
       break;
+    case 'ui':
+      await cmdUi();
+      break;
+    case 'api':
+      await cmdApi();
+      break;
+    case 'embeddings':
+      await cmdEmbeddings();
+      break;
+    case 'home':
+      cmdHome(args.includes('--json'));
+      break;
     case 'report':
       cmdReport();
       break;
@@ -231,12 +249,14 @@ async function main() {
       break;
     case '--version':
     case '-v':
-      console.log('lazybrain 1.0.2');
+      console.log(`lazybrain ${getPackageVersion()}`);
       break;
     case '--help':
     case '-h':
-    case undefined:
       printHelp();
+      break;
+    case undefined:
+      cmdHome(false);
       break;
     default:
       // Treat unknown non-flag args as implicit match
@@ -1203,19 +1223,6 @@ function cmdConfig() {
   }
 }
 
-function redactConfig(config: UserConfig): UserConfig {
-  return JSON.parse(JSON.stringify(config, (key, value) => {
-    if (isSensitiveConfigKey(key) && typeof value === 'string') {
-      return value ? '<redacted>' : value;
-    }
-    return value;
-  })) as UserConfig;
-}
-
-function isSensitiveConfigKey(key: string): boolean {
-  return /(apiKey|token|secretKey|password)$/i.test(key);
-}
-
 // ─── Wiki ─────────────────────────────────────────────────────────────────
 
 function cmdDistill() {
@@ -1429,7 +1436,7 @@ function cmdHook() {
     const normalized = command.replace(/\\/g, '/');
     return normalized.includes(statuslineScript.replace(/\\/g, '/')) ||
       normalized.includes(combinedStatuslineScript.replace(/\\/g, '/')) ||
-      /(?:lazy[-_]?brain|lazy_user).*\/(?:dist\/)?bin\/statusline(?:-combined)?\.js\b/.test(normalized);
+      /lazy[-_]?brain.*\/(?:dist\/)?bin\/statusline(?:-combined)?\.js\b/.test(normalized);
   };
   const isLazyBrainCommand = (command: unknown): command is string => (
     typeof command === 'string' &&
@@ -1974,6 +1981,134 @@ function cmdReady() {
   }
 }
 
+// ─── Home / API / Embeddings / UI ─────────────────────────────────────────
+
+function statusLabel(ok: boolean, warn = false): string {
+  if (!ok) return 'BLOCKED';
+  return warn ? 'WARN' : 'OK';
+}
+
+function cmdHome(asJson: boolean): void {
+  const config = loadConfig();
+  const graph = Graph.load(GRAPH_PATH);
+  const status = buildStatusReport(graph, config);
+  if (asJson) {
+    console.log(JSON.stringify(status, null, 2));
+    return;
+  }
+
+  const graphInfo = status.graph as { nodes: number };
+  const readiness = status.readiness as { state: string; blockers: string[]; warnings: string[] };
+  const embedding = status.embedding as { state: string; covered: number; active: number };
+  const routing = status.routing as { engine: string; apiConfigured: { compile: boolean; secretary: boolean; embedding: boolean } };
+  const hook = status.hook as { scopes: Array<{ scope: string; installed: boolean; stopClean: boolean }>; breakerOpen: boolean; hungRuns: number };
+  const server = status.server as { running: boolean; url: string };
+  const agents = status.agents as { total: number; available: number };
+  const projectHook = hook.scopes.find(scope => scope.scope === 'project');
+  const hookOk = Boolean(projectHook?.stopClean) && !hook.breakerOpen && hook.hungRuns === 0;
+  const apiOk = routing.apiConfigured.compile && routing.apiConfigured.secretary && routing.apiConfigured.embedding;
+
+  console.log(`LazyBrain v${getPackageVersion()}\n`);
+  console.log(`Graph        ${statusLabel(graphInfo.nodes > 0)}     ${graphInfo.nodes} capabilities`);
+  console.log(`Hook         ${statusLabel(hookOk, !projectHook?.installed)}     ${projectHook?.installed ? 'project installed' : 'not installed'} | ${projectHook?.stopClean ? 'Stop clean' : 'Stop dirty'}`);
+  console.log(`LLM/API      ${statusLabel(apiOk, !apiOk)}     compile ${routing.apiConfigured.compile ? 'configured' : 'missing'} | secretary ${routing.apiConfigured.secretary ? 'configured' : 'missing'}`);
+  console.log(`Embedding    ${statusLabel(embedding.state === 'ok', embedding.state !== 'missing' && embedding.state !== 'invalid')}     ${embedding.state.toUpperCase()} | ${embedding.covered}/${embedding.active} covered`);
+  console.log(`Server       ${server.running ? 'OK' : 'IDLE'}     ${server.running ? server.url : 'lazybrain ui'}`);
+  console.log(`Agents       ${agents.total > 0 ? 'OK' : 'WARN'}     ${agents.available}/${agents.total} available\n`);
+
+  const next: string[] = [];
+  if (readiness.state !== 'READY') next.push('lazybrain ready');
+  if (!apiOk) next.push('lazybrain api test');
+  if (embedding.state !== 'ok') next.push('lazybrain embeddings status');
+  if (!server.running) next.push('lazybrain ui');
+  if (next.length === 0) next.push('lazybrain match "<query>"');
+  console.log('Next:');
+  next.slice(0, 4).forEach((item, index) => console.log(`  ${index + 1}. ${item}`));
+  if (readiness.blockers.length > 0) {
+    console.log('\nBlockers:');
+    readiness.blockers.slice(0, 4).forEach(blocker => console.log(`  - ${blocker}`));
+  } else if (readiness.warnings.length > 0) {
+    console.log('\nWarnings:');
+    readiness.warnings.slice(0, 4).forEach(warning => console.log(`  - ${warning}`));
+  }
+}
+
+function selectedApiTargets(): ApiTestTarget[] {
+  const targets: ApiTestTarget[] = [];
+  if (args.includes('--compile')) targets.push('compile');
+  if (args.includes('--secretary')) targets.push('secretary');
+  if (args.includes('--embedding')) targets.push('embedding');
+  return targets.length > 0 ? targets : ['compile', 'secretary', 'embedding'];
+}
+
+async function cmdApi(): Promise<void> {
+  const sub = args[1];
+  if (sub !== 'test') {
+    console.error('Usage: lazybrain api test [--json] [--compile|--secretary|--embedding]');
+    process.exit(1);
+  }
+  const config = loadConfig();
+  const report = await runApiTests(config, selectedApiTargets());
+  if (args.includes('--json')) {
+    console.log(JSON.stringify(report, null, 2));
+    return;
+  }
+  console.log(`API health: ${report.ok ? 'OK' : 'BLOCKED'}`);
+  for (const result of report.results) {
+    const state = result.ok ? 'OK' : result.configured ? 'ERROR' : 'MISSING';
+    const detail = result.ok
+      ? `${result.model ?? ''}${result.dim ? ` dim=${result.dim}` : ''}`
+      : result.error ?? 'unknown error';
+    console.log(`  ${result.target.padEnd(9)} ${state.padEnd(7)} ${result.apiBase ?? '(no base)'} ${detail}`);
+  }
+}
+
+function cmdEmbeddingsStatus(asJson: boolean): void {
+  const graph = Graph.load(GRAPH_PATH);
+  const status = getEmbeddingCacheStatus(graph.getAllNodes());
+  if (asJson) {
+    console.log(JSON.stringify(status, null, 2));
+    return;
+  }
+  console.log(`Embedding cache: ${status.state.toUpperCase()}`);
+  console.log(`  Indexed: ${status.indexed}`);
+  console.log(`  Active: ${status.active}`);
+  console.log(`  Covered: ${status.covered}/${status.active}`);
+  console.log(`  Coverage: ${Math.round(status.coverage * 100)}%`);
+  console.log(`  Dimension: ${status.dim ?? '(unknown)'}`);
+  console.log(`  Message: ${status.message}`);
+}
+
+async function cmdEmbeddings(): Promise<void> {
+  const sub = args[1] ?? 'status';
+  const asJson = args.includes('--json');
+  if (sub === 'status') {
+    cmdEmbeddingsStatus(asJson);
+    return;
+  }
+  if (sub === 'rebuild') {
+    if (!args.includes('--yes')) {
+      console.error('Embedding rebuild writes ~/.lazybrain/graph.embeddings.*. Re-run with --yes to confirm.');
+      process.exit(1);
+    }
+    const graph = Graph.load(GRAPH_PATH);
+    const result = await rebuildEmbeddingCache(graph.getAllNodes(), loadConfig());
+    if (asJson) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      console.log(`Embedding rebuild: ${result.ok ? 'OK' : 'FAILED'}`);
+      console.log(`  Indexed: ${result.indexed}`);
+      console.log(`  Dimension: ${result.dim || '(unknown)'}`);
+      console.log(`  Status: ${result.status.state}`);
+      if (result.error) console.log(`  Error: ${result.error}`);
+    }
+    if (!result.ok) process.exit(1);
+    return;
+  }
+  console.error('Usage: lazybrain embeddings [status|rebuild --yes] [--json]');
+  process.exit(1);
+}
+
 // ─── Server ───────────────────────────────────────────────────────────────
 
 async function cmdServer() {
@@ -2036,6 +2171,43 @@ async function cmdServer() {
 
   // Keep process alive
   await new Promise<void>(() => {});
+}
+
+async function cmdUi(): Promise<void> {
+  const sub = args[1];
+  if (sub === 'status') {
+    if (isServerRunning()) {
+      console.log(`UI is available at http://127.0.0.1:${getServerPort()}/ (pid ${getServerPid()})`);
+    } else {
+      console.log('UI server is not running.');
+    }
+    return;
+  }
+  if (sub === 'stop') {
+    args.splice(0, args.length, 'server', 'stop');
+    await cmdServer();
+    return;
+  }
+
+  const portIdx = args.indexOf('--port');
+  const requestedPort = portIdx !== -1 ? parseInt(args[portIdx + 1], 10) : DEFAULT_PORT;
+  const port = isServerRunning() ? getServerPort() : requestedPort;
+  if (!isServerRunning()) {
+    const child = spawn(process.execPath, [process.argv[1], 'server', '--port', String(port)], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    child.unref();
+  }
+  const url = `http://127.0.0.1:${port}/`;
+  console.log(`LazyBrain UI: ${url}`);
+  if (!args.includes('--no-open')) {
+    try {
+      if (process.platform === 'darwin') {
+        spawn('open', [url], { detached: true, stdio: 'ignore' }).unref();
+      }
+    } catch {}
+  }
 }
 
 function cmdReport() {
@@ -2134,9 +2306,14 @@ Usage:
   lazybrain server                   Start HTTP API server (foreground)
   lazybrain server --daemon          Start HTTP API server (background)
   lazybrain server --port <n>        Custom port (default: 18450)
+  lazybrain ui [--no-open]           Start local Web GUI
+  lazybrain ui status|stop           Check or stop local Web GUI
   LazyBrain Lab                      Open http://127.0.0.1:18450/lab after starting server
   lazybrain server stop              Stop background server
   lazybrain server status            Check server status
+  lazybrain api test [--json]        Test configured LLM/embedding APIs explicitly
+  lazybrain embeddings status        Show embedding cache coverage
+  lazybrain embeddings rebuild --yes Rebuild embedding cache atomically
   lazybrain ready                    Check graph, hook, HUD, and semantic readiness
   lazybrain hook plan                Preview hook install changes without writing files
   lazybrain hook install             Install project-scoped Claude Code hook

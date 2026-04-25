@@ -16,6 +16,8 @@ CLAUDE.md
 AGENTS.md
 docs/HANDOFF.md
 docs/contingency-minimax-down.md
+docs/IRI-*.md
+docs/iri-2/
 
 # Test coverage
 coverage/
@@ -43,4 +45,3 @@ scripts/check-budget.sh
 
 # Local workflow doc (user-facing, but not for public repo — keep local)
 HOW_TO_WORK_WITH_TRAE.md
-

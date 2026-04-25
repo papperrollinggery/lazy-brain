@@ -19,9 +19,9 @@
 
 ## 当前版本
 
-当前版本：**v1.2.0**
+当前版本：**v1.3.0**
 
-发布定位：**公开安全 beta 版**。这一版适合做本地可信评估、非安装式推荐测试、project-scoped Claude Code hook 安装。Hook 安全链路已经适合公开 beta；推荐质量、semantic cache 覆盖、自动别名提升仍在继续优化。
+发布定位：**带本地 GUI 和审核门禁的公开安全 beta 版**。这一版适合做本地可信评估、非安装式推荐测试、project-scoped Claude Code hook 安装，以及单人维护下的发布审核。Hook 安全和回滚链路可用于公开 beta；推荐质量、semantic 覆盖、自动别名提升仍在继续优化。
 
 ## 项目概览
 
@@ -74,8 +74,7 @@ LazyBrain: → /review-pr (92%) | /critic (78%) | /santa-loop (71%)
 lazybrain scan
 lazybrain compile --offline
 lazybrain ready
-lazybrain server --daemon
-open http://127.0.0.1:18450/lab
+lazybrain ui
 lazybrain hook plan
 lazybrain hook install
 ```
@@ -88,6 +87,7 @@ lazybrain hook install
 - 全局安装必须显式使用 `lazybrain hook install --global --yes`
 - LazyBrain 不把 `Stop` 当作产品生命周期
 - 默认保留第三方 hook 和 HUD/statusline
+- GUI v1 不直接安装 hook，只显示状态、预演和 CLI 回退命令
 
 ## 什么会被当成技能 / Agent / Capability
 
@@ -192,8 +192,9 @@ lazybrain compile --offline  # 无 API key 也能先用 tag-layer
 
 ```bash
 lazybrain ready       # 检查图谱、hook、HUD、semantic 配置
-lazybrain server --daemon
-open http://127.0.0.1:18450/lab
+lazybrain ui          # 打开 http://127.0.0.1:18450/
+# lazybrain ui --no-open
+# open http://127.0.0.1:18450/lab
 ```
 
 Lab 会用内置样例检查推荐质量、team gate、token 策略、hook 安全状态和本机 Claude/Agent Agency 子智能体映射。它不安装 hook，不写 `.claude/settings.json`，也不读取 Claude 私人 transcript。
@@ -250,14 +251,15 @@ lazybrain scan                       # 刷新本地能力
 lazybrain compile --offline          # 无 API key 构建基础图谱
 lazybrain match "帮我审查这个 PR"      # 在终端测试推荐质量
 lazybrain ready                      # 检查图谱、hook、HUD、semantic 状态
-lazybrain server --daemon            # 启动本地 Lab
+lazybrain ui                         # 启动本地 GUI
 lazybrain hook plan                  # 预览 hook 改动
 lazybrain hook install               # 安装 project scope hook
 ```
 
-安装 hook 前，先用 Lab 直观看效果：
+安装 hook 前，先用 GUI/Lab 直观看效果：
 
 ```bash
+lazybrain ui
 open http://127.0.0.1:18450/lab
 ```
 
@@ -415,7 +417,14 @@ LazyBrain: "通常审查完会重构，要不要用 /refactor-clean？"
 | `lazybrain wiki` | 生成本地 wiki 目录与索引 |
 | `lazybrain stats` | 图谱统计 |
 | `lazybrain ready` | 检查是否可安全安装或使用 |
-| `lazybrain server --daemon` | 启动本地 API 和 Lab 页面 |
+| `lazybrain ui` | 启动本地 Web GUI |
+| `lazybrain ui --no-open` | 启动 GUI 但不自动打开浏览器 |
+| `lazybrain ui status` | 查看 GUI/server 状态 |
+| `lazybrain ui stop` | 停止 GUI/server |
+| `lazybrain server --daemon` | 直接启动本地 API server |
+| `lazybrain api test` | 显式测试 LLM/embedding API |
+| `lazybrain embeddings status` | 查看 embedding cache 覆盖情况 |
+| `lazybrain embeddings rebuild --yes` | 原子重建 embedding cache |
 | `lazybrain suggest-aliases` | 查看建议的快捷方式 |
 | `lazybrain evolve` | 从使用中学习新标签 |
 | `lazybrain evolve --dry-run` | 预览学习结果（不实际修改） |
@@ -431,8 +440,28 @@ LazyBrain: "通常审查完会重构，要不要用 /refactor-clean？"
 | `lazybrain doctor` | 诊断 LazyBrain 运行状态 |
 | `lazybrain doctor --fix` | 修复 LazyBrain 自身状态漂移 |
 | `lazybrain doctor --all` | 同时检查 project/global，不执行修复 |
-| `lazybrain config list` | 查看配置 |
+| `lazybrain config show` | 查看脱敏配置 |
 | `lazybrain config set <键> <值>` | 修改配置 |
+
+## 本地 Web GUI
+
+```bash
+lazybrain ui
+lazybrain ui --no-open
+lazybrain ui --port 18451
+lazybrain ui status
+lazybrain ui stop
+```
+
+GUI 入口：
+
+- `GET /` 和 `GET /ui`：本地状态首页
+- `GET /lab`：非安装式推荐 Lab
+- `GET /api/status`：readiness、图谱、路由、hook、API、embedding、agent、server 状态
+- `POST /api/test`：用户点击后才显式测试外部 API
+- `POST /api/embeddings/rebuild`：必须带 `{ "confirm": "rebuild" }`
+
+GUI v1 是状态型界面：不读取 Claude transcript，不返回 agent 正文，不安装 hook，不写 `.claude/settings.json`。
 
 ## Lab：非安装式可视化测试
 
@@ -495,14 +524,15 @@ rollback 只恢复 LazyBrain 自动备份过的文件，不删除第三方 hook 
 | 现象 | 先检查 | 处理方式 |
 |------|--------|----------|
 | `lazybrain ready` 提示 graph 缺失 | `~/.lazybrain/graph.json` 不存在 | 运行 `lazybrain scan && lazybrain compile --offline` |
-| Lab 页面打不开 | server 没启动或端口不对 | 运行 `lazybrain server --daemon`，打开 `http://127.0.0.1:18450/lab` |
+| GUI 或 Lab 页面打不开 | server 没启动或端口不对 | 运行 `lazybrain ui`，或 `lazybrain ui --port 18451` |
 | Lab 没有 agent | 没找到可读 agent metadata | 在 `.claude/agents/` 或 `~/.claude/agents/` 放 agent，再刷新 Lab |
 | `hook plan` 因 LazyBrain 残留在 `Stop` 显示 `needs_attention` | 老版本 Hook 注册残留 | 先看 plan；`lazybrain hook install` 会清理 LazyBrain 自己的 `Stop` 残留 |
 | `hook install --global` 失败 | 全局安装需要显式确认 | 只有确认影响所有 Claude 项目时，才用 `lazybrain hook install --global --yes` |
 | hook 已安装但没有推荐 | workspace guard、graph 缺失或匹配置信度低 | 运行 `lazybrain ready`、`lazybrain hook status`，再用 `lazybrain match "<同一句话>"` 对照 |
 | 长时间无输出后 hook 像是卡住 | breaker 或 stale runtime record 可能存在 | 运行 `lazybrain hook ps`、`lazybrain hook clean`、`lazybrain ready` |
 | 已有第三方 HUD/statusline | LazyBrain 默认跳过 | 需要组合时用 `lazybrain hook install --statusline`；确认替换时才用 `--replace-statusline` |
-| semantic/hybrid 没效果 | embedding 配置或缓存缺失 | 配置 embedding 后重新编译；或者继续使用离线 tag-layer |
+| `lazybrain api test` 返回 401 | API key 无效，或 base/model 不接受当前 key | 重新设置对应 `...ApiKey` 后再运行 `lazybrain api test` |
+| semantic/hybrid 没效果 | embedding 配置缺失、cache 过期或维度不一致 | 先运行 `lazybrain embeddings status`；确认配置正确后运行 `lazybrain embeddings rebuild --yes` |
 | 某个 skill 没出现在结果里 | 路径或 metadata 不完整 | 确认有 `SKILL.md`，包含 `name` 或 `description`，然后运行 `lazybrain scan` |
 
 安全恢复命令：
@@ -514,9 +544,30 @@ lazybrain hook ps
 lazybrain hook clean
 lazybrain hook rollback
 lazybrain doctor
+lazybrain api test
+lazybrain embeddings status
 ```
 
 `doctor --fix` 只修当前 scope 下 LazyBrain 自己的状态。`doctor --all --fix` 被禁用，避免误改全局。
+
+## 发布与审核门禁
+
+发布 PR 前必须本地跑：
+
+```bash
+npm ci
+npm run build
+npm test
+npm run lint
+npm run audit:public
+npm pack --dry-run --json
+```
+
+GitHub 必需检查只依赖稳定聚合 check：`Test`。它覆盖 Node 18/20/22、package dry-run、公开隐私扫描、版本一致性、hook 重点测试和 Lab/server smoke。
+
+公开 npm 包只包含 `dist`、`README.md`、`README_CN.md`、`CHANGELOG.md`、`LICENSE` 和 package metadata。npm 发布只通过 GitHub Release workflow。
+
+可选 Codex 审查流程见 [`docs/REVIEW.md`](docs/REVIEW.md)。
 
 ## 启动回顾（SessionStart）
 
@@ -580,6 +631,9 @@ lazybrain config set embeddingApiKey  <你的key>
 lazybrain config set embeddingApiBase https://api.siliconflow.cn/v1
 lazybrain config set embeddingModel   BAAI/bge-m3
 lazybrain config set engine           hybrid
+lazybrain api test                    # 显式测试外部 API
+lazybrain embeddings status           # 只读查看 cache 覆盖
+lazybrain embeddings rebuild --yes    # 写入 ~/.lazybrain/graph.embeddings.*
 
 # 可选：AI 秘书
 lazybrain config set secretaryApiKey  <你的key>
