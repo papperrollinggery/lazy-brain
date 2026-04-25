@@ -33,7 +33,7 @@ export interface CapabilityMeta {
 // ─── Skill Schema (Frontmatter Extension) ──────────────────────────────────
 
 export type RouteTarget = 'generic' | 'claude' | 'codex' | 'cursor';
-export type RouteMode = 'route_plan' | 'needs_clarification';
+export type RouteMode = 'route_plan' | 'needs_clarification' | 'no_route_needed';
 
 export interface WorkflowStep {
   id?: string;
@@ -283,12 +283,24 @@ export interface RouteAdapterPayload {
   prompt: string;
 }
 
+export interface RouteTokenStrategy {
+  topKSkills: number;
+  includeFullSkillBody: boolean;
+  suggestSubagents: boolean;
+  shouldClarifyFirst: boolean;
+  contextBudget: 'minimal' | 'focused' | 'expanded';
+  summary: string;
+}
+
 export interface RouteSpec {
+  schemaVersion: string;
   query: string;
   target: RouteTarget;
   mode: RouteMode;
   intent: string;
   scenario: string;
+  whyRoute: string;
+  mustCallLazyBrainReason?: string;
   combo?: string;
   skills: RouteSkillRef[];
   executionPlan: WorkflowStep[];
@@ -296,6 +308,7 @@ export interface RouteSpec {
   guardrails: GuardrailRule[];
   verification: VerificationRequirement[];
   doneWhen: string[];
+  tokenStrategy: RouteTokenStrategy;
   adapters: {
     generic: RouteAdapterPayload;
     claude?: RouteAdapterPayload;

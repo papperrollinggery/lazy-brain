@@ -150,8 +150,16 @@ export const UI_HTML = `<!doctype html>
     const cls = v => v === 'READY' || v === 'ok' || v === 'OK' ? 'ok' : v === 'NOT_READY' || v === 'blocked' || v === 'missing' || v === 'invalid' ? 'bad' : 'warn';
     function routeText(route) {
       if (!route) return 'No route plan yet.';
-      const lines = ['Route Plan: ' + route.intent, 'Mode: ' + route.mode, 'Scenario: ' + route.scenario];
+      const lines = ['Route Plan: ' + route.intent, 'Schema: ' + (route.schemaVersion || ''), 'Mode: ' + route.mode, 'Scenario: ' + route.scenario];
+      if (route.whyRoute) lines.push('Why: ' + route.whyRoute);
       if (route.combo) lines.push('Combo: ' + route.combo);
+      if (route.tokenStrategy) {
+        lines.push('', 'Token strategy:');
+        lines.push('  - Top-K skills: ' + route.tokenStrategy.topKSkills);
+        lines.push('  - Full skill body: ' + (route.tokenStrategy.includeFullSkillBody ? 'yes' : 'no'));
+        lines.push('  - Clarify first: ' + (route.tokenStrategy.shouldClarifyFirst ? 'yes' : 'no'));
+        lines.push('  - ' + route.tokenStrategy.summary);
+      }
       if (route.warnings?.length) lines.push('', 'Warnings:', ...route.warnings.map(w => '  - ' + w));
       if (route.clarificationQuestions?.length) lines.push('', 'Clarify first:', ...route.clarificationQuestions.map(q => '  - ' + q));
       if (route.skills?.length) lines.push('', 'Use:', ...route.skills.map(s => '  - ' + s.name + ' [' + (s.available ? 'available' : 'missing') + ']'));

@@ -14,6 +14,7 @@ import type {
   RouteSkillRef,
   RouteSpec,
   RouteTarget,
+  RouteTokenStrategy,
   SkillSchema,
   UserConfig,
   UserProfile,
@@ -24,6 +25,7 @@ import { Graph } from '../graph/graph.js';
 import { match } from '../matcher/matcher.js';
 import { findCombo, type ComboTemplate } from '../combos/registry.js';
 import { getVerificationBundle } from '../verification/catalog.js';
+import { classifyRouteNeed } from './route-gate.js';
 
 export interface BuildRouteSpecOptions {
   graph: Graph;
@@ -34,6 +36,7 @@ export interface BuildRouteSpecOptions {
 }
 
 const TARGETS: RouteTarget[] = ['generic', 'claude', 'codex', 'cursor'];
+export const ROUTE_SPEC_SCHEMA_VERSION = '1.4.5';
 
 export function isRouteTarget(value: string): value is RouteTarget {
   return TARGETS.includes(value as RouteTarget);
@@ -79,6 +82,14 @@ function resolveCapabilityByName(graph: Graph, name: string): Capability | undef
     graph.getAllNodes().find(node => node.name.toLowerCase().includes(lower));
 }
 
+function compactReason(value: string | undefined, max = 220): string | undefined {
+  if (!value) return undefined;
+  const firstBlock = value.split(/\n\s*\n/)[0] ?? value;
+  const normalized = firstBlock.replace(/\s+/g, ' ').trim();
+  if (!normalized) return undefined;
+  return normalized.length > max ? normalized.slice(0, max - 3).trimEnd() + '...' : normalized;
+}
+
 function toSkillRef(cap: Capability, result?: Recommendation['matches'][number], reason?: string): RouteSkillRef {
   return {
     id: cap.id,
@@ -89,7 +100,7 @@ function toSkillRef(cap: Capability, result?: Recommendation['matches'][number],
     available: true,
     score: result?.score,
     layer: result?.layer,
-    reason: reason ?? result?.explanation ?? cap.scenario ?? cap.description,
+    reason: compactReason(reason ?? result?.explanation ?? cap.scenario ?? cap.description),
   };
 }
 
@@ -181,7 +192,13 @@ function adapterPrompt(spec: Omit<RouteSpec, 'adapters'>, target: RouteTarget): 
     `Intent: ${spec.intent}`,
     `Scenario: ${spec.scenario}`,
     `Mode: ${spec.mode}`,
+    `Why route: ${spec.whyRoute}`,
   ];
+
+  lines.push('', 'Token strategy:');
+  lines.push(`- Top-K skills: ${spec.tokenStrategy.topKSkills}`);
+  lines.push(`- Full skill body: ${spec.tokenStrategy.includeFullSkillBody ? 'yes' : 'no'}`);
+  lines.push(`- Context budget: ${spec.tokenStrategy.contextBudget}`);
 
   if (spec.skills.length > 0) {
     lines.push('', 'Use:');
@@ -239,13 +256,72 @@ function buildAdapters(spec: Omit<RouteSpec, 'adapters'>): RouteSpec['adapters']
 
 function needsClarification(query: string, rec: Recommendation, combo?: ComboTemplate): boolean {
   if (combo) return false;
+  if (classifyRouteNeed(query).mode === 'needs_clarification') return true;
   if (isVagueQuery(query)) return true;
   if (rec.matches.length === 0) return true;
   return (rec.matches[0]?.score ?? 0) < 0.22;
 }
 
+function shouldSuggestSubagents(query: string, combo?: ComboTemplate): boolean {
+  return /\b(team|subagent|multi-agent|parallel|agents?)\b|智能体|子智能体|团队|并行|审查|评审/iu.test(query) ||
+    combo?.id === 'code_review_regression' ||
+    combo?.id === 'release_public_audit';
+}
+
+function tokenStrategyFor(input: {
+  mode: RouteSpec['mode'];
+  skills: RouteSkillRef[];
+  query: string;
+  combo?: ComboTemplate;
+}): RouteTokenStrategy {
+  const shouldClarifyFirst = input.mode === 'needs_clarification';
+  const suggestSubagents = input.mode === 'route_plan' && shouldSuggestSubagents(input.query, input.combo);
+  const topKSkills = input.mode === 'route_plan' ? Math.min(3, input.skills.length) : 0;
+  const contextBudget: RouteTokenStrategy['contextBudget'] = input.mode === 'no_route_needed'
+    ? 'minimal'
+    : input.combo
+      ? 'focused'
+      : 'focused';
+  return {
+    topKSkills,
+    includeFullSkillBody: false,
+    suggestSubagents,
+    shouldClarifyFirst,
+    contextBudget,
+    summary: shouldClarifyFirst
+      ? 'Clarify before loading skill context.'
+      : input.mode === 'no_route_needed'
+        ? 'Handle directly; no skill body should be loaded.'
+        : `Load only ${topKSkills} compact skill card${topKSkills === 1 ? '' : 's'} plus verification guidance.`,
+  };
+}
+
 export async function buildRouteSpec(query: string, options: BuildRouteSpecOptions): Promise<RouteSpec> {
   const target = options.target ?? 'generic';
+  const gate = classifyRouteNeed(query);
+  if (gate.mode === 'no_route_needed') {
+    const partial: Omit<RouteSpec, 'adapters'> = {
+      schemaVersion: ROUTE_SPEC_SCHEMA_VERSION,
+      query,
+      target,
+      mode: 'no_route_needed',
+      intent: 'Handle directly',
+      scenario: 'The request appears small enough that a route plan would add overhead.',
+      whyRoute: gate.reason,
+      skills: [],
+      executionPlan: [],
+      contextNeeded: [],
+      guardrails: [
+        { title: 'Do not load skill bodies for tiny direct tasks', strength: 'light', source: 'fallback' },
+      ],
+      verification: [],
+      doneWhen: ['The direct answer or tiny edit is complete.'],
+      tokenStrategy: tokenStrategyFor({ mode: 'no_route_needed', skills: [], query }),
+      warnings: [],
+    };
+    return { ...partial, adapters: buildAdapters(partial) };
+  }
+
   const rec = await match(query, {
     graph: options.graph,
     config: options.config,
@@ -262,11 +338,14 @@ export async function buildRouteSpec(query: string, options: BuildRouteSpecOptio
 
   if (needsClarification(query, rec, combo)) {
     const partial: Omit<RouteSpec, 'adapters'> = {
+      schemaVersion: ROUTE_SPEC_SCHEMA_VERSION,
       query,
       target,
       mode: 'needs_clarification',
       intent: 'Clarify task before routing',
       scenario: 'The request is too broad or low-confidence for a reliable skill chain.',
+      whyRoute: gate.reason,
+      mustCallLazyBrainReason: 'Clarification should happen before the main model spends context on a guessed skill chain.',
       skills: [],
       executionPlan: [],
       contextNeeded: [],
@@ -275,6 +354,7 @@ export async function buildRouteSpec(query: string, options: BuildRouteSpecOptio
       ],
       verification: [],
       doneWhen: ['The user or main model has clarified the target output and verification method.'],
+      tokenStrategy: tokenStrategyFor({ mode: 'needs_clarification', skills: [], query, combo }),
       warnings,
       clarificationQuestions: clarificationQuestions(query),
     };
@@ -306,11 +386,16 @@ export async function buildRouteSpec(query: string, options: BuildRouteSpecOptio
   );
 
   const partial: Omit<RouteSpec, 'adapters'> = {
+    schemaVersion: ROUTE_SPEC_SCHEMA_VERSION,
     query,
     target,
     mode: 'route_plan',
     intent: combo?.title ?? top?.name ?? 'Route task',
     scenario: combo?.description ?? top?.scenario ?? top?.description ?? 'Advisory route plan',
+    whyRoute: combo
+      ? `Matched built-in combo ${combo.id}; compact routing can reduce context and attach verification.`
+      : gate.reason,
+    mustCallLazyBrainReason: 'Use LazyBrain when routing skills, agents, verification, or context reduction can materially help.',
     combo: combo?.id,
     skills,
     executionPlan: workflow,
@@ -318,6 +403,7 @@ export async function buildRouteSpec(query: string, options: BuildRouteSpecOptio
     guardrails,
     verification,
     doneWhen,
+    tokenStrategy: tokenStrategyFor({ mode: 'route_plan', skills, query, combo }),
     warnings,
   };
 
@@ -327,10 +413,19 @@ export async function buildRouteSpec(query: string, options: BuildRouteSpecOptio
 export function formatRouteSpec(spec: RouteSpec): string {
   const lines = [
     `Route Plan: ${spec.intent}`,
+    `Schema: ${spec.schemaVersion}`,
     `Mode: ${spec.mode}`,
     `Scenario: ${spec.scenario}`,
+    `Why: ${spec.whyRoute}`,
   ];
   if (spec.combo) lines.push(`Combo: ${spec.combo}`);
+
+  lines.push('', 'Token strategy:');
+  lines.push(`  - Top-K skills: ${spec.tokenStrategy.topKSkills}`);
+  lines.push(`  - Full skill body: ${spec.tokenStrategy.includeFullSkillBody ? 'yes' : 'no'}`);
+  lines.push(`  - Subagents: ${spec.tokenStrategy.suggestSubagents ? 'suggested' : 'not needed by default'}`);
+  lines.push(`  - Clarify first: ${spec.tokenStrategy.shouldClarifyFirst ? 'yes' : 'no'}`);
+  lines.push(`  - ${spec.tokenStrategy.summary}`);
 
   if (spec.warnings.length > 0) {
     lines.push('', 'Warnings:');

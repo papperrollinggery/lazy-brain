@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v1.4.5] - 2026-04-26
+
+### Added
+- `RouteSpec` schema version, `no_route_needed` mode, `tokenStrategy`, and route rationale fields for stable cross-surface routing.
+- `lazybrain prompt "<query>" --target claude|codex|cursor|generic` with explicit `--copy` clipboard support.
+- Read-only MCP stdio server via `lazybrain mcp --stdio`, exposing `lazybrain.route`, `lazybrain.search`, `lazybrain.skill_card`, and `lazybrain.combos`.
+- Privacy-preserving route counters through `lazybrain route stats`.
+- `lazybrain hook status --json` for runtime diagnostics including skip reason, breaker state, active/hung runs, and p95 duration.
+
+### Changed
+- The default Claude hook is now a tiny gate: it performs a fast complexity/vagueness/risk check and injects only a short reminder to call `lazybrain.route`.
+- `/api/route` now uses the same history/profile inputs as CLI routing and enforces query/body size limits.
+- Public docs now position MCP and prompt output as the main low-intrusion route surfaces, with hook as a reminder gate.
+
+### Security
+- MCP tools are read-only, do not execute skills, do not install hooks, do not return agent bodies, and do not read transcripts.
+- Hook route telemetry stores only hashes and compact metadata, not raw prompts.
+
 ## [v1.4.0] - 2026-04-25
 
 ### Added

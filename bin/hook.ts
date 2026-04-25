@@ -39,6 +39,8 @@ import { evaluatePolicy, isHeavyModeQuery, formatGovernanceInjection } from '../
 import { isMetaPrompt } from '../src/utils/meta-prompt.js';
 import { beginHookRun, finishHookRun } from '../src/hook/runtime.js';
 import type { HookRunRecord } from '../src/hook/types.js';
+import { classifyRouteNeed } from '../src/orchestrator/route-gate.js';
+import { recordRouteEvent } from '../src/orchestrator/route-events.js';
 
 // ─── Server HTTP Client (optional fast path) ─────────────────────────────────
 
@@ -384,6 +386,28 @@ let _currentRun: HookRunRecord | null = null;
 let _currentRunStartedAt = 0;
 let _hookConfig: ReturnType<typeof loadConfig> | null = null;
 
+const TINY_GATE_PROMPT = 'Consider calling lazybrain.route for skill routing, context reduction, and verification planning.';
+
+function runTinyGate(prompt: string): void {
+  const decision = classifyRouteNeed(prompt);
+  recordRouteEvent({
+    query: prompt,
+    source: 'hook-gate',
+    mode: decision.mode,
+    warnings: decision.mode === 'needs_clarification' ? ['needs_clarification'] : [],
+  });
+
+  if (!decision.shouldCallLazyBrain) {
+    output({ continue: true });
+    return;
+  }
+
+  output({
+    continue: true,
+    additionalSystemPrompt: TINY_GATE_PROMPT,
+  });
+}
+
 async function main() {
   process.env.LAZYBRAIN_HOOK = '1';
   let input: HookInput = {};
@@ -400,6 +424,10 @@ async function main() {
 
   // ─── Stop Hook: legacy compatibility only ─────────────────────────────
   if (input.hook_event_name === 'Stop') {
+    output({ continue: true });
+    return;
+  }
+  if (input.hook_event_name && input.hook_event_name !== 'UserPromptSubmit') {
     output({ continue: true });
     return;
   }
@@ -438,6 +466,15 @@ async function main() {
   const prompt = input.prompt?.trim();
   if (!prompt || prompt.length < 3) {
     output({ continue: true });
+    return;
+  }
+
+  if (process.env.LAZYBRAIN_LEGACY_HOOK !== '1') {
+    if (isMetaPrompt(prompt) || !existsSync(GRAPH_PATH)) {
+      output({ continue: true });
+      return;
+    }
+    runTinyGate(prompt);
     return;
   }
 
