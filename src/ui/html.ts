@@ -400,7 +400,14 @@ export const UI_HTML = `<!doctype html>
       .config-label { min-width: 70px; }
       .config-input { min-width: 100px; }
     }
+    /* ─── Graph Visualization ──────────────────────────────── */
+    #graphContainer { width: 100%; height: 520px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); position: relative; overflow: hidden; }
+    #graphContainer canvas { border-radius: var(--radius-sm); }
+    .graph-legend { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 10px; font-size: 12px; color: var(--text-2); }
+    .graph-legend span { display: inline-flex; align-items: center; gap: 5px; }
+    .graph-legend .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
   </style>
+  <script src="https://unpkg.com/cytoscape@3.30.4/dist/cytoscape.min.js"></script>
 </head>
 <body>
   <div class="topbar">
@@ -473,7 +480,25 @@ export const UI_HTML = `<!doctype html>
       </div>
     </div>
 
-    <!-- Section D: API 配置 (collapsible, default NOT collapsed) -->
+    <!-- Section D: 图谱可视化 -->
+    <div class="section collapsed" id="graphSection">
+      <div class="section-header" onclick="toggleSection(this)">
+        <h3>图谱可视化</h3>
+        <span class="text-3" style="font-size:13px">交互式能力关系图，可拖拽缩放</span>
+        <span class="collapse-arrow">&#9660;</span>
+      </div>
+      <div class="section-body">
+        <div id="graphContainer"></div>
+        <div class="graph-legend">
+          <span><span class="dot" style="background:#3b82f6"></span> Skill</span>
+          <span><span class="dot" style="background:#8b5cf6"></span> Agent</span>
+          <span><span class="dot" style="background:#10b981"></span> Command</span>
+          <span style="margin-left:8px">连线: ― similar_to  ═ composes_with  -·-· supersedes  → depends_on</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section E: API 配置 (collapsible, default NOT collapsed) -->
     <div class="section" id="configSection">
       <div class="section-header" onclick="toggleSection(this)">
         <h3>API 配置</h3>
@@ -552,6 +577,9 @@ export const UI_HTML = `<!doctype html>
     // ─── Section toggle ──────────────────────────────────────────
     function toggleSection(header) {
       header.parentElement.classList.toggle('collapsed');
+      if (header.parentElement.id === 'graphSection' && !header.parentElement.classList.contains('collapsed')) {
+        setTimeout(renderGraph, 100);
+      }
     }
 
     // ─── Toast ───────────────────────────────────────────────────
@@ -744,7 +772,9 @@ export const UI_HTML = `<!doctype html>
         renderConfig();
         renderHero();
         renderStats();
+        renderConfig();
         renderDiagnostics();
+        renderGraph();
         renderSetup();
         renderAdvanced();
       }).catch(function(e) {
@@ -842,6 +872,50 @@ export const UI_HTML = `<!doctype html>
       }
 
       content.innerHTML = html;
+    }
+
+    // ─── Graph Visualization ────────────────────────────────────
+    var _cy = null;
+    function renderGraph() {
+      var container = $('graphContainer');
+      if (!container || container.offsetParent === null) return; // hidden
+      if (_cy) { _cy.destroy(); _cy = null; }
+      if (typeof cytoscape === 'undefined') return;
+
+      var KIND_COLORS = { skill: '#3b82f6', agent: '#8b5cf6', command: '#10b981', mode: '#f59e0b', hook: '#ef4444' };
+      var EDGE_STYLES = { similar_to: 'solid', composes_with: 'dashed', depends_on: 'dotted', supersedes: 'dotted', belongs_to: 'solid' };
+
+      api('/api/graph?limit=150').then(function(data) {
+        if (!data || !data.nodes) return;
+        var nodes = data.nodes.map(function(n) { return { data: { id: n.id, label: n.name, kind: n.kind, category: n.category } }; });
+        var edges = (data.edges || []).map(function(e) { return { data: { id: e.source + '_' + e.target + '_' + e.type, source: e.source, target: e.target, type: e.type, confidence: e.confidence } }; });
+
+        _cy = cytoscape({
+          container: container,
+          elements: { nodes: nodes, edges: edges },
+          style: [
+            { selector: 'node', style: { 'label': 'data(label)', 'font-size': '10px', 'text-valign': 'center', 'text-halign': 'center', 'color': 'var(--text)', 'background-color': function(e) { return KIND_COLORS[e.data('kind')] || '#94a3b8'; }, 'width': 18, 'height': 18, 'border-width': 1, 'border-color': 'var(--border)', 'border-opacity': 0.6 } },
+            { selector: 'edge', style: { 'width': 1.2, 'line-color': '#94a3b8', 'line-style': function(e) { return EDGE_STYLES[e.data('type')] || 'solid'; }, 'target-arrow-shape': 'triangle', 'target-arrow-color': '#94a3b8', 'arrow-scale': 0.6, 'opacity': 0.5, 'curve-style': 'bezier' } },
+            { selector: 'edge[type="composes_with"]', style: { 'width': 2, 'line-color': '#6366f1', 'target-arrow-color': '#6366f1', 'opacity': 0.7 } },
+            { selector: 'edge[type="depends_on"]', style: { 'line-color': '#f59e0b', 'target-arrow-color': '#f59e0b', 'opacity': 0.6 } },
+            { selector: ':selected', style: { 'border-color': '#ef4444', 'border-width': 2, 'border-opacity': 1 } },
+          ],
+          layout: { name: 'cose', animate: false, nodeRepulsion: function() { return 8000; }, idealEdgeLength: function() { return 60; }, gravity: 0.3, numIter: 2000, initialTemp: 200, coolingFactor: 0.95 },
+          minZoom: 0.15, maxZoom: 3,
+          wheelSensitivity: 0.3,
+        });
+
+        _cy.on('tap', 'node', function(evt) {
+          var node = evt.target;
+          _cy.elements().removeClass('highlighted');
+          node.addClass('highlighted');
+          node.connectedEdges().addClass('highlighted');
+          node.connectedEdges().connectedNodes().addClass('highlighted');
+        });
+        _cy.on('tap', function(evt) {
+          if (evt.target === _cy) { _cy.elements().removeClass('highlighted'); }
+        });
+      }).catch(function() {});
     }
 
     // ─── Diagnostics ─────────────────────────────────────────────
