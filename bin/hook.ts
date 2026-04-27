@@ -474,9 +474,12 @@ function runTinyGate(prompt: string): void {
       if (topMatches.length > 0) {
         const lang = detectLang(prompt);
         const injection = formatMatchInjection(topMatches, lang, decision.mode);
+        writeLastMatch(topMatches[0].name, topMatches[0].score, 0, 'matched');
         output({ continue: true, additionalSystemPrompt: injection });
         return;
       }
+      // No good matches — still record the attempt
+      writeLastMatch(null, 0, 0, 'low_score');
     }
   } catch (err) {
     if (process.env.LAZYBRAIN_DEBUG_HOOK === '1') {
@@ -484,6 +487,7 @@ function runTinyGate(prompt: string): void {
     }
   }
 
+  writeLastMatch(null, 0, 0, 'skipped');
   output({
     continue: true,
     additionalSystemPrompt: TINY_GATE_PROMPT,
