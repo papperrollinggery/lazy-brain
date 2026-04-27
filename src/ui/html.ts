@@ -262,6 +262,13 @@ export const UI_HTML = `<!doctype html>
       font: inherit; font-size: 14px; background: var(--bg); color: var(--text);
     }
     .config-input:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 2px var(--brand-light); }
+    .config-textarea {
+      flex: 1; min-width: 200px; max-width: 100%;
+      padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+      font: 13px/1.4 var(--font-mono); background: var(--bg); color: var(--text);
+      resize: vertical;
+    }
+    .config-textarea:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 2px var(--brand-light); }
     .config-select {
       flex: 1; min-width: 120px;
       padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm);
@@ -504,6 +511,11 @@ export const UI_HTML = `<!doctype html>
       <div class="section-header" onclick="toggleSection(this)">
         <h3>API 配置</h3>
         <span class="text-3" style="font-size:13px">管理 LLM、Embedding 和路由设置</span>
+        <div style="display:flex;gap:8px;margin-left:auto" onclick="event.stopPropagation()">
+          <span id="compileStatus" class="text-3" style="font-size:12px;align-self:center"></span>
+          <button class="btn btn-sm" id="compileBtn" style="font-size:12px">编译图谱</button>
+          <button class="btn btn-sm" id="scanBtn" style="font-size:12px">重新扫描</button>
+        </div>
         <span class="collapse-arrow">&#9660;</span>
       </div>
       <div class="section-body" id="configContent">
@@ -823,6 +835,14 @@ export const UI_HTML = `<!doctype html>
             { name: 'strategy', label: '路由策略', type: 'select', pw: false, options: ['auto', 'ask', 'recommend'] },
           ],
         },
+        {
+          title: '编译提示词 (Compile Prompts)',
+          fields: [
+            { name: 'compileSystemPrompt', label: 'System Prompt', type: 'textarea', pw: false, placeholder: 'LLM 系统提示词，控制输出格式' },
+            { name: 'compileTagPrompt', label: '标签提示词', type: 'textarea', pw: false, placeholder: '标签生成模板，可用变量: \${name}, \${kind}, \${description}' },
+            { name: 'compileRelationPrompt', label: '关系提示词', type: 'textarea', pw: false, placeholder: '关系推理模板，可用变量: \${cap.name}, \${cap.description}, \${neighbors}' },
+          ],
+        },
       ];
 
       var html = '';
@@ -847,6 +867,8 @@ export const UI_HTML = `<!doctype html>
                 html += '<option value="' + esc(opt) + '"' + (val === opt ? ' selected' : '') + '>' + esc(opt) + '</option>';
               }
               html += '</select>';
+            } else if (field.type === 'textarea') {
+              html += '<textarea id="' + inputId + '" class="config-textarea" placeholder="' + esc(field.placeholder || '') + '" rows="4">' + esc(val) + '</textarea>';
             } else if (field.pw) {
               html += '<input id="' + inputId + '" type="text" class="config-input" placeholder="输入新的 API Key（留空不修改）" />';
             } else {
@@ -859,6 +881,9 @@ export const UI_HTML = `<!doctype html>
           } else {
             if (field.pw && val) {
               html += '<span class="config-value">' + maskKey(val) + '</span>';
+            } else if (field.type === 'textarea' && val) {
+              var firstLine = val.split('\n')[0].slice(0, 80);
+              html += '<span class="config-value config-prompt-value" title="' + esc(val.slice(0, 500)) + '">' + esc(firstLine) + (val.length > 80 ? '...' : '') + '</span>';
             } else if (val) {
               html += '<span class="config-value" title="' + esc(val) + '">' + esc(val) + '</span>';
             } else {
@@ -1171,6 +1196,41 @@ export const UI_HTML = `<!doctype html>
       else if (btn.classList.contains('config-save-btn')) saveConfig(key);
       else if (btn.classList.contains('config-cancel-btn')) cancelConfig(key);
     });
+
+    // ─── Compile / Scan buttons ─────────────────────────────────
+    var _compilePollTimer = null;
+    function startCompile() {
+      $('compileBtn').disabled = true;
+      $('compileStatus').textContent = '启动中...';
+      api('/api/compile', { method: 'POST' }).then(function(res) {
+        if (res.ok) pollCompile();
+        else showToast('编译失败: ' + esc(res.error), 'error');
+        $('compileBtn').disabled = false;
+      }).catch(function(e) {
+        showToast('编译失败: ' + esc(e.message), 'error');
+        $('compileBtn').disabled = false;
+      });
+    }
+    function pollCompile() {
+      api('/api/compile/status', { method: 'GET' }).then(function(s) {
+        $('compileStatus').textContent = s.phase || (s.running ? '运行中...' : '');
+        if (s.running) {
+          _compilePollTimer = setTimeout(pollCompile, 2000);
+        } else {
+          $('compileStatus').textContent = s.exitCode === 0 ? '✓ 编译完成' : '✗ 编译失败';
+          setTimeout(function() { $('compileStatus').textContent = ''; }, 8000);
+          load(); // Refresh all data
+        }
+      });
+    }
+    function startScan() {
+      $('scanBtn').disabled = true;
+      $('compileStatus').textContent = '扫描中...';
+      // Scan is server-side via spawning lazybrain scan
+      api('/api/compile', { method: 'POST' }).then(function() { pollCompile(); $('scanBtn').disabled = false; });
+    }
+    $('compileBtn').onclick = startCompile;
+    $('scanBtn').onclick = startScan;
 
     async function load() {
       state.configEditing = {};

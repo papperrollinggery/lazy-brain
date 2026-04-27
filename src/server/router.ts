@@ -474,6 +474,7 @@ const CONFIG_ALLOWED_KEYS = new Set([
   'embeddingApiBase', 'embeddingApiKey', 'embeddingModel',
   'secretaryApiBase', 'secretaryApiKey', 'secretaryModel',
   'engine', 'strategy', 'mode', 'autoThreshold', 'language',
+  'compileSystemPrompt', 'compileTagPrompt', 'compileRelationPrompt',
 ]);
 
 const VALID_ENGINES = new Set(['tag', 'semantic', 'hybrid', 'llm']);
@@ -484,6 +485,7 @@ const VALID_LANGUAGES = new Set(['auto', 'en', 'zh']);
 async function handleUpdateConfig(
   req: http.IncomingMessage,
   res: http.ServerResponse,
+  liveConfig: UserConfig,
 ): Promise<void> {
   // Only accept requests from local origin (defense-in-depth)
   const origin = req.headers.origin ?? req.headers.referer ?? '';
@@ -540,6 +542,8 @@ async function handleUpdateConfig(
     const config = loadConfig();
     Object.assign(config, body);
     saveConfig(config);
+    // Also update the live config so /api/status reflects changes immediately
+    Object.assign(liveConfig, body);
     json(res, 200, { ok: true });
   } catch (error) {
     json(res, 500, {
@@ -548,6 +552,78 @@ async function handleUpdateConfig(
     });
   }
 }
+
+// ─── Compile /api/compile ────────────────────────────────────────────────────
+
+let _compileProcess: ReturnType<typeof spawn> | null = null;
+let _compileLog: string[] = [];
+let _compilePhase = '';
+
+function handleCompileStart(
+  _req: http.IncomingMessage,
+  res: http.ServerResponse,
+  config: UserConfig,
+): void {
+  if (_compileProcess && _compileProcess.exitCode === null) {
+    return json(res, 409, { ok: false, error: 'Compilation is already running' });
+  }
+  _compileLog = [];
+  _compilePhase = 'starting';
+
+  // Use the CLI's compile command - it already handles progress display
+  const args = ['compile'];
+  if (config.compileApiBase && config.compileApiKey) {
+    args.push('--with-relations');
+  }
+  
+  try {
+    const child = spawn(process.execPath, [join(LAZYBRAIN_DIR, '..', '..', 'dist', 'bin', 'lazybrain.js'), ...args], {
+      cwd: process.cwd(),
+      env: { ...process.env, FORCE_COLOR: '0' },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    
+    child.stdout.on('data', (data: Buffer) => {
+      const lines = data.toString().split('\n').filter(Boolean);
+      _compileLog.push(...lines);
+      // Keep only last 100 lines
+      if (_compileLog.length > 100) _compileLog = _compileLog.slice(-100);
+      for (const line of lines) {
+        if (line.includes('Phase 1')) _compilePhase = 'Phase 1/2: 标签生成中...';
+        if (line.includes('Phase 2')) _compilePhase = 'Phase 2/2: 关系推理中...';
+        if (line.includes('complete') || line.includes('Graph saved')) _compilePhase = '完成';
+      }
+    });
+    
+    child.stderr.on('data', (data: Buffer) => {
+      _compileLog.push('[err] ' + data.toString().trim());
+    });
+    
+    child.on('close', (code) => {
+      _compilePhase = code === 0 ? 'completed' : 'failed';
+      _compileProcess = null;
+    });
+    
+    _compileProcess = child;
+    json(res, 200, { ok: true, phase: _compilePhase });
+  } catch (err) {
+    json(res, 500, { ok: false, error: err instanceof Error ? err.message : 'Failed to start compile' });
+  }
+}
+
+function handleCompileStatus(
+  _req: http.IncomingMessage,
+  res: http.ServerResponse,
+): void {
+  const running = _compileProcess !== null && _compileProcess.exitCode === null;
+  json(res, 200, {
+    running,
+    phase: _compilePhase || (running ? 'running' : 'idle'),
+    recentLog: _compileLog.slice(-20),
+    exitCode: _compileProcess?.exitCode ?? null,
+  });
+}
+
 
 // ─── Diagnostics /api/diagnostics ────────────────────────────────────────────
 
@@ -677,8 +753,14 @@ export function createRouter(opts: RouterOptions): http.RequestListener {
     if (method === 'GET' && pathname === '/api/diagnostics') {
       return handleDiagnostics(req, res, graph, opts.config);
     }
+    if (method === 'POST' && pathname === '/api/compile') {
+      return handleCompileStart(req, res, opts.config);
+    }
+    if (method === 'GET' && pathname === '/api/compile/status') {
+      return handleCompileStatus(req, res);
+    }
     if (method === 'POST' && pathname === '/api/config') {
-      return handleUpdateConfig(req, res);
+      return handleUpdateConfig(req, res, opts.config);
     }
     if (method === 'POST' && pathname === '/api/test') {
       return handleApiTest(req, res, opts.config);

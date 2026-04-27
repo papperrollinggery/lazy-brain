@@ -29,9 +29,13 @@ export function makeCapabilityId(kind: string, name: string, origin: string, pla
 
 // ─── LLM Prompt Templates ────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `You are a capability classifier for AI coding agent tools.
+const DEFAULT_SYSTEM_PROMPT = `You are a capability classifier for AI coding agent tools.
 Given a tool's name and description, generate structured metadata.
 Always respond in valid JSON. No markdown, no explanation, no thinking process.`;
+
+function getSystemPrompt(config?: { compileSystemPrompt?: string }): string {
+  return config?.compileSystemPrompt || DEFAULT_SYSTEM_PROMPT;
+}
 
 function makeTagPrompt(cap: RawCapability): string {
   return `Analyze this AI coding agent capability and generate metadata.
@@ -191,7 +195,7 @@ export async function compile(
 
       try {
         const prompt = makeTagPrompt(raw);
-        const response = await llm.complete(prompt, SYSTEM_PROMPT);
+        const response = await llm.complete(prompt, getSystemPrompt(options.config));
         totalTokens.input += response.inputTokens;
         totalTokens.output += response.outputTokens;
 
@@ -297,11 +301,12 @@ export async function compile(
 
         if (candidates.length === 0) return [];
 
-        const prompt = makeRelationPrompt(
+        const relPromptFn = options.config?.compileRelationPrompt ? (function(c, neighbors) { return options.config!.compileRelationPrompt!.replace(/\$\{cap\.name\}/g, c.name).replace(/\$\{cap\.description\}/g, c.description).replace(/\$\{neighbors\}/g, neighbors.map(function(n) { return '- ' + n.name + ': ' + n.description; }).join('\n')); }) : makeRelationPrompt;
+        const prompt = relPromptFn(
           { kind: node.kind, name: node.name, description: node.description, origin: node.origin, filePath: node.filePath ?? '', compatibility: node.compatibility, triggers: node.triggers },
           candidates.map(c => ({ name: c.name, description: c.description })),
         );
-        const response = await llm.complete(prompt, SYSTEM_PROMPT);
+        const response = await llm.complete(prompt, getSystemPrompt(options.config));
         totalTokens.input += response.inputTokens;
         totalTokens.output += response.outputTokens;
 
