@@ -18,12 +18,9 @@ describe('simplifyUpstreamHud', () => {
 });
 
 describe('isLowSignalLazyBrainLabel', () => {
-  it('treats 已跳过 as low signal', () => {
-    expect(isLowSignalLazyBrainLabel('🧠 0秒前 已跳过')).toBe(true);
-  });
-
-  it('treats 待机中 as low signal', () => {
-    expect(isLowSignalLazyBrainLabel('🧠 待机中')).toBe(true);
+  it('always returns false so dormant labels remain visible in combined HUD', () => {
+    expect(isLowSignalLazyBrainLabel('🧠 0秒前 已跳过')).toBe(false);
+    expect(isLowSignalLazyBrainLabel('🧠 待机中')).toBe(false);
   });
 
   it('keeps active labels visible', () => {

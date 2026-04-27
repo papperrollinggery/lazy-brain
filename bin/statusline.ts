@@ -8,14 +8,36 @@
  *   2. hook running              → 思考中
  *   3. last-match available       → /tool [score%] with timeAgo
  *   4. no history / idle         → 待机中
+ *
+ * Visual convention:
+ *   - Active states (hooked/matched/routing): bold
+ *   - Dormant state (待机中): dimmed to signal idle
  */
 
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { LAZYBRAIN_DIR, STATUS_PATH, HOOK_ACTIVE_PATH, HOOK_RUNS_DIR } from '../src/constants.js';
+import { LAZYBRAIN_DIR, STATUS_PATH, HOOK_ACTIVE_PATH, HOOK_RUNS_DIR, ROUTE_EVENTS_PATH } from '../src/constants.js';
 import { readOmcMode } from '../src/utils/omc-state.js';
 
+// ─── ANSI styling ───────────────────────────────────────────────────────────────
+
+const DIM  = '\x1b[2m';
+const BOLD = '\x1b[1m';
+const RST  = '\x1b[0m';
+
+function active(label: string): string  { return `${BOLD}${label}${RST}`; }
+function dormant(label: string): string { return `${DIM}${label}${RST}`; }
+
 const lastMatchPath = join(LAZYBRAIN_DIR, 'last-match.json');
+const RECENT_STATUS_WINDOW_MS = 5 * 60 * 1000;
+
+type RouteEventMode = 'route_plan' | 'needs_clarification' | 'no_route_needed';
+
+interface RouteEvent {
+  timestamp: string;
+  source?: string;
+  mode: RouteEventMode;
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -64,7 +86,7 @@ function getCompileStatus(): string | null {
  * < 60s      → "5秒前"
  * < 60min    → "3分前"
  * < 24h      → "2小时前"
- * ≥ 24h      → "2天前"
+ * >= 24h     → "2天前"
  */
 function timeAgo(ms: number): string {
   if (ms < 0) return '刚刚';
@@ -89,6 +111,35 @@ function readLastMatch(): { tool: string | null; score: number; historyBoost: nu
   }
 }
 
+function parseRouteEvent(line: string): RouteEvent | null {
+  try {
+    const event = JSON.parse(line) as RouteEvent;
+    if (!event.timestamp || !event.mode) return null;
+    return event;
+  } catch {
+    return null;
+  }
+}
+
+function readRecentRouteEvent(): { mode: RouteEventMode; age: number } | null {
+  try {
+    if (!existsSync(ROUTE_EVENTS_PATH)) return null;
+    const lines = readFileSync(ROUTE_EVENTS_PATH, 'utf-8').trim().split('\n');
+    for (let index = lines.length - 1; index >= 0; index -= 1) {
+      const line = lines[index];
+      if (!line) continue;
+      const event = parseRouteEvent(line);
+      if (!event || event.source !== 'hook-gate') continue;
+      const timestamp = Date.parse(event.timestamp);
+      if (!Number.isFinite(timestamp)) continue;
+      const age = Date.now() - timestamp;
+      if (age > RECENT_STATUS_WINDOW_MS) return null;
+      return { mode: event.mode, age };
+    }
+  } catch {}
+  return null;
+}
+
 const OMC_MODE_LABELS: Record<string, string> = {
   ralph: 'Ralph',
   ultrawork: 'Ultrawork',
@@ -99,47 +150,50 @@ const OMC_MODE_LABELS: Record<string, string> = {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 function getLabel(): string {
-  // ① OMC mode suffix (always appended)
+  // (1) OMC mode suffix (always appended)
   const omcMode = readOmcMode();
   const omcSuffix = omcMode ? ` · ${OMC_MODE_LABELS[omcMode] ?? omcMode}` : '';
 
-  // ② 编译/扫描 — highest priority, replaces thinking state
+  // (2) compile/scan — highest priority
   const compileStatus = getCompileStatus();
-  if (compileStatus) return `🧠 ${compileStatus}${omcSuffix}`;
+  if (compileStatus) return active(`\u{1F9E0} ${compileStatus}${omcSuffix}`);
 
-  // ③ Hook 运行中 — LazyBrain 正在处理 prompt
-  if (isHookRunning()) return `🧠 思考中${omcSuffix}`;
+  // (3) hook running
+  if (isHookRunning()) return active(`\u{1F9E0} 思考中${omcSuffix}`);
 
-  // ④ last-match 已有数据显示
+  // (4) last-match data
   const last = readLastMatch();
   if (last) {
     const age = Date.now() - last.updatedAt;
     const fiveMin = 5 * 60 * 1000;
 
-    // 有匹配工具：显示工具名 + 评分
     if (last.tool && (last.state ?? 'matched') === 'matched' && age < fiveMin) {
       const score = Math.round(last.score * 100);
       const boost = last.historyBoost > 0.01 ? ` ↑${Math.round(last.historyBoost * 100)}%` : '';
 
       if (age < 30_000) {
-        // 刚匹配 (< 30s)：直接显示工具，不带时间
-        return `🧠 /${last.tool} [${score}%]${boost}${omcSuffix}`;
+        return active(`\u{1F9E0} /${last.tool} [${score}%]${boost}${omcSuffix}`);
       } else {
-        // 匹配过，带时间差
         const timeLabel = timeAgo(age);
-        return `🧠 ${timeLabel} /${last.tool} [${score}%]${boost}${omcSuffix}`;
+        return active(`\u{1F9E0} ${timeLabel} /${last.tool} [${score}%]${boost}${omcSuffix}`);
       }
     }
 
-    // tool=null → 匹配过但没有合适候选（OmcModeQuery 等）或被 bypass
-    // age < 5min 显示时间，否则待机
     if (!last.tool && age < fiveMin) {
-      return `🧠 ${timeAgo(age)} 已跳过${omcSuffix}`;
+      return active(`\u{1F9E0} ${timeAgo(age)} 已跳过${omcSuffix}`);
     }
   }
 
-  // ⑤ 无历史 / 超时 → 待机
-  return `🧠 待机中${omcSuffix}`;
+  const recentRouteEvent = readRecentRouteEvent();
+  if (recentRouteEvent?.mode === 'route_plan') {
+    return active(`\u{1F9E0} ${timeAgo(recentRouteEvent.age)} 建议路由${omcSuffix}`);
+  }
+  if (recentRouteEvent?.mode === 'needs_clarification') {
+    return active(`\u{1F9E0} ${timeAgo(recentRouteEvent.age)} 需澄清${omcSuffix}`);
+  }
+
+  // (5) idle — dimmed to distinguish from active states
+  return dormant(`\u{1F9E0} 待机中${omcSuffix}`);
 }
 
 function render() {

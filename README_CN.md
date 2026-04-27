@@ -184,49 +184,63 @@ Use this skill when the user asks for a focused engineering review.
 
 **环境要求**：Node.js ≥ 18
 
-### 第 1 步：安装
+### 完整安装流程（复制粘贴即可）
+
+下面每一步都有验证命令，确认上一步真的成功了再往下走。
 
 ```bash
-# 从 GitHub 安装（npm 发布中）
+# ─── 第 0 步：环境检查 ─────────────────────────────────────────────
+node --version          # 必须 ≥ 18.0.0
+which lazybrain 2>/dev/null && echo "已安装过" || echo "首次安装"
+
+# ─── 第 1 步：获取代码并构建 ──────────────────────────────────────
 git clone https://github.com/papperrollinggery/lazy-brain.git
 cd lazy-brain
 npm install
 npm run build
-npm link        # 注册 lazybrain / lb 到全局
-```
+npm link                # 注册 lazybrain / lb 到全局
 
-### 第 2 步：扫描 + 编译
+# 验证：确认命令可用
+lazybrain --version     # 应输出 v1.4.5 或更高
+which lazybrain         # 应指向全局 node bin 目录
 
-```bash
-lazybrain scan        # 找到你电脑上所有工具
-lazybrain compile --offline  # 无 API key 也能先用 tag-layer
-```
+# ─── 第 2 步：扫描本机能力 + 离线编译图谱 ─────────────────────────
+lazybrain scan          # 扫描所有本地 skill/agent/command
+lazybrain compile --offline  # 不需要 API key 也能用
 
-编译完成后，LazyBrain 就知道你有哪些工具、每个工具是干嘛的了。
+# 验证：确认图谱已生成
+lazybrain ready         # 应显示 graph: ✅ 或类似确认
+lazybrain list          # 列出扫描到的所有能力
+ls ~/.lazybrain/graph.json  # 确认图谱文件存在
 
-### 第 3 步：检查 + Lab 预览
+# ─── 第 3 步：Lab 预览（可选但强烈推荐） ──────────────────────────
+lazybrain ui            # 启动 GUI，打开 http://127.0.0.1:18450/
+lazybrain route "帮我审查这个 PR"  # 测试路由效果
 
-```bash
-lazybrain ready       # 检查图谱、hook、HUD、semantic 配置
-lazybrain ui          # 打开 http://127.0.0.1:18450/
-lazybrain route "帮我审查这个 PR"  # 生成只读编排计划，不写配置
-# lazybrain ui --no-open
-# open http://127.0.0.1:18450/lab
-```
+# 验证：GUI 页面能打开，route 命令返回推荐结果
+# curl http://127.0.0.1:18450/api/status  # 检查 API 状态
 
-Lab 会用内置样例检查推荐质量、team gate、token 策略、hook 安全状态和本机 Claude/Agent Agency 子智能体映射。它不安装 hook，不写 `.claude/settings.json`，也不读取 Claude 私人 transcript。
+# ─── 第 4 步：预演 hook 安装 ──────────────────────────────────────
+lazybrain hook plan     # 预览会改什么，不写任何文件
 
-### 第 4 步：预演 + 安装到 Claude Code
+# 验证：plan 输出应显示 Settings (project)、Hook、Statusline 三项计划
 
-```bash
-lazybrain hook plan   # 只预演，不写 settings
-lazybrain hook install
+# ─── 第 5 步：安装 hook ───────────────────────────────────────────
+lazybrain hook install  # 默认 project scope，只写当前项目的 .claude/settings.json
 
-# 显式全局安装（不推荐）
-# lazybrain hook install --global --yes
-```
+# 如果已经有第三方 HUD（如 claude-hud），需要组合模式：
+# lazybrain hook install --statusline
 
-`hook install` 默认只写当前项目的 `.claude/settings.json`。全局安装必须显式加 `--yes`。
+# 验证：确认安装成功
+lazybrain hook status   # 应显示 UserPromptSubmit: ✅ 已安装
+
+# ─── 第 6 步：重启 Claude Code ────────────────────────────────────
+# 完全退出 Claude Code，重新打开当前项目
+# 此时状态栏应显示 🧠 待机中（dim 灰色）
+# 输入一个复杂任务，应看到 🧠 思考中 或路由建议
+
+# 用 doctor 诊断整体状态：
+lazybrain doctor        # 检查各项是否正常
 
 从当前版本开始，`lazybrain hook install` 只安装：
 
