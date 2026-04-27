@@ -302,8 +302,7 @@ export async function compile(
 
         if (candidates.length === 0) return [];
 
-        const relPromptFn = options.config?.compileRelationPrompt ? (function(c, neighbors) { return options.config!.compileRelationPrompt!.replace(/\$\{cap\.name\}/g, c.name).replace(/\$\{cap\.description\}/g, c.description).replace(/\$\{neighbors\}/g, neighbors.map(function(n) { return '- ' + n.name + ': ' + n.description; }).join('\n')); }) : makeRelationPrompt;
-        const prompt = relPromptFn(
+        const prompt = makeRelationPrompt(
           { kind: node.kind, name: node.name, description: node.description, origin: node.origin, filePath: node.filePath ?? '', compatibility: node.compatibility, triggers: node.triggers },
           candidates.map(c => ({ name: c.name, description: c.description })),
         );
