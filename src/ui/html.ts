@@ -815,6 +815,7 @@ export const UI_HTML = `<!doctype html>
         {
           title: '嵌入模型 (Embedding)',
           fields: [
+            { name: 'embeddingSource', label: '嵌入来源', type: 'select', pw: false, options: ['api', 'custom', 'local'] },
             { name: 'embeddingApiBase', label: 'API 地址', type: 'text', pw: false },
             { name: 'embeddingApiKey', label: 'API Key', type: 'text', pw: true },
             { name: 'embeddingModel', label: '模型名', type: 'text', pw: false },

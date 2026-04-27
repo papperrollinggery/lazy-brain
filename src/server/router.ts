@@ -471,7 +471,7 @@ function handleReportSession(
 
 const CONFIG_ALLOWED_KEYS = new Set([
   'compileApiBase', 'compileApiKey', 'compileModel',
-  'embeddingApiBase', 'embeddingApiKey', 'embeddingModel',
+  'embeddingApiBase', 'embeddingApiKey', 'embeddingModel', 'embeddingSource',
   'secretaryApiBase', 'secretaryApiKey', 'secretaryModel',
   'engine', 'strategy', 'mode', 'autoThreshold', 'language',
   'compileSystemPrompt', 'compileTagPrompt', 'compileRelationPrompt',
@@ -696,6 +696,48 @@ export interface RouterOptions {
   onReload: () => void;
 }
 
+
+// ─── Embedding Discovery /api/embedding/discover ───────────────────────────────
+
+async function handleEmbeddingDiscover(
+  _req: http.IncomingMessage,
+  res: http.ServerResponse,
+): Promise<void> {
+  const { request } = await import('node:http');
+  
+  const candidates = [
+    { label: 'Ollama', url: 'http://127.0.0.1:11434/api/embeddings', model: 'nomic-embed-text' },
+    { label: 'Ollama (bge-m3)', url: 'http://127.0.0.1:11434/api/embeddings', model: 'bge-m3' },
+    { label: 'LM Studio', url: 'http://127.0.0.1:1234/v1/embeddings', model: '' },
+    { label: 'LocalAI', url: 'http://127.0.0.1:8080/v1/embeddings', model: '' },
+    { label: 'text-embeddings-inference', url: 'http://127.0.0.1:3000/embed', model: '' },
+  ];
+
+  const results: Array<{ label: string; url: string; model: string; reachable: boolean; error?: string }> = [];
+  
+  for (const c of candidates) {
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const req = request(c.url, { method: 'GET', timeout: 2000 }, (resp) => {
+          results.push({ ...c, reachable: resp.statusCode !== undefined && resp.statusCode < 500 });
+          resp.resume();
+          resolve();
+        });
+        req.on('error', (err: Error) => {
+          results.push({ ...c, reachable: false, error: err.message });
+          resolve();
+        });
+        req.end();
+      });
+    } catch {
+      results.push({ ...c, reachable: false, error: 'timeout' });
+    }
+  }
+  
+  json(res, 200, { services: results });
+}
+
+
 export function createRouter(opts: RouterOptions): http.RequestListener {
   return async (req, res) => {
     const ip = req.socket.remoteAddress ?? '127.0.0.1';
@@ -755,6 +797,9 @@ export function createRouter(opts: RouterOptions): http.RequestListener {
     }
     if (method === 'POST' && pathname === '/api/compile') {
       return handleCompileStart(req, res, opts.config);
+    }
+    if (method === 'GET' && pathname === '/api/embedding/discover') {
+      return handleEmbeddingDiscover(req, res);
     }
     if (method === 'GET' && pathname === '/api/compile/status') {
       return handleCompileStatus(req, res);
