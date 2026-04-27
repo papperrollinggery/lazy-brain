@@ -321,10 +321,10 @@ describe('GET /search', () => {
     expect(body[0].name).toBe('python-patterns');
   });
 
-  it('returns empty array for empty query', async () => {
+  it('returns all nodes when no filter or query', async () => {
     const { status, body } = await req('GET', '/search');
     expect(status).toBe(200);
-    expect(body).toEqual([]);
+    expect(body.length).toBe(2);
   });
 });
 

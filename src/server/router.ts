@@ -238,7 +238,6 @@ function handleSearch(
   const semanticMissing = url.searchParams.get('semanticMissing') === 'true';
   const duplicatesOnly = url.searchParams.get('duplicatesOnly') === 'true';
   const hasFilter = Boolean(kind || platform || category || origin || status || semanticMissing || duplicatesOnly);
-  if (!q && !hasFilter) return json(res, 200, []);
 
   let embeddedIds = new Set<string>();
   if (existsSync(EMBEDDINGS_INDEX_PATH)) {
