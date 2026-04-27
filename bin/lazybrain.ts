@@ -158,6 +158,33 @@ function getClaudeSettingsPath(scope: HookInstallScope): string {
     : join(getClaudeConfigDir(), 'settings.json');
 }
 
+/** hooks.json survives CC Switch vendor changes (only settings.json gets wiped) */
+function getClaudeHooksPath(scope: HookInstallScope): string {
+  return scope === 'project'
+    ? join(resolve(process.cwd(), '.claude'), 'hooks', 'hooks.json')
+    : join(getClaudeConfigDir(), 'hooks', 'hooks.json');
+}
+
+function readHooksFile(path: string): Record<string, unknown> {
+  if (!existsSync(path)) return {};
+  const raw = JSON.parse(readFileSync(path, 'utf-8')) as Record<string, unknown>;
+  // hooks.json wraps hooks in a "hooks" key, settings.json has them at top level
+  return (raw.hooks as Record<string, unknown>) ?? raw;
+}
+
+function writeHooksFile(path: string, hooks: Record<string, unknown>): void {
+  const dir = dirname(path);
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  const existing = existsSync(path)
+    ? JSON.parse(readFileSync(path, 'utf-8')) as Record<string, unknown>
+    : {};
+  existing.hooks = hooks;
+  if (existing.$schema === undefined) {
+    existing.$schema = 'https://json.schemastore.org/claude-code-settings.json';
+  }
+  writeFileSync(path, JSON.stringify(existing, null, 2));
+}
+
 function readSettingsFile(path: string): Record<string, unknown> {
   if (!existsSync(path)) return {};
   return JSON.parse(readFileSync(path, 'utf-8')) as Record<string, unknown>;
@@ -1682,6 +1709,7 @@ function cmdHook() {
       const installScope: HookInstallScope = commandScope;
       const workspaceRoot = installScope === 'project' ? resolve(process.cwd()) : undefined;
 
+      const hooksPath = getClaudeHooksPath(installScope);
       let settings: Record<string, unknown> = {};
       if (existsSync(settingsPath)) {
         try {
@@ -1700,7 +1728,12 @@ function cmdHook() {
         legacyInstallStatePath: HOOK_INSTALL_STATE_PATH,
       });
 
-      settings = upsertLazyBrainUserPromptSubmit(settings, `node ${hookScript}`);
+      // Write UserPromptSubmit hook to hooks.json (survives CC Switch)
+      let hooks = readHooksFile(hooksPath);
+      // upsertLazyBrainUserPromptSubmit expects settings.hooks structure
+      const hooksSettings = upsertLazyBrainUserPromptSubmit({ hooks } as Record<string, unknown>, `node ${hookScript}`);
+      hooks = (hooksSettings.hooks ?? hooksSettings) as Record<string, unknown>;
+      writeHooksFile(hooksPath, hooks);
 
       const existingStatusline = settings.statusLine as { command?: unknown } | string | undefined;
       let inheritedStatusline: unknown;
@@ -1770,7 +1803,7 @@ function cmdHook() {
         installedAt: new Date().toISOString(),
         statuslineMode,
       });
-      console.log(`Hook installed: ${settingsPath}`);
+      console.log(`Hook installed: ${hooksPath}`);
       console.log(`  Script: ${hookScript}`);
       console.log('  Lifecycle: UserPromptSubmit only (Stop 已退出)');
       console.log(`  Scope: ${installScope}${workspaceRoot ? ` (${workspaceRoot})` : ''}`);
@@ -1846,8 +1879,20 @@ function cmdHook() {
       break;
     }
     case 'uninstall': {
+      // Remove from hooks.json (primary hook location)
+      const uninstallHooksPath = getClaudeHooksPath(commandScope);
+      if (existsSync(uninstallHooksPath)) {
+        let hooks = readHooksFile(uninstallHooksPath);
+        const hooksSettings = removeLazyBrainHookRegistrations({ hooks } as Record<string, unknown>);
+        hooks = (hooksSettings.hooks ?? hooksSettings) as Record<string, unknown>;
+        writeHooksFile(uninstallHooksPath, hooks);
+        console.log(`Removed LazyBrain hooks from ${uninstallHooksPath}`);
+      }
+
       if (!existsSync(settingsPath)) {
-        console.log('No settings file found.');
+        console.log('No settings file found — only hooks.json was cleaned.');
+        clearHookInstallState(commandScope, commandScope === 'project' ? resolve(process.cwd()) : undefined);
+        cleanHookRuntimeRecords();
         return;
       }
       let settings: Record<string, unknown> = {};
@@ -1858,6 +1903,7 @@ function cmdHook() {
         process.exit(1);
       }
 
+      // Also clean any legacy hooks from settings.json
       settings = removeLazyBrainHookRegistrations(settings);
       clearHookInstallState(commandScope, commandScope === 'project' ? resolve(process.cwd()) : undefined);
       cleanHookRuntimeRecords();
