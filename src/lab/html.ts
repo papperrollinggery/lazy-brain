@@ -5,399 +5,351 @@ export const LAB_HTML = `<!doctype html>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>LazyBrain Lab</title>
   <style>
+    /* ─── Design System (shared with main UI) ──────────────────── */
     :root {
-      --bg: #f6f3ed;
-      --ink: #171511;
-      --muted: #676158;
-      --line: #d7d0c4;
-      --panel: #fffdf8;
-      --accent: #1f7a5b;
-      --accent-2: #ad5a27;
-      --warn: #b7791f;
-      --bad: #a33a32;
-      --good: #26704d;
-      --shadow: 0 14px 40px rgba(36, 31, 24, 0.08);
+      --bg: #fafaf8;
+      --surface: #ffffff;
+      --surface-hover: #f7f7f4;
+      --text: #1c1c1a;
+      --text-2: #6b6b64;
+      --text-3: #9b9b94;
+      --border: #e8e8e2;
+      --border-light: #f0f0ea;
+      --brand: #2563eb;
+      --brand-light: #eff6ff;
+      --brand-soft: #dbeafe;
+      --ok: #16a34a;
+      --ok-bg: #f0fdf4;
+      --ok-border: #bbf7d0;
+      --warn: #d97706;
+      --warn-bg: #fffbeb;
+      --warn-border: #fde68a;
+      --err: #dc2626;
+      --err-bg: #fef2f2;
+      --err-border: #fecaca;
+      --shadow: 0 1px 3px rgba(0,0,0,0.06);
+      --shadow-lg: 0 8px 32px rgba(0,0,0,0.08);
+      --radius: 10px;
+      --radius-sm: 6px;
+      --font: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --font-mono: ui-monospace, "SF Mono", "Cascadia Code", monospace;
     }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      background: var(--bg);
-      color: var(--ink);
-      font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    }
-    header {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 24px;
-      align-items: end;
-      padding: 28px 32px 20px;
-      border-bottom: 1px solid var(--line);
-      background:
-        linear-gradient(135deg, rgba(31, 122, 91, 0.08), transparent 34%),
-        linear-gradient(315deg, rgba(173, 90, 39, 0.08), transparent 30%),
-        var(--panel);
-    }
-    h1 {
-      margin: 0;
-      font-size: 28px;
-      line-height: 1.05;
-      letter-spacing: 0;
-    }
-    .sub {
-      color: var(--muted);
-      margin-top: 8px;
-      max-width: 820px;
-    }
-    .actions {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      justify-content: flex-end;
-    }
-    button {
-      border: 1px solid var(--ink);
-      background: var(--ink);
-      color: white;
-      min-height: 34px;
-      padding: 0 14px;
-      border-radius: 6px;
-      cursor: pointer;
-      font: inherit;
-    }
-    button.secondary {
-      background: transparent;
-      color: var(--ink);
-      border-color: var(--line);
-    }
-    main {
-      display: grid;
-      grid-template-columns: 320px minmax(0, 1fr);
-      gap: 18px;
-      padding: 18px;
-    }
-    aside, section {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      box-shadow: var(--shadow);
-    }
-    aside {
-      padding: 14px;
-      align-self: start;
-      position: sticky;
-      top: 12px;
-    }
-    textarea {
-      width: 100%;
-      min-height: 108px;
-      resize: vertical;
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      background: white;
-      color: var(--ink);
-      padding: 10px;
-      font: inherit;
-    }
-    .stats {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 8px;
-      margin: 12px 0;
-    }
-    .stat {
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      padding: 8px;
-      background: #fbf7ef;
-    }
-    .stat strong {
-      display: block;
-      font-size: 18px;
-    }
-    .fixtures {
-      display: grid;
-      gap: 8px;
-      margin-top: 12px;
-    }
-    .fixture {
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      padding: 8px;
-      background: white;
-      cursor: pointer;
-    }
-    .fixture:hover { border-color: var(--accent); }
-    .fixture b { display: block; }
-    .fixture span { color: var(--muted); font-size: 12px; }
-    section {
-      min-height: 640px;
-      padding: 0;
-      overflow: hidden;
-    }
-    .bar {
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      align-items: center;
-      padding: 12px 14px;
-      border-bottom: 1px solid var(--line);
-      background: #fbf7ef;
-    }
-    .results {
-      display: grid;
-      gap: 12px;
-      padding: 14px;
-    }
-    .result {
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: white;
-      overflow: hidden;
-    }
-    .result-head {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 12px;
-      padding: 12px;
-      border-bottom: 1px solid var(--line);
-    }
-    .query {
-      font-weight: 700;
-      overflow-wrap: anywhere;
-    }
-    .badge {
-      display: inline-flex;
-      align-items: center;
-      min-height: 24px;
-      padding: 0 8px;
-      border-radius: 999px;
-      border: 1px solid var(--line);
-      background: #fbf7ef;
-      font-size: 12px;
-      white-space: nowrap;
-    }
-    .badge.team { color: var(--accent); border-color: rgba(31, 122, 91, 0.35); }
-    .badge.subagent { color: var(--accent-2); border-color: rgba(173, 90, 39, 0.35); }
-    .badge.needs_clarification { color: var(--warn); border-color: rgba(183, 121, 31, 0.4); }
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 10px;
-      padding: 12px;
-    }
-    .col h3 {
-      margin: 0 0 8px;
-      font-size: 13px;
-      text-transform: uppercase;
-      letter-spacing: .04em;
-      color: var(--muted);
-    }
-    .item {
-      border-top: 1px solid var(--line);
-      padding: 8px 0;
-    }
-    .item:first-of-type { border-top: 0; padding-top: 0; }
-    .item b { display: block; overflow-wrap: anywhere; }
-    .item p { margin: 3px 0 0; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
-    .status-exact { color: var(--good); }
-    .status-role { color: var(--accent-2); }
-    .status-missing { color: var(--bad); }
-    .warns {
-      border-top: 1px solid var(--line);
-      padding: 10px 12px;
-      color: var(--bad);
-      background: #fff8f3;
-      font-size: 12px;
-    }
-    .runtime {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 10px;
-      border-top: 1px solid var(--line);
-      padding: 12px;
-      background: #fbf7ef;
-    }
-    .runtime div {
-      min-width: 0;
-    }
-    .runtime b {
-      display: block;
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: .04em;
-      color: var(--muted);
-    }
-    .runtime span {
-      display: block;
-      margin-top: 3px;
-      overflow-wrap: anywhere;
-    }
-    .empty {
-      padding: 48px;
-      color: var(--muted);
-      text-align: center;
-    }
-    code {
-      background: #f0ebe2;
-      border: 1px solid var(--line);
-      border-radius: 4px;
-      padding: 1px 4px;
-    }
-    @media (max-width: 980px) {
-      header, main, .result-head, .grid, .runtime {
-        grid-template-columns: 1fr;
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #1a1a18;
+        --surface: #242422;
+        --surface-hover: #2e2e2c;
+        --text: #efefeb;
+        --text-2: #a0a09a;
+        --text-3: #6b6b64;
+        --border: #333330;
+        --border-light: #2a2a28;
+        --brand: #3b82f6;
+        --brand-light: #1e293b;
+        --brand-soft: #1e3a5f;
+        --ok: #22c55e;
+        --ok-bg: #052e16;
+        --ok-border: #166534;
+        --warn: #f59e0b;
+        --warn-bg: #451a03;
+        --warn-border: #78350f;
+        --err: #ef4444;
+        --err-bg: #450a0a;
+        --err-border: #7f1d1d;
+        --shadow: 0 1px 3px rgba(0,0,0,0.3);
+        --shadow-lg: 0 8px 32px rgba(0,0,0,0.5);
       }
-      aside { position: static; }
-      .actions { justify-content: flex-start; }
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; }
+    body {
+      background: var(--bg); color: var(--text);
+      font: 15px/1.5 var(--font); -webkit-font-smoothing: antialiased;
+    }
+
+    /* ─── Layout ───────────────────────────────────────────────── */
+    .topbar {
+      display: flex; align-items: center; justify-content: space-between; gap: 16px;
+      padding: 14px 24px; background: var(--surface); border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; z-index: 10;
+    }
+    .logo { display: flex; align-items: center; gap: 10px; }
+    .logo-icon {
+      width: 32px; height: 32px; border-radius: 8px;
+      background: var(--text); color: var(--bg);
+      display: grid; place-items: center; font-weight: 800; font-size: 13px;
+    }
+    .logo h1 { font-size: 17px; font-weight: 700; }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 16px; border-radius: var(--radius-sm);
+      font: inherit; font-weight: 500; font-size: 14px;
+      cursor: pointer; border: 1px solid var(--border);
+      background: var(--surface); color: var(--text);
+      transition: all 120ms;
+    }
+    .btn:hover { background: var(--surface-hover); }
+    .btn-primary { background: var(--text); color: var(--bg); border-color: var(--text); }
+    .btn-primary:hover { opacity: 0.85; }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    main {
+      max-width: 960px; margin: 0 auto; padding: 28px 24px 64px;
+      display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 18px;
+      align-items: start;
+    }
+
+    /* ─── Sidebar ──────────────────────────────────────────────── */
+    .sidebar {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); box-shadow: var(--shadow);
+      padding: 16px; position: sticky; top: 81px;
+    }
+    .sidebar textarea {
+      width: 100%; min-height: 90px; resize: vertical;
+      border: 1px solid var(--border); border-radius: var(--radius-sm);
+      padding: 10px; font: inherit; font-size: 14px;
+      background: var(--bg); color: var(--text);
+    }
+    .sidebar textarea:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-light); }
+    .sidebar .actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+    .mini-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
+    .mini-stat {
+      border: 1px solid var(--border); border-radius: var(--radius-sm);
+      padding: 10px; text-align: center; background: var(--bg);
+    }
+    .mini-stat .num { font-size: 20px; font-weight: 800; }
+    .mini-stat .lbl { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+    .fixture-list { display: grid; gap: 6px; margin-top: 14px; }
+    .fixture-item {
+      border: 1px solid var(--border); border-radius: var(--radius-sm);
+      padding: 10px; cursor: pointer; transition: all 120ms; background: var(--bg);
+    }
+    .fixture-item:hover { border-color: var(--brand); background: var(--brand-light); }
+    .fixture-item strong { display: block; font-size: 13px; }
+    .fixture-item span { font-size: 12px; color: var(--text-3); }
+
+    /* ─── Results Area ─────────────────────────────────────────── */
+    .results-area {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); box-shadow: var(--shadow);
+      min-height: 400px;
+    }
+    .results-bar {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px;
+      padding: 14px 18px; border-bottom: 1px solid var(--border-light);
+    }
+    .results-bar strong { font-size: 15px; }
+    .results-body { padding: 16px; }
+    .results-body .empty { text-align: center; color: var(--text-3); padding: 64px 0; }
+    .result-card {
+      border: 1px solid var(--border); border-radius: var(--radius-sm);
+      margin-bottom: 12px; overflow: hidden;
+    }
+    .result-card:last-child { margin-bottom: 0; }
+    .result-card .rhead {
+      display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+      padding: 14px; border-bottom: 1px solid var(--border-light);
+      background: var(--bg);
+    }
+    .rhead .query-text { font-weight: 600; }
+    .badge {
+      display: inline-flex; align-items: center; padding: 2px 10px;
+      border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap;
+      border: 1px solid var(--border);
+    }
+    .badge.team { color: var(--brand); border-color: var(--brand-soft); background: var(--brand-light); }
+    .badge.subagent { color: var(--warn); border-color: var(--warn-border); background: var(--warn-bg); }
+    .badge.needs_clarification { color: var(--text-2); }
+    .rgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; padding: 14px; }
+    .rcol h4 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-3); margin-bottom: 8px; }
+    .ritem { border-top: 1px solid var(--border-light); padding: 8px 0; }
+    .ritem:first-child { border-top: 0; padding-top: 0; }
+    .ritem strong { display: block; font-size: 13px; }
+    .ritem .sub { font-size: 12px; color: var(--text-2); margin-top: 2px; }
+    .rfoot {
+      display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px;
+      padding: 12px 14px; border-top: 1px solid var(--border-light);
+      background: var(--bg); font-size: 12px;
+    }
+    .rfoot b { display: block; color: var(--text-3); text-transform: uppercase; letter-spacing: 0.04em; font-size: 11px; }
+    .rfoot span { display: block; margin-top: 3px; }
+    .text-ok { color: var(--ok); }
+    .text-warn { color: var(--warn); }
+    .text-err { color: var(--err); }
+    .text-2 { color: var(--text-2); }
+
+    @media (max-width: 780px) {
+      main { grid-template-columns: 1fr; padding: 16px 12px 48px; }
+      .sidebar { position: static; }
+      .rgrid, .rfoot { grid-template-columns: 1fr; }
     }
   </style>
 </head>
 <body>
-  <header>
-    <div>
-      <h1>LazyBrain Lab</h1>
-      <div class="sub">非安装式评估：推荐质量、Agent Agency 映射、team gate、token 策略和 hook 安全状态。</div>
+  <div class="topbar">
+    <div class="logo">
+      <div class="logo-icon">LB</div>
+      <h1>LazyBrain <span style="font-weight:400;color:var(--text-3);font-size:13px">Lab</span></h1>
     </div>
-    <div class="actions">
-      <button id="runFixtures">Run fixtures</button>
-      <button class="secondary" id="refreshAgents">Refresh agents</button>
+    <div style="display:flex;gap:8px">
+      <button class="btn" onclick="location.href='/'">Back to Home</button>
+      <button class="btn" id="refreshAgents">Refresh agents</button>
+      <button class="btn btn-primary" id="runFixtures">Run all fixtures</button>
     </div>
-  </header>
+  </div>
+
   <main>
-    <aside>
-      <textarea id="queryInput" placeholder="输入一条任务，例如：这个项目有点乱，你看怎么安排"></textarea>
-      <div class="actions" style="justify-content:flex-start;margin-top:10px">
-        <button id="runOne">Evaluate</button>
-        <button class="secondary" id="clearResults">Clear</button>
+    <aside class="sidebar">
+      <textarea id="queryInput" placeholder="Describe a task, e.g. this codebase is messy, how should I organize it?"></textarea>
+      <div class="actions">
+        <button class="btn btn-primary" id="runOne">Evaluate</button>
+        <button class="btn" id="clearResults">Clear</button>
       </div>
-      <div class="stats">
-        <div class="stat"><span>Fixtures</span><strong id="fixtureCount">0</strong></div>
-        <div class="stat"><span>Agents</span><strong id="agentCount">0</strong></div>
-        <div class="stat"><span>Available</span><strong id="availableCount">0</strong></div>
-        <div class="stat"><span>Hook</span><strong id="hookState">-</strong></div>
+      <div class="mini-stats">
+        <div class="mini-stat"><div class="num" id="fixtureCount">0</div><div class="lbl">Fixtures</div></div>
+        <div class="mini-stat"><div class="num" id="agentCount">0</div><div class="lbl">Agents</div></div>
+        <div class="mini-stat"><div class="num" id="availableCount">0</div><div class="lbl">Available</div></div>
+        <div class="mini-stat"><div class="num" id="hookState">-</div><div class="lbl">Hook</div></div>
       </div>
-      <div class="fixtures" id="fixtures"></div>
+      <div class="fixture-list" id="fixtures"></div>
     </aside>
-    <section>
-      <div class="bar">
+
+    <section class="results-area">
+      <div class="results-bar">
         <strong>Evaluations</strong>
-        <span id="status">idle</span>
+        <span id="status" style="font-size:13px;color:var(--text-3)">idle</span>
       </div>
-      <div class="results" id="results"><div class="empty">Run fixtures or evaluate a query.</div></div>
+      <div class="results-body" id="results">
+        <div class="empty">Pick a fixture from the left, or type your own query and click Evaluate.</div>
+      </div>
     </section>
   </main>
+
   <script>
     const state = { fixtures: [], agents: [] };
-    const $ = (id) => document.getElementById(id);
+    const $ = id => document.getElementById(id);
     const el = (tag, attrs = {}, children = []) => {
       const node = document.createElement(tag);
-      for (const [key, value] of Object.entries(attrs)) {
-        if (key === 'class') node.className = value;
-        else if (key === 'text') node.textContent = value;
-        else node.setAttribute(key, value);
+      for (const [k, v] of Object.entries(attrs)) {
+        if (k === 'class') node.className = v;
+        else if (k === 'text') node.textContent = v;
+        else node.setAttribute(k, v);
       }
-      for (const child of children) node.append(child);
+      for (const c of children) node.append(c);
       return node;
     };
-    async function json(url, opts) {
+    async function api(url, opts) {
       const res = await fetch(url, opts);
       if (!res.ok) throw new Error(await res.text());
       return res.json();
     }
+
     function renderFixtures() {
       $('fixtureCount').textContent = String(state.fixtures.length);
       const box = $('fixtures');
       box.replaceChildren(...state.fixtures.map(f => {
-        const node = el('div', { class: 'fixture' }, [
-          el('b', { text: f.title }),
+        const item = el('div', { class: 'fixture-item' }, [
+          el('strong', { text: f.title }),
           el('span', { text: f.query }),
         ]);
-        node.onclick = () => { $('queryInput').value = f.query; evaluate({ cases: [f] }); };
-        return node;
+        item.onclick = () => { $('queryInput').value = f.query; evaluate({ cases: [f] }); };
+        return item;
       }));
     }
     function renderAgents() {
       $('agentCount').textContent = String(state.agents.length);
       $('availableCount').textContent = String(state.agents.filter(a => a.available).length);
     }
-    function mappingClass(status) {
-      return status === 'exact' ? 'status-exact' : status === 'role' ? 'status-role' : 'status-missing';
+    function statusClass(s) {
+      return s === 'exact' ? 'text-ok' : s === 'role' ? 'text-warn' : 'text-err';
     }
-    function renderEvaluation(ev) {
+
+    function renderCard(ev) {
       const adapters = (ev.team?.runtimeGuides ?? []).map(g => g.label).join(' / ') || 'Generic';
-      const token = ev.tokenStrategy?.summary || '单模型顺序执行';
-      const hook = ev.hookReadiness.projectLazyBrainInstalled || ev.hookReadiness.globalLazyBrainInstalled
-        ? 'installed'
-        : 'clear';
-      const matches = ev.match.matches.map(m => el('div', { class: 'item' }, [
-        el('b', { text: m.capability.name + ' · ' + Math.round(m.score * 100) + '%' }),
-        el('p', { text: m.layer + ' / ' + m.confidence + ' / ' + m.capability.category }),
-      ]));
-      const members = (ev.team?.members ?? []).map(m => el('div', { class: 'item' }, [
-        el('b', { text: m.name + ' · ' + (m.suggestedModel || 'sonnet') }),
-        el('p', { text: (m.role || m.category) + ' / ' + m.reason }),
-      ]));
-      const maps = ev.agentMappings.map(m => el('div', { class: 'item' }, [
-        el('b', { class: mappingClass(m.status), text: m.recommended + ' → ' + (m.mapped || 'generic') }),
-        el('p', { text: m.status + ' / ' + m.reason }),
-      ]));
-      const warnings = ev.warnings.length ? el('div', { class: 'warns', text: ev.warnings.join(' · ') }) : '';
-      const node = el('div', { class: 'result' }, [
-        el('div', { class: 'result-head' }, [
+      const token = ev.tokenStrategy?.summary || 'Sequential single-model';
+      const hook = ev.hookReadiness?.projectLazyBrainInstalled || ev.hookReadiness?.globalLazyBrainInstalled ? 'installed' : 'clear';
+      const matches = (ev.match?.matches || []).map(m =>
+        el('div', { class: 'ritem' }, [
+          el('strong', { text: m.capability.name + ' · ' + Math.round(m.score * 100) + '%' }),
+          el('div', { class: 'sub', text: (m.layer || '') + ' / ' + (m.confidence || '') + ' / ' + (m.capability.category || '') }),
+        ])
+      );
+      const members = (ev.team?.members || []).map(m =>
+        el('div', { class: 'ritem' }, [
+          el('strong', { text: m.name + ' · ' + (m.suggestedModel || 'sonnet') }),
+          el('div', { class: 'sub', text: (m.role || m.category || '') + ' / ' + (m.reason || '') }),
+        ])
+      );
+      const maps = (ev.agentMappings || []).map(m =>
+        el('div', { class: 'ritem' }, [
+          el('strong', { class: statusClass(m.status), text: (m.recommended || '') + ' → ' + (m.mapped || 'generic') }),
+          el('div', { class: 'sub', text: m.status + ' / ' + (m.reason || '') }),
+        ])
+      );
+      const warnings = (ev.warnings || []).length
+        ? el('div', { style: 'border-top:1px solid var(--err-border);padding:10px 14px;background:var(--err-bg);color:var(--err);font-size:12px', text: ev.warnings.join(' · ') })
+        : null;
+      return el('div', { class: 'result-card' }, [
+        el('div', { class: 'rhead' }, [
           el('div', {}, [
-            el('div', { class: 'query', text: ev.query }),
-            el('div', { class: 'sub', text: ev.modeDecision.reason }),
+            el('div', { class: 'query-text', text: ev.query }),
+            el('div', { class: 'text-2', text: ev.modeDecision?.reason || '', style: 'font-size:12px;margin-top:4px' }),
           ]),
-          el('span', { class: 'badge ' + ev.modeDecision.mode, text: ev.modeDecision.mode }),
+          el('span', { class: 'badge ' + (ev.modeDecision?.mode || ''), text: ev.modeDecision?.mode || 'regular' }),
         ]),
-        el('div', { class: 'grid' }, [
-          el('div', { class: 'col' }, [el('h3', { text: 'Match' }), ...matches]),
-          el('div', { class: 'col' }, [el('h3', { text: 'Team' }), ...members]),
-          el('div', { class: 'col' }, [el('h3', { text: 'Agent mapping' }), ...maps]),
+        el('div', { class: 'rgrid' }, [
+          el('div', { class: 'rcol' }, [el('h4', { text: 'Match' }), ...matches]),
+          el('div', { class: 'rcol' }, [el('h4', { text: 'Team' }), ...members]),
+          el('div', { class: 'rcol' }, [el('h4', { text: 'Agent mapping' }), ...maps]),
         ]),
-        el('div', { class: 'runtime' }, [
+        el('div', { class: 'rfoot' }, [
           el('div', {}, [el('b', { text: 'Token' }), el('span', { text: token })]),
           el('div', {}, [el('b', { text: 'Adapters' }), el('span', { text: adapters })]),
           el('div', {}, [el('b', { text: 'Main model' }), el('span', { text: ev.team?.mainModel?.model || 'current model' })]),
-          el('div', {}, [el('b', { text: 'Hook' }), el('span', { text: hook + ' / ' + ev.hookReadiness.statuslineMode })]),
+          el('div', {}, [el('b', { text: 'Hook' }), el('span', { text: hook + ' / ' + (ev.hookReadiness?.statuslineMode || 'none') })]),
         ]),
         warnings,
       ].filter(Boolean));
-      return node;
     }
+
     function renderResults(evaluations) {
-      const results = $('results');
-      results.replaceChildren(...evaluations.map(renderEvaluation));
+      const box = $('results');
+      box.replaceChildren(...evaluations.map(renderCard));
       const first = evaluations[0];
-      if (first) $('hookState').textContent = first.hookReadiness.projectLazyBrainInstalled || first.hookReadiness.globalLazyBrainInstalled ? 'installed' : 'clear';
+      if (first) $('hookState').textContent = first.hookReadiness?.projectLazyBrainInstalled || first.hookReadiness?.globalLazyBrainInstalled ? 'installed' : 'clear';
     }
+
     async function evaluate(payload) {
-      $('status').textContent = 'running';
+      $('status').textContent = 'running...';
       try {
-        const result = await json('/lab/evaluate', {
+        const result = await api('/lab/evaluate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
         renderResults(result.evaluations);
-        $('status').textContent = 'ok';
+        $('status').textContent = 'done';
       } catch (err) {
-        $('status').textContent = err.message || String(err);
+        $('status').textContent = 'Error: ' + (err.message || String(err));
       }
     }
+
     async function boot() {
-      state.fixtures = await json('/lab/fixtures');
-      state.agents = await json('/lab/agents');
+      state.fixtures = await api('/lab/fixtures');
+      state.agents = await api('/lab/agents');
       renderFixtures();
       renderAgents();
     }
+
     $('runFixtures').onclick = () => evaluate({ cases: state.fixtures });
     $('runOne').onclick = () => {
-      const query = $('queryInput').value.trim();
-      if (query) evaluate({ queries: [query] });
+      const q = $('queryInput').value.trim();
+      if (q) evaluate({ queries: [q] });
     };
-    $('clearResults').onclick = () => $('results').replaceChildren(el('div', { class: 'empty', text: 'Run fixtures or evaluate a query.' }));
-    $('refreshAgents').onclick = async () => { state.agents = await json('/lab/agents'); renderAgents(); };
+    $('queryInput').onkeydown = e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) $('runOne').click(); };
+    $('clearResults').onclick = () => $('results').innerHTML = '<div class="empty">Pick a fixture or type a query.</div>';
+    $('refreshAgents').onclick = async () => { state.agents = await api('/lab/agents'); renderAgents(); };
     boot().catch(err => { $('status').textContent = err.message || String(err); });
   </script>
 </body>
