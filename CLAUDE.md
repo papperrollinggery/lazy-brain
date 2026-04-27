@@ -22,9 +22,18 @@ lazybrain --version     # 验证：应输出版本号
 ### 扫描 + 编译图谱
 ```bash
 lazybrain scan
+
+# 离线编译（不需要 API，只有 similar_to 边）
 lazybrain compile --offline
+
+# 完整编译（需要 API，生成全部关系类型）
+lazybrain api test                        # 先测 API 是否通
+lazybrain compile --with-relations        # LLM 推理 composes_with/depends_on/supersedes
+
 lazybrain ready         # 验证：graph 应显示 OK
 ```
+
+> **重要：** `compile --with-relations` 之前必须先 `api test`。API 不通时编译会静默降级为离线模式，图谱关系边只有 similar_to。
 
 ### 安装 Claude Code hook
 ```bash

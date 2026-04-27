@@ -39,7 +39,7 @@
     "lazybrain"
   ],
   "author": "",
-  "license": "MIT",
+  "license": "AGPL-3.0",
   "devDependencies": {
     "@types/node": "^25.6.0",
     "esbuild": "^0.28.0",
