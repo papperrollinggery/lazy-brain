@@ -539,8 +539,8 @@ export const UI_HTML = `<!doctype html>
       const steps = [
         { done: true, title: 'Install LazyBrain', desc: 'Clone, build, and link the CLI', cmd: 'git clone https://github.com/papperrollinggery/lazy-brain.git && cd lazy-brain && npm install && npm run build && npm link' },
         { done: graphOk, title: 'Scan your tools', desc: graphOk ? 'Found ' + s.graph.nodes + ' capabilities' : 'Discover skills, agents, and commands on your machine', cmd: 'lazybrain scan && lazybrain compile --offline' },
-        { done: hookInstalled, title: 'Install the Claude Code hook', desc: hookInstalled ? 'Hook is active in Claude Code' : 'Add LazyBrain to Claude Code (project scope only)', cmd: 'lazybrain hook plan\nlazybrain hook install' },
-        { done: embOk, title: 'Set up semantic search (optional)', desc: embOk ? 'Semantic embeddings active' : 'Add AI-powered matching for better results', cmd: 'lazybrain config set embeddingApiKey <your-key>\nlazybrain config set embeddingModel BAAI/bge-m3\nlazybrain embeddings rebuild --yes' },
+        { done: hookInstalled, title: 'Install the Claude Code hook', desc: hookInstalled ? 'Hook is active in Claude Code' : 'Add LazyBrain to Claude Code (project scope only)', cmd: 'lazybrain hook plan\\nlazybrain hook install' },
+        { done: embOk, title: 'Set up semantic search (optional)', desc: embOk ? 'Semantic embeddings active' : 'Add AI-powered matching for better results', cmd: 'lazybrain config set embeddingApiKey <your-key>\\nlazybrain config set embeddingModel BAAI/bge-m3\\nlazybrain embeddings rebuild --yes' },
       ];
       $('steps').innerHTML = steps.map((st, i) =>
         '<div class="step">' +
