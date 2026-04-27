@@ -704,8 +704,6 @@ export const UI_HTML = `<!doctype html>
     // ─── Config ──────────────────────────────────────────────────
     function getCfgVal(path) {
       if (!state.status) return '';
-      if (path === 'routing.engine') return (state.status.routing && state.status.routing.engine) || 'tag';
-      if (path === 'routing.mode') return (state.status.routing && state.status.routing.mode) || 'auto';
       var parts = path.split('.');
       var obj = state.status.config;
       if (!obj) return '';
@@ -731,10 +729,12 @@ export const UI_HTML = `<!doctype html>
       var input = $(inputId);
       if (!input) return;
       var value = input.value.trim();
+      var payload = {};
+      payload[key] = value;
       api('/api/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: key, value: value }),
+        body: JSON.stringify(payload),
       }).then(function() {
         showToast('配置已保存', 'success');
         state.configEditing[key] = false;
@@ -764,32 +764,32 @@ export const UI_HTML = `<!doctype html>
         {
           title: '编译模型 (Compile LLM)',
           fields: [
-            { name: 'compile.apiUrl', label: 'API 地址', type: 'text', pw: false },
-            { name: 'compile.apiKey', label: 'API Key', type: 'text', pw: true },
-            { name: 'compile.model', label: '模型名', type: 'text', pw: false },
+            { name: 'compileApiBase', label: 'API 地址', type: 'text', pw: false },
+            { name: 'compileApiKey', label: 'API Key', type: 'text', pw: true },
+            { name: 'compileModel', label: '模型名', type: 'text', pw: false },
           ],
         },
         {
           title: '嵌入模型 (Embedding)',
           fields: [
-            { name: 'embedding.apiUrl', label: 'API 地址', type: 'text', pw: false },
-            { name: 'embedding.apiKey', label: 'API Key', type: 'text', pw: true },
-            { name: 'embedding.model', label: '模型名', type: 'text', pw: false },
+            { name: 'embeddingApiBase', label: 'API 地址', type: 'text', pw: false },
+            { name: 'embeddingApiKey', label: 'API Key', type: 'text', pw: true },
+            { name: 'embeddingModel', label: '模型名', type: 'text', pw: false },
           ],
         },
         {
           title: '秘书模型 (Secretary)',
           fields: [
-            { name: 'secretary.apiUrl', label: 'API 地址', type: 'text', pw: false },
-            { name: 'secretary.apiKey', label: 'API Key', type: 'text', pw: true },
-            { name: 'secretary.model', label: '模型名', type: 'text', pw: false },
+            { name: 'secretaryApiBase', label: 'API 地址', type: 'text', pw: false },
+            { name: 'secretaryApiKey', label: 'API Key', type: 'text', pw: true },
+            { name: 'secretaryModel', label: '模型名', type: 'text', pw: false },
           ],
         },
         {
           title: '路由设置 (Routing)',
           fields: [
-            { name: 'routing.engine', label: '路由引擎', type: 'select', pw: false, options: ['tag', 'semantic', 'hybrid'] },
-            { name: 'routing.mode', label: '路由策略', type: 'select', pw: false, options: ['auto', 'ask', 'recommend'] },
+            { name: 'engine', label: '路由引擎', type: 'select', pw: false, options: ['tag', 'semantic', 'hybrid'] },
+            { name: 'strategy', label: '路由策略', type: 'select', pw: false, options: ['auto', 'ask', 'recommend'] },
           ],
         },
       ];
