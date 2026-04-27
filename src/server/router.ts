@@ -6,7 +6,7 @@
  */
 
 import type * as http from 'node:http';
-import { readdirSync, existsSync, readFileSync } from 'node:fs';
+import { readdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import type { Graph } from '../graph/graph.js';
@@ -23,10 +23,12 @@ import { evaluateLab } from '../lab/evaluator.js';
 import { scanAgentInventory } from '../lab/agent-inventory.js';
 import { UI_HTML } from '../ui/html.js';
 import { buildStatusReport } from './status.js';
+import { loadConfig, saveConfig } from '../config/config.js';
+import { getHookRuntimeSnapshot, getHookRuntimeStats } from '../hook/runtime.js';
 import { runApiTests, type ApiTestTarget } from '../health/api-test.js';
 import { getEmbeddingCacheStatus } from '../embeddings/cache.js';
 import { rebuildEmbeddingCache } from '../embeddings/rebuild.js';
-import { EMBEDDINGS_INDEX_PATH } from '../constants.js';
+import { EMBEDDINGS_INDEX_PATH, GRAPH_PATH, LAZYBRAIN_DIR, ROUTE_EVENTS_PATH } from '../constants.js';
 import { buildRouteSpec, isRouteTarget } from '../orchestrator/route.js';
 import { loadRecentHistory } from '../history/history.js';
 import { loadProfile } from '../history/profile.js';
@@ -465,6 +467,144 @@ function handleReportSession(
   json(res, 200, report);
 }
 
+// ─── Config /api/config ───────────────────────────────────────────────────────
+
+const CONFIG_ALLOWED_KEYS = new Set([
+  'compileApiBase', 'compileApiKey', 'compileModel',
+  'embeddingApiBase', 'embeddingApiKey', 'embeddingModel',
+  'secretaryApiBase', 'secretaryApiKey', 'secretaryModel',
+  'engine', 'strategy', 'mode', 'autoThreshold', 'language',
+]);
+
+const VALID_ENGINES = new Set(['tag', 'semantic', 'hybrid', 'llm']);
+const VALID_STRATEGIES = new Set(['always-main', 'optimal', 'ask']);
+const VALID_MODES = new Set(['auto', 'select', 'ask']);
+const VALID_LANGUAGES = new Set(['auto', 'en', 'zh']);
+
+async function handleUpdateConfig(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+): Promise<void> {
+  let body: Record<string, unknown>;
+  try {
+    body = JSON.parse(await readBody(req)) as Record<string, unknown>;
+  } catch {
+    return json(res, 400, { ok: false, error: 'Invalid JSON body' });
+  }
+
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    return json(res, 400, { ok: false, error: 'Body must be a JSON object' });
+  }
+
+  // Validate keys
+  for (const key of Object.keys(body)) {
+    if (!CONFIG_ALLOWED_KEYS.has(key)) {
+      return json(res, 400, { ok: false, error: `Unknown config key: ${key}` });
+    }
+  }
+
+  // Validate values
+  for (const [key, value] of Object.entries(body)) {
+    if (key === 'autoThreshold') {
+      if (typeof value !== 'number' || value < 0 || value > 1) {
+        return json(res, 400, { ok: false, error: 'autoThreshold must be a number between 0 and 1' });
+      }
+    } else if (key === 'engine') {
+      if (!VALID_ENGINES.has(value as string)) {
+        return json(res, 400, { ok: false, error: `Invalid engine. Must be one of: ${[...VALID_ENGINES].join(', ')}` });
+      }
+    } else if (key === 'strategy') {
+      if (!VALID_STRATEGIES.has(value as string)) {
+        return json(res, 400, { ok: false, error: `Invalid strategy. Must be one of: ${[...VALID_STRATEGIES].join(', ')}` });
+      }
+    } else if (key === 'mode') {
+      if (!VALID_MODES.has(value as string)) {
+        return json(res, 400, { ok: false, error: `Invalid mode. Must be one of: ${[...VALID_MODES].join(', ')}` });
+      }
+    } else if (key === 'language') {
+      if (!VALID_LANGUAGES.has(value as string)) {
+        return json(res, 400, { ok: false, error: `Invalid language. Must be one of: ${[...VALID_LANGUAGES].join(', ')}` });
+      }
+    } else if (typeof value !== 'string') {
+      return json(res, 400, { ok: false, error: `config key "${key}" must be a string` });
+    }
+  }
+
+  try {
+    const config = loadConfig();
+    Object.assign(config, body);
+    saveConfig(config);
+    json(res, 200, { ok: true });
+  } catch (error) {
+    json(res, 500, {
+      ok: false,
+      error: error instanceof Error ? error.message : 'Failed to save config',
+    });
+  }
+}
+
+// ─── Diagnostics /api/diagnostics ────────────────────────────────────────────
+
+function handleDiagnostics(
+  _req: http.IncomingMessage,
+  res: http.ServerResponse,
+  graph: Graph,
+  config: UserConfig,
+): void {
+  // Hook runtime stats
+  const runtime = getHookRuntimeSnapshot({ config });
+  const runtimeStats = getHookRuntimeStats(runtime);
+
+  // Recent events from route-events.jsonl (last 10 lines)
+  let recentEvents: unknown[] = [];
+  if (existsSync(ROUTE_EVENTS_PATH)) {
+    try {
+      const content = readFileSync(ROUTE_EVENTS_PATH, 'utf-8');
+      const lines = content.trim().split('\n').filter(Boolean);
+      recentEvents = lines.slice(-10).map(line => {
+        try { return JSON.parse(line) as unknown; } catch { return line; }
+      });
+    } catch {}
+  }
+
+  // Recent matches from last-match.json
+  const lastMatchPath = join(LAZYBRAIN_DIR, 'last-match.json');
+  let recentMatches: Record<string, unknown> | null = null;
+  if (existsSync(lastMatchPath)) {
+    try {
+      recentMatches = JSON.parse(readFileSync(lastMatchPath, 'utf-8')) as Record<string, unknown>;
+    } catch {}
+  }
+
+  // Graph metadata from graph.json
+  let lastCompiled: string | null = null;
+  if (existsSync(GRAPH_PATH)) {
+    try {
+      const raw = JSON.parse(readFileSync(GRAPH_PATH, 'utf-8')) as { compiledAt?: string };
+      lastCompiled = raw.compiledAt ?? null;
+    } catch {}
+  }
+
+  // Embedding status
+  const embedding = getEmbeddingCacheStatus(graph.getAllNodes());
+
+  json(res, 200, {
+    hook: {
+      activeRuns: runtime.activeRuns.length,
+      hungRuns: runtime.hungRuns.length,
+      breakerOpen: runtimeStats.breakerOpen,
+      p95DurationMs: runtimeStats.p95DurationMs,
+    },
+    recentEvents,
+    recentMatches,
+    graphStatus: {
+      nodes: graph.getAllNodes().length,
+      lastCompiled,
+    },
+    embeddingStatus: embedding.state,
+  });
+}
+
 // ─── Router Factory ──────────────────────────────────────────────────────────
 
 export interface RouterOptions {
@@ -527,6 +667,12 @@ export function createRouter(opts: RouterOptions): http.RequestListener {
     }
     if (method === 'GET' && pathname === '/api/status') {
       return handleStatus(req, res, graph, opts.config);
+    }
+    if (method === 'GET' && pathname === '/api/diagnostics') {
+      return handleDiagnostics(req, res, graph, opts.config);
+    }
+    if (method === 'POST' && pathname === '/api/config') {
+      return handleUpdateConfig(req, res);
     }
     if (method === 'POST' && pathname === '/api/test') {
       return handleApiTest(req, res, opts.config);

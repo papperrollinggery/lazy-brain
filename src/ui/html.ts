@@ -3,7 +3,7 @@ export const UI_HTML = `<!doctype html>
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>LazyBrain</title>
+  <title>LazyBrain 管理面板</title>
   <style>
     /* ─── Design System ─────────────────────────────────────────── */
     :root {
@@ -104,6 +104,7 @@ export const UI_HTML = `<!doctype html>
     .btn-primary:hover { opacity: 0.85; }
     .btn-lg { padding: 12px 24px; font-size: 15px; border-radius: var(--radius); }
     .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .btn-sm { padding: 6px 12px; font-size: 13px; }
 
     /* ─── Layout ───────────────────────────────────────────────── */
     .page { max-width: 960px; margin: 0 auto; padding: 32px 24px 64px; }
@@ -113,7 +114,7 @@ export const UI_HTML = `<!doctype html>
       text-align: center; padding: 48px 24px 40px;
       background: var(--surface); border: 1px solid var(--border);
       border-radius: var(--radius); box-shadow: var(--shadow);
-      margin-bottom: 28px;
+      margin-bottom: 20px;
     }
     .hero-icon {
       width: 64px; height: 64px; border-radius: 18px;
@@ -158,6 +159,10 @@ export const UI_HTML = `<!doctype html>
     }
     .section-header:hover { background: var(--surface-hover); }
     .section-header h3 { font-size: 15px; font-weight: 600; }
+    .section-header .collapse-arrow {
+      font-size: 12px; color: var(--text-3); transition: transform 200ms;
+    }
+    .section.collapsed .collapse-arrow { transform: rotate(-90deg); }
     .section-body { padding: 20px; }
     .section.collapsed .section-body { display: none; }
 
@@ -227,6 +232,79 @@ export const UI_HTML = `<!doctype html>
       .tool-tag.command { background: #022c22; color: #34d399; border-color: #064e3b; }
     }
 
+    /* ─── Config Section ───────────────────────────────────────── */
+    .config-group { margin-bottom: 20px; }
+    .config-group:last-child { margin-bottom: 0; }
+    .config-group-title {
+      font-weight: 600; font-size: 14px; margin-bottom: 10px;
+      padding-bottom: 6px; border-bottom: 1px solid var(--border-light);
+    }
+    .config-row {
+      display: flex; align-items: center; gap: 12px;
+      padding: 7px 0; min-height: 36px;
+    }
+    .config-label {
+      font-size: 13px; color: var(--text-2); min-width: 80px; flex-shrink: 0;
+    }
+    .config-value {
+      flex: 1; font-size: 14px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .config-edit-btn {
+      flex-shrink: 0; padding: 2px 10px; border-radius: var(--radius-sm);
+      font: inherit; font-size: 12px; cursor: pointer;
+      border: 1px solid var(--border); background: transparent; color: var(--brand);
+      transition: all 120ms;
+    }
+    .config-edit-btn:hover { background: var(--brand-light); border-color: var(--brand); }
+    .config-input {
+      flex: 1; min-width: 120px;
+      padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+      font: inherit; font-size: 14px; background: var(--bg); color: var(--text);
+    }
+    .config-input:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 2px var(--brand-light); }
+    .config-select {
+      flex: 1; min-width: 120px;
+      padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+      font: inherit; font-size: 14px; background: var(--bg); color: var(--text);
+      cursor: pointer;
+    }
+    .config-select:focus { outline: none; border-color: var(--brand); }
+    .config-actions {
+      display: flex; gap: 6px; flex-shrink: 0;
+    }
+    .config-save-btn {
+      padding: 4px 12px; border-radius: var(--radius-sm);
+      font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+      border: 1px solid var(--text); background: var(--text); color: var(--bg);
+    }
+    .config-save-btn:hover { opacity: 0.85; }
+    .config-cancel-btn {
+      padding: 4px 12px; border-radius: var(--radius-sm);
+      font: inherit; font-size: 13px; cursor: pointer;
+      border: 1px solid var(--border); background: var(--surface); color: var(--text-2);
+    }
+    .config-cancel-btn:hover { background: var(--surface-hover); }
+    .config-unset { color: var(--text-3); font-style: italic; }
+
+    /* ─── Diagnostics ──────────────────────────────────────────── */
+    .diag-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px;
+    }
+    .diag-card {
+      border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px;
+    }
+    .diag-card h4 { font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+    .diag-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; }
+    .diag-row .diag-val { font-weight: 600; }
+    .match-list { margin-top: 16px; }
+    .match-entry {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      padding: 8px 0; border-bottom: 1px solid var(--border-light); font-size: 13px;
+    }
+    .match-entry:last-child { border-bottom: 0; }
+    .match-entry .mq { color: var(--text); font-weight: 500; }
+    .match-entry .mm { color: var(--text-3); font-size: 12px; }
+
     /* ─── Setup Steps ──────────────────────────────────────────── */
     .steps { display: grid; gap: 12px; }
     .step {
@@ -265,6 +343,20 @@ export const UI_HTML = `<!doctype html>
     .hook-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; }
     .hook-row span:last-child { font-weight: 600; }
 
+    /* ─── Toast ────────────────────────────────────────────────── */
+    .toast-container {
+      position: fixed; top: 16px; right: 16px; z-index: 999;
+      display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+    }
+    .toast {
+      padding: 10px 16px; border-radius: var(--radius-sm); font-size: 14px; font-weight: 500;
+      box-shadow: var(--shadow-lg); pointer-events: auto;
+      transition: opacity 200ms, transform 200ms;
+      max-width: 380px;
+    }
+    .toast.success { background: var(--ok-bg); color: var(--ok); border: 1px solid var(--ok-border); }
+    .toast.error { background: var(--err-bg); color: var(--err); border: 1px solid var(--err-border); }
+
     /* ─── Misc ─────────────────────────────────────────────────── */
     .text-ok { color: var(--ok); }
     .text-warn { color: var(--warn); }
@@ -274,20 +366,39 @@ export const UI_HTML = `<!doctype html>
     .mt-sm { margin-top: 10px; }
     .mt-md { margin-top: 16px; }
     .gap-sm { display: flex; gap: 8px; flex-wrap: wrap; }
+    .filter-row { display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+    .filter-row input {
+      flex: 1; min-width: 160px; padding: 8px 12px; border: 1px solid var(--border);
+      border-radius: var(--radius-sm); font: inherit; font-size: 14px;
+      background: var(--bg); color: var(--text);
+    }
+    .filter-row input:focus { outline: none; border-color: var(--brand); box-shadow: 0 0 0 2px var(--brand-light); }
+    .filter-row select {
+      border: 1px solid var(--border); border-radius: var(--radius-sm);
+      padding: 8px 12px; font: inherit; font-size: 14px;
+      background: var(--surface); color: var(--text); cursor: pointer;
+    }
+    .filter-row select:focus { outline: none; border-color: var(--brand); }
     pre.code-block {
       background: var(--bg); border: 1px solid var(--border);
       border-radius: var(--radius-sm); padding: 14px;
       font: 13px/1.5 var(--font-mono); overflow-x: auto;
       white-space: pre-wrap; word-break: break-all;
     }
+    details summary { cursor: pointer; font-weight: 600; font-size: 14px; padding: 4px 0; }
+    details summary:hover { color: var(--brand); }
 
     /* ─── Responsive ───────────────────────────────────────────── */
     @media (max-width: 680px) {
       .stats-row { grid-template-columns: repeat(2, 1fr); }
       .tool-grid { grid-template-columns: 1fr; }
+      .diag-grid { grid-template-columns: 1fr; }
       .hero { padding: 32px 16px 28px; }
       .topbar { padding: 12px 16px; }
       .page { padding: 20px 12px 48px; }
+      .config-row { flex-wrap: wrap; }
+      .config-label { min-width: 70px; }
+      .config-input { min-width: 100px; }
     }
   </style>
 </head>
@@ -298,61 +409,61 @@ export const UI_HTML = `<!doctype html>
       <h1>LazyBrain <span id="version" class="text-3" style="font-weight:400;font-size:13px"></span></h1>
     </div>
     <div class="topbar-right">
-      <span id="globalStatus" class="status-dot" title="Checking..."></span>
-      <button class="btn" id="refreshBtn" style="font-size:13px">Refresh</button>
-      <button class="btn" onclick="location.href='/lab'" style="font-size:13px">Lab</button>
+      <span id="globalStatus" class="status-dot" title="检测中..."></span>
+      <button class="btn btn-sm" id="refreshBtn">刷新</button>
+      <button class="btn btn-sm" onclick="location.href='/lab'">实验室</button>
     </div>
   </div>
 
   <div class="page">
 
-    <!-- Hero -->
+    <!-- Section A: 状态概览 -->
     <div class="hero" id="hero">
-      <div class="hero-icon">🧠</div>
-      <h2 id="heroTitle">Checking status...</h2>
-      <p id="heroDesc">Loading your LazyBrain setup</p>
+      <div class="hero-icon">LB</div>
+      <h2 id="heroTitle">检测状态中...</h2>
+      <p id="heroDesc">正在加载 LazyBrain 配置</p>
       <div id="heroBadge"></div>
     </div>
 
-    <!-- Stats -->
     <div class="stats-row" id="statsRow"></div>
 
-    <!-- Try Router (always visible) -->
+    <!-- Section B: 试试看 (always visible) -->
     <div class="section" id="trySection">
-      <div class="section-header" onclick="toggleSection(this)">
-        <h3>Try it out</h3>
-        <span class="text-3" style="font-size:13px">Type a task and see what LazyBrain recommends</span>
+      <div class="section-header" style="cursor:default">
+        <h3>试试看</h3>
+        <span class="text-3" style="font-size:13px">输入任务描述，查看 LazyBrain 推荐结果</span>
       </div>
       <div class="section-body">
         <div class="try-input">
-          <input id="queryInput" type="text" placeholder="Describe what you want to do, e.g. review this PR for bugs"
+          <input id="queryInput" type="text" placeholder="描述你想做的事情，例如：审查这个 PR 有没有 bug"
                  autocomplete="off" />
-          <button class="btn btn-primary" id="runRoute">Get Recommendation</button>
+          <button class="btn btn-primary" id="runRoute">获取推荐</button>
         </div>
         <div class="try-suggestions" id="suggestions">
-          <button data-q="帮我审查这个 PR">审查 PR</button>
-          <button data-q="调试一个生产环境 bug">调试 bug</button>
+          <button data-q="帮我审查这个 PR 代码质量">审查 PR</button>
+          <button data-q="生产环境出现了一个 bug 需要调试">调试 bug</button>
           <button data-q="写一个 REST API 接口">写 API</button>
           <button data-q="优化数据库查询性能">优化查询</button>
           <button data-q="部署到生产环境">部署上线</button>
         </div>
         <div class="try-result" id="tryResult">
-          <div class="empty">Enter a task above and click "Get Recommendation"</div>
+          <div class="empty">输入任务描述后点击"获取推荐"</div>
         </div>
       </div>
     </div>
 
-    <!-- Your Tools -->
+    <!-- Section C: 我的工具 (collapsible, default collapsed) -->
     <div class="section collapsed" id="toolsSection">
       <div class="section-header" onclick="toggleSection(this)">
-        <h3>Your Tools</h3>
-        <span class="text-3" style="font-size:13px" id="toolCount">0 capabilities found</span>
+        <h3>我的工具</h3>
+        <span class="text-3" style="font-size:13px" id="toolCount">共 0 个能力</span>
+        <span class="collapse-arrow">&#9660;</span>
       </div>
       <div class="section-body">
-        <div class="gap-sm" style="margin-bottom:14px">
-          <input id="toolSearch" type="text" placeholder="Filter tools..." class="try-input" style="flex:1;min-width:auto;padding:8px 12px;font-size:14px" />
-          <select id="toolKindFilter" style="border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 12px;font:inherit;font-size:14px;background:var(--surface);color:var(--text)">
-            <option value="">All types</option>
+        <div class="filter-row">
+          <input id="toolSearch" type="text" placeholder="搜索工具..." />
+          <select id="toolKindFilter">
+            <option value="">全部类型</option>
             <option value="skill">Skills</option>
             <option value="agent">Agents</option>
             <option value="command">Commands</option>
@@ -362,52 +473,80 @@ export const UI_HTML = `<!doctype html>
       </div>
     </div>
 
-    <!-- Setup Guide -->
-    <div class="section" id="setupSection">
+    <!-- Section D: API 配置 (collapsible, default NOT collapsed) -->
+    <div class="section" id="configSection">
       <div class="section-header" onclick="toggleSection(this)">
-        <h3>Setup Guide</h3>
-        <span class="text-3" style="font-size:13px">Step-by-step to install LazyBrain into Claude Code</span>
+        <h3>API 配置</h3>
+        <span class="text-3" style="font-size:13px">管理 LLM、Embedding 和路由设置</span>
+        <span class="collapse-arrow">&#9660;</span>
+      </div>
+      <div class="section-body" id="configContent">
+        <div class="text-3" style="padding:16px;text-align:center">加载配置中...</div>
+      </div>
+    </div>
+
+    <!-- Section E: 系统诊断 (collapsible, default collapsed) -->
+    <div class="section collapsed" id="diagnosticsSection">
+      <div class="section-header" onclick="toggleSection(this)">
+        <h3>系统诊断</h3>
+        <span class="text-3" style="font-size:13px">Hook 运行时、图谱状态、嵌入缓存</span>
+        <span class="collapse-arrow">&#9660;</span>
+      </div>
+      <div class="section-body">
+        <div class="diag-grid" id="diagGrid"></div>
+        <div id="diagExtra" class="mt-sm"></div>
+      </div>
+    </div>
+
+    <!-- Section F: 安装指南 (collapsible, default collapsed) -->
+    <div class="section collapsed" id="setupSection">
+      <div class="section-header" onclick="toggleSection(this)">
+        <h3>安装指南</h3>
+        <span class="text-3" style="font-size:13px">将 LazyBrain 接入 Claude Code 的完整步骤</span>
+        <span class="collapse-arrow">&#9660;</span>
       </div>
       <div class="section-body">
         <div class="steps" id="steps"></div>
       </div>
     </div>
 
-    <!-- Hook Status -->
-    <div class="section collapsed" id="hookSection">
-      <div class="section-header" onclick="toggleSection(this)">
-        <h3>Hook Status</h3>
-        <span class="text-3" style="font-size:13px">Detailed hook installation info</span>
-      </div>
-      <div class="section-body">
-        <div class="hook-grid" id="hookGrid"></div>
-        <div id="hookRuntime" class="mt-md"></div>
-      </div>
-    </div>
-
-    <!-- Advanced -->
+    <!-- Section G: 高级 (collapsible, default collapsed) -->
     <div class="section collapsed" id="advancedSection">
       <div class="section-header" onclick="toggleSection(this)">
-        <h3>Advanced</h3>
-        <span class="text-3" style="font-size:13px">Config, health, troubleshooting</span>
+        <h3>高级</h3>
+        <span class="text-3" style="font-size:13px">Hook 详情、故障排查、原始配置</span>
+        <span class="collapse-arrow">&#9660;</span>
       </div>
       <div class="section-body">
-        <div id="trouble"></div>
-        <div class="mt-md" id="configDump"></div>
+        <div id="hookDetail" class="mt-sm"></div>
+        <div id="trouble" class="mt-md"></div>
+        <div id="configDump" class="mt-md"></div>
       </div>
     </div>
 
   </div>
 
-  <script>
-    const state = { status: null, tools: [] };
-    const $ = id => document.getElementById(id);
-    const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  <div class="toast-container" id="toastContainer"></div>
 
-    async function api(url, opts) {
-      const res = await fetch(url, opts);
-      if (!res.ok) throw new Error(await res.text());
-      return res.json();
+  <script>
+    var state = { status: null, tools: [], diagnostics: null, configEditing: {} };
+    var $ = function(id) { return document.getElementById(id); };
+    var esc = function(v) {
+      return String(v ?? '').replace(/[&<>"']/g, function(c) {
+        return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];
+      });
+    };
+    var maskKey = function(key) {
+      if (!key) return '';
+      if (key.length <= 8) return key.slice(0, 4) + '&#9679;&#9679;&#9679;&#9679;';
+      return key.slice(0, 4) + '&#9679;&#9679;&#9679;&#9679;' + key.slice(-4);
+    };
+
+    function api(url, opts) {
+      return fetch(url, opts).then(function(res) {
+        if (!res.ok) throw new Error(res.status + ' ' + res.statusText);
+        return res.json();
+      });
     }
 
     // ─── Section toggle ──────────────────────────────────────────
@@ -415,30 +554,47 @@ export const UI_HTML = `<!doctype html>
       header.parentElement.classList.toggle('collapsed');
     }
 
+    // ─── Toast ───────────────────────────────────────────────────
+    function showToast(msg, type) {
+      var container = $('toastContainer');
+      var toast = document.createElement('div');
+      toast.className = 'toast ' + (type || 'success');
+      toast.textContent = msg;
+      container.appendChild(toast);
+      setTimeout(function() {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateX(20px)';
+        setTimeout(function() { toast.remove(); }, 250);
+      }, 3000);
+    }
+
     // ─── Hero ────────────────────────────────────────────────────
     function renderHero() {
-      const s = state.status;
+      var s = state.status;
       if (!s) return;
       $('version').textContent = 'v' + s.version;
-      const rd = s.readiness;
-      const isReady = rd.state === 'READY';
-      const hasIssues = rd.blockers.length > 0;
-      const dot = $('globalStatus');
+      var rd = s.readiness;
+      var isReady = rd.state === 'READY';
+      var hasIssues = rd.blockers && rd.blockers.length > 0;
+      var dot = $('globalStatus');
       dot.className = 'status-dot ' + (isReady ? 'ok' : hasIssues ? 'err' : 'warn');
 
-      let title, desc, badgeClass, badgeText;
+      var title, desc, badgeClass, badgeText;
       if (isReady) {
-        title = 'All systems go';
-        desc = 'LazyBrain is ready — your tools are indexed and routing is active';
-        badgeClass = 'ready'; badgeText = 'Ready';
+        title = '一切就绪';
+        desc = 'LazyBrain 已准备就绪 —— 工具已索引，路由引擎运行中';
+        badgeClass = 'ready';
+        badgeText = '就绪';
       } else if (hasIssues) {
-        title = 'Setup needed';
+        title = '需要配置';
         desc = rd.blockers.join('; ');
-        badgeClass = 'error'; badgeText = rd.blockers.length + ' issue' + (rd.blockers.length > 1 ? 's' : '');
+        badgeClass = 'error';
+        badgeText = rd.blockers.length + ' 个问题';
       } else {
-        title = 'Almost there';
-        desc = rd.warnings.length ? rd.warnings.join('; ') : 'A few things to check';
-        badgeClass = 'warning'; badgeText = 'Needs attention';
+        title = '基本就绪';
+        desc = (rd.warnings && rd.warnings.length) ? rd.warnings.join('; ') : '还有几项需要检查';
+        badgeClass = 'warning';
+        badgeText = '有待完善';
       }
       $('heroTitle').textContent = title;
       $('heroDesc').textContent = desc;
@@ -447,46 +603,51 @@ export const UI_HTML = `<!doctype html>
 
     // ─── Stats ───────────────────────────────────────────────────
     function renderStats() {
-      const s = state.status;
+      var s = state.status;
       if (!s) return;
-      const kinds = Object.entries(s.graph?.byKind || {});
-      const engine = s.routing?.engine || 'tag';
-      const mode = s.routing?.mode || 'off';
-      const embOk = s.embedding?.state === 'ok';
-      $('statsRow').innerHTML = [
-        { num: s.graph?.nodes || 0, label: 'Tools indexed' },
-        { num: kinds.length, label: 'Types (skill/agent/command)' },
-        { num: engine + ' · ' + mode, label: 'Routing engine' },
-        { num: embOk ? 'Active' : 'Off', label: 'Semantic search' },
-      ].map(c => '<div class="stat-card"><div class="num">' + esc(String(c.num)) + '</div><div class="label">' + c.label + '</div></div>').join('');
+      var kinds = Object.entries(s.graph && s.graph.byKind ? s.graph.byKind : {});
+      var engine = (s.routing && s.routing.engine) || 'tag';
+      var mode = (s.routing && s.routing.mode) || 'off';
+      var embOk = s.embedding && s.embedding.state === 'ok';
+      var cards = [
+        { num: (s.graph && s.graph.nodes) || 0, label: '已索引工具数' },
+        { num: kinds.length, label: '能力类型数' },
+        { num: engine + ' · ' + mode, label: '路由引擎' },
+        { num: embOk ? '正常运行' : '未启用', label: '语义搜索' },
+      ];
+      var html = '';
+      for (var i = 0; i < cards.length; i++) {
+        html += '<div class="stat-card"><div class="num">' + esc(String(cards[i].num)) + '</div><div class="label">' + esc(cards[i].label) + '</div></div>';
+      }
+      $('statsRow').innerHTML = html;
     }
 
     // ─── Try Router ──────────────────────────────────────────────
-    async function doRoute(query) {
-      $('tryResult').innerHTML = '<div class="empty">Thinking...</div>';
-      try {
-        const route = await api('/api/route', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query, target: 'claude' }),
-        });
+    function doRoute(query) {
+      $('tryResult').innerHTML = '<div class="empty">思考中...</div>';
+      api('/api/route', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: query, target: 'claude' }),
+      }).then(function(route) {
         renderRouteResult(route);
-      } catch (e) {
-        $('tryResult').innerHTML = '<div class="empty text-err">Error: ' + esc(e.message) + '</div>';
-      }
+      }).catch(function(e) {
+        $('tryResult').innerHTML = '<div class="empty text-err">错误: ' + esc(e.message) + '</div>';
+      });
     }
 
     function renderRouteResult(route) {
-      if (!route || !route.skills?.length) {
-        $('tryResult').innerHTML = '<div class="empty">No matching tools found. Try a different query or run <code>lazybrain scan</code> first.</div>';
+      if (!route || !route.skills || !route.skills.length) {
+        $('tryResult').innerHTML = '<div class="empty">未找到匹配工具。换个查询试试，或先运行 <code>lazybrain scan</code>。</div>';
         return;
       }
-      const lines = [];
+      var lines = [];
       if (route.intent) lines.push('<div style="font-weight:600;margin-bottom:10px">' + esc(route.intent) + '</div>');
-      if (route.scenario) lines.push('<div class="text-2" style="font-size:13px;margin-bottom:12px">Scenario: ' + esc(route.scenario) + '</div>');
-      for (const sk of route.skills) {
-        const score = Math.round((sk.score || 0) * 100);
-        const cls = score >= 80 ? 'high' : score >= 50 ? 'mid' : 'low';
+      if (route.scenario) lines.push('<div class="text-2" style="font-size:13px;margin-bottom:12px">场景: ' + esc(route.scenario) + '</div>');
+      for (var i = 0; i < route.skills.length; i++) {
+        var sk = route.skills[i];
+        var score = Math.round((sk.score || 0) * 100);
+        var cls = score >= 80 ? 'high' : score >= 50 ? 'mid' : 'low';
         lines.push(
           '<div class="match-item">' +
           '<div><div class="match-name">/' + esc(sk.name) + '</div>' +
@@ -495,135 +656,457 @@ export const UI_HTML = `<!doctype html>
           '</div>'
         );
       }
-      if (route.tokenStrategy?.summary) {
+      if (route.tokenStrategy && route.tokenStrategy.summary) {
         lines.push('<div class="text-2 mt-sm" style="font-size:13px">' + esc(route.tokenStrategy.summary) + '</div>');
       }
-      if (route.executionPlan?.length) {
-        lines.push('<div class="mt-sm" style="font-weight:600;font-size:13px">Suggested workflow:</div>');
-        lines.push('<ol style="margin:4px 0 0 18px;font-size:13px;color:var(--text-2)">' +
-          route.executionPlan.map(s => '<li>' + esc(s.title) + '</li>').join('') + '</ol>');
+      if (route.executionPlan && route.executionPlan.length) {
+        lines.push('<div class="mt-sm" style="font-weight:600;font-size:13px">建议工作流:</div>');
+        lines.push('<ol style="margin:4px 0 0 18px;font-size:13px;color:var(--text-2)">');
+        for (var j = 0; j < route.executionPlan.length; j++) {
+          lines.push('<li>' + esc(route.executionPlan[j].title) + '</li>');
+        }
+        lines.push('</ol>');
       }
       $('tryResult').innerHTML = lines.join('');
     }
 
     // ─── Tools ───────────────────────────────────────────────────
     function renderTools(filter, kindFilter) {
-      let tools = state.tools;
+      var tools = state.tools;
       if (filter) {
-        const q = filter.toLowerCase();
-        tools = tools.filter(t => (t.name || '').toLowerCase().includes(q) || (t.category || '').toLowerCase().includes(q));
+        var q = filter.toLowerCase();
+        tools = tools.filter(function(t) {
+          return (t.name || '').toLowerCase().indexOf(q) !== -1 ||
+                 (t.category || '').toLowerCase().indexOf(q) !== -1;
+        });
       }
-      if (kindFilter) tools = tools.filter(t => t.kind === kindFilter);
-      $('toolCount').textContent = tools.length + ' capabilities shown';
+      if (kindFilter) tools = tools.filter(function(t) { return t.kind === kindFilter; });
+      $('toolCount').textContent = '共 ' + tools.length + ' 个能力';
       if (!tools.length) {
-        $('toolGrid').innerHTML = '<div class="empty text-3" style="padding:32px">No tools match. Run <code>lazybrain scan</code> to discover tools.</div>';
+        $('toolGrid').innerHTML = '<div class="text-3" style="padding:32px;text-align:center">未找到匹配工具，先运行 <code>lazybrain scan</code> 扫描工具</div>';
         return;
       }
-      $('toolGrid').innerHTML = tools.slice(0, 100).map(t =>
-        '<div class="tool-card">' +
-        '<div class="name">' + esc(t.name) + '</div>' +
-        '<div class="meta">' +
-        '<span class="tool-tag ' + esc(t.kind || '') + '">' + esc(t.kind || '') + '</span>' +
-        '<span>' + esc(t.category || '') + '</span>' +
-        '<span>' + esc(t.origin || '') + '</span>' +
-        '</div></div>'
-      ).join('');
+      var html = '';
+      var limit = Math.min(tools.length, 100);
+      for (var i = 0; i < limit; i++) {
+        var t = tools[i];
+        html += '<div class="tool-card">' +
+          '<div class="name">' + esc(t.name) + '</div>' +
+          '<div class="meta">' +
+          '<span class="tool-tag ' + esc(t.kind || '') + '">' + esc(t.kind || '') + '</span>' +
+          '<span>' + esc(t.category || '') + '</span>' +
+          '<span>' + esc(t.origin || '') + '</span>' +
+          '</div></div>';
+      }
+      $('toolGrid').innerHTML = html;
+    }
+
+    // ─── Config ──────────────────────────────────────────────────
+    function getCfgVal(path) {
+      if (!state.status) return '';
+      if (path === 'routing.engine') return (state.status.routing && state.status.routing.engine) || 'tag';
+      if (path === 'routing.mode') return (state.status.routing && state.status.routing.mode) || 'auto';
+      var parts = path.split('.');
+      var obj = state.status.config;
+      if (!obj) return '';
+      for (var i = 0; i < parts.length; i++) {
+        if (obj == null || typeof obj !== 'object') return '';
+        obj = obj[parts[i]];
+      }
+      return (obj != null) ? String(obj) : '';
+    }
+
+    function editConfig(key) {
+      state.configEditing[key] = true;
+      renderConfig();
+    }
+
+    function cancelConfig(key) {
+      state.configEditing[key] = false;
+      renderConfig();
+    }
+
+    function saveConfig(key) {
+      var inputId = 'cfg-' + key.replace(/\./g, '-');
+      var input = $(inputId);
+      if (!input) return;
+      var value = input.value.trim();
+      api('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: key, value: value }),
+      }).then(function() {
+        showToast('配置已保存', 'success');
+        state.configEditing[key] = false;
+        return api('/api/status');
+      }).then(function(status) {
+        state.status = status;
+        renderConfig();
+        renderHero();
+        renderStats();
+        renderDiagnostics();
+        renderSetup();
+        renderAdvanced();
+      }).catch(function(e) {
+        showToast('保存失败: ' + esc(e.message), 'error');
+      });
+    }
+
+    function renderConfig() {
+      var c = state.status && state.status.config;
+      var content = $('configContent');
+      if (!c) {
+        content.innerHTML = '<div class="text-3" style="padding:16px;text-align:center">暂无配置数据</div>';
+        return;
+      }
+
+      var groups = [
+        {
+          title: '编译模型 (Compile LLM)',
+          fields: [
+            { name: 'compile.apiUrl', label: 'API 地址', type: 'text', pw: false },
+            { name: 'compile.apiKey', label: 'API Key', type: 'text', pw: true },
+            { name: 'compile.model', label: '模型名', type: 'text', pw: false },
+          ],
+        },
+        {
+          title: '嵌入模型 (Embedding)',
+          fields: [
+            { name: 'embedding.apiUrl', label: 'API 地址', type: 'text', pw: false },
+            { name: 'embedding.apiKey', label: 'API Key', type: 'text', pw: true },
+            { name: 'embedding.model', label: '模型名', type: 'text', pw: false },
+          ],
+        },
+        {
+          title: '秘书模型 (Secretary)',
+          fields: [
+            { name: 'secretary.apiUrl', label: 'API 地址', type: 'text', pw: false },
+            { name: 'secretary.apiKey', label: 'API Key', type: 'text', pw: true },
+            { name: 'secretary.model', label: '模型名', type: 'text', pw: false },
+          ],
+        },
+        {
+          title: '路由设置 (Routing)',
+          fields: [
+            { name: 'routing.engine', label: '路由引擎', type: 'select', pw: false, options: ['tag', 'semantic', 'hybrid'] },
+            { name: 'routing.mode', label: '路由策略', type: 'select', pw: false, options: ['auto', 'ask', 'recommend'] },
+          ],
+        },
+      ];
+
+      var html = '';
+      for (var g = 0; g < groups.length; g++) {
+        var group = groups[g];
+        html += '<div class="config-group">';
+        html += '<div class="config-group-title">' + esc(group.title) + '</div>';
+        for (var f = 0; f < group.fields.length; f++) {
+          var field = group.fields[f];
+          var val = getCfgVal(field.name);
+          var editing = state.configEditing[field.name] || false;
+          var inputId = 'cfg-' + field.name.replace(/\./g, '-');
+
+          html += '<div class="config-row">';
+          html += '<span class="config-label">' + esc(field.label) + '</span>';
+
+          if (editing) {
+            if (field.type === 'select') {
+              html += '<select id="' + inputId + '" class="config-select">';
+              for (var o = 0; o < field.options.length; o++) {
+                var opt = field.options[o];
+                html += '<option value="' + esc(opt) + '"' + (val === opt ? ' selected' : '') + '>' + esc(opt) + '</option>';
+              }
+              html += '</select>';
+            } else if (field.pw) {
+              html += '<input id="' + inputId + '" type="text" class="config-input" placeholder="输入新的 API Key（留空不修改）" />';
+            } else {
+              html += '<input id="' + inputId + '" type="text" class="config-input" value="' + esc(val) + '" />';
+            }
+            html += '<div class="config-actions">';
+            html += '<button class="config-save-btn" data-key="' + esc(field.name) + '">保存</button>';
+            html += '<button class="config-cancel-btn" data-key="' + esc(field.name) + '">取消</button>';
+            html += '</div>';
+          } else {
+            if (field.pw && val) {
+              html += '<span class="config-value">' + maskKey(val) + '</span>';
+            } else if (val) {
+              html += '<span class="config-value" title="' + esc(val) + '">' + esc(val) + '</span>';
+            } else {
+              html += '<span class="config-value config-unset">未配置</span>';
+            }
+            html += '<button class="config-edit-btn" data-key="' + esc(field.name) + '">编辑</button>';
+          }
+
+          html += '</div>';
+        }
+        html += '</div>';
+      }
+
+      content.innerHTML = html;
+    }
+
+    // ─── Diagnostics ─────────────────────────────────────────────
+    function renderDiagnostics() {
+      var diag = state.diagnostics;
+      var s = state.status;
+      var grid = $('diagGrid');
+      var extra = $('diagExtra');
+
+      // Hook runtime
+      var hookActive = null;
+      var hookHung = null;
+      var hookBreaker = null;
+      var hookP95 = null;
+      var graphNodes = null;
+      var graphCompiled = null;
+      var embState = null;
+      var embCache = null;
+
+      if (diag) {
+        if (diag.hook) {
+          hookActive = diag.hook.activeRuns;
+          hookHung = diag.hook.hungRuns;
+          hookBreaker = diag.hook.breakerOpen;
+          hookP95 = diag.hook.p95DurationMs;
+        }
+        if (diag.graph) {
+          graphNodes = diag.graph.nodes;
+          graphCompiled = diag.graph.lastCompiled;
+        }
+        if (diag.embedding) {
+          embState = diag.embedding.state;
+          embCache = diag.embedding.cacheSize;
+        }
+      }
+
+      // Fallback to status
+      if (hookActive == null && s && s.hook) {
+        hookActive = s.hook.activeRuns;
+        hookHung = s.hook.hungRuns;
+        hookBreaker = s.hook.breakerOpen;
+        hookP95 = s.hook.p95DurationMs;
+      }
+      if (graphNodes == null && s && s.graph) {
+        graphNodes = s.graph.nodes;
+      }
+      if (embState == null && s && s.embedding) {
+        embState = s.embedding.state;
+      }
+
+      var cards = [
+        { title: 'Hook 运行时', rows: [
+          { label: '活跃运行', val: hookActive != null ? String(hookActive) : '未知' },
+          { label: '挂起运行', val: hookHung != null ? String(hookHung) : '未知' },
+          { label: '断路器', val: hookBreaker === true ? '已断开 (open)' : hookBreaker === false ? '正常 (closed)' : '未知', cls: hookBreaker ? 'err' : '' },
+          { label: 'P95 耗时', val: hookP95 != null ? hookP95 + 'ms' : '未知' },
+        ]},
+        { title: '图谱状态', rows: [
+          { label: '节点数', val: graphNodes != null ? String(graphNodes) : '未知' },
+          { label: '最后编译', val: graphCompiled || (s && s.graph && s.graph.lastCompiled) || '未知' },
+        ]},
+        { title: '嵌入缓存', rows: [
+          { label: '状态', val: embState || '未知', cls: embState === 'ok' ? 'ok' : '' },
+          { label: '缓存大小', val: embCache != null ? String(embCache) + ' 条' : '未知' },
+        ]},
+      ];
+
+      var html = '';
+      for (var i = 0; i < cards.length; i++) {
+        var card = cards[i];
+        html += '<div class="diag-card"><h4>' + esc(card.title) + '</h4>';
+        for (var j = 0; j < card.rows.length; j++) {
+          var row = card.rows[j];
+          var valCls = row.cls ? ' class="diag-val text-' + row.cls + '"' : ' class="diag-val"';
+          html += '<div class="diag-row"><span>' + esc(row.label) + '</span><span' + valCls + '>' + esc(String(row.val)) + '</span></div>';
+        }
+        html += '</div>';
+      }
+      grid.innerHTML = html;
+
+      // Recent matches
+      if (diag && diag.recentMatches && diag.recentMatches.length) {
+        var mhtml = '<div class="match-list"><div style="font-weight:600;font-size:14px;margin-bottom:8px">最近匹配记录</div>';
+        for (var m = 0; m < Math.min(diag.recentMatches.length, 10); m++) {
+          var match = diag.recentMatches[m];
+          var matchedNames = '';
+          if (match.matched && match.matched.length) {
+            matchedNames = match.matched.join(', ');
+          }
+          mhtml += '<div class="match-entry">' +
+            '<span class="mq">' + esc(match.query || '') + '</span>' +
+            '<span class="mm">' + esc(matchedNames || match.route || '') + '</span>' +
+            '</div>';
+        }
+        mhtml += '</div>';
+        extra.innerHTML = mhtml;
+      } else if (diag && !diag.recentMatches) {
+        extra.innerHTML = '<div class="text-3" style="font-size:13px;padding:8px 0">暂无匹配记录</div>';
+      } else {
+        extra.innerHTML = '';
+      }
     }
 
     // ─── Setup Guide ─────────────────────────────────────────────
     function renderSetup() {
-      const s = state.status;
-      const graphOk = (s?.graph?.nodes || 0) > 0;
-      const hookInstalled = s?.hook?.scopes?.some(h => h.installed) || false;
-      const embOk = s?.embedding?.state === 'ok';
-      const steps = [
-        { done: true, title: 'Install LazyBrain', desc: 'Clone, build, and link the CLI', cmd: 'git clone https://github.com/papperrollinggery/lazy-brain.git && cd lazy-brain && npm install && npm run build && npm link' },
-        { done: graphOk, title: 'Scan your tools', desc: graphOk ? 'Found ' + s.graph.nodes + ' capabilities' : 'Discover skills, agents, and commands on your machine', cmd: 'lazybrain scan && lazybrain compile --offline' },
-        { done: hookInstalled, title: 'Install the Claude Code hook', desc: hookInstalled ? 'Hook is active in Claude Code' : 'Add LazyBrain to Claude Code (project scope only)', cmd: 'lazybrain hook plan\\nlazybrain hook install' },
-        { done: embOk, title: 'Set up semantic search (optional)', desc: embOk ? 'Semantic embeddings active' : 'Add AI-powered matching for better results', cmd: 'lazybrain config set embeddingApiKey <your-key>\\nlazybrain config set embeddingModel BAAI/bge-m3\\nlazybrain embeddings rebuild --yes' },
+      var s = state.status;
+      var graphOk = (s && s.graph && s.graph.nodes > 0) || false;
+      var hookInstalled = false;
+      if (s && s.hook && s.hook.scopes) {
+        for (var i = 0; i < s.hook.scopes.length; i++) {
+          if (s.hook.scopes[i].installed) { hookInstalled = true; break; }
+        }
+      }
+      var embOk = (s && s.embedding && s.embedding.state === 'ok') || false;
+      var steps = [
+        { done: true, title: '安装 LazyBrain', desc: '克隆仓库、安装依赖、构建并注册 CLI 命令', cmd: 'git clone https://github.com/papperrollinggery/lazy-brain.git\\ncd lazy-brain\\nnpm install\\nnpm run build\\nnpm link' },
+        { done: graphOk, title: '扫描工具', desc: graphOk ? '已发现 ' + (s.graph.nodes) + ' 个能力' : '扫描系统中的 skills、agents 和 commands', cmd: 'lazybrain scan\\nlazybrain compile --offline' },
+        { done: hookInstalled, title: '安装 Claude Code Hook', desc: hookInstalled ? 'Hook 已激活' : '将 LazyBrain 接入 Claude Code（项目级别）', cmd: 'lazybrain hook plan\\nlazybrain hook install' },
+        { done: embOk, title: '配置语义搜索（可选）', desc: embOk ? '语义嵌入已启用' : '启用 AI 匹配以获得更精准的推荐结果', cmd: 'lazybrain config set embeddingApiKey <your-key>\\nlazybrain config set embeddingModel BAAI/bge-m3\\nlazybrain embeddings rebuild --yes' },
       ];
-      $('steps').innerHTML = steps.map((st, i) =>
-        '<div class="step">' +
-        '<div class="step-num' + (st.done ? ' done' : '') + '">' + (st.done ? '✓' : (i + 1)) + '</div>' +
-        '<div class="step-body"><strong>' + esc(st.title) + '</strong>' +
-        '<span class="text-2">' + esc(st.desc) + '</span>' +
-        '<code>' + esc(st.cmd) + '</code></div>' +
-        '<div class="step-check' + (st.done ? ' done' : '') + '">✓</div>' +
-        '</div>'
-      ).join('');
+      var html = '';
+      for (var j = 0; j < steps.length; j++) {
+        var st = steps[j];
+        html += '<div class="step">' +
+          '<div class="step-num' + (st.done ? ' done' : '') + '">' + (st.done ? '✓' : String(j + 1)) + '</div>' +
+          '<div class="step-body"><strong>' + esc(st.title) + '</strong>' +
+          '<span class="text-2">' + esc(st.desc) + '</span>' +
+          '<code>' + esc(st.cmd) + '</code></div>' +
+          '<div class="step-check' + (st.done ? ' done' : '') + '">✓</div>' +
+          '</div>';
+      }
+      $('steps').innerHTML = html;
     }
 
     // ─── Hook Detail ─────────────────────────────────────────────
     function renderHook() {
-      const s = state.status;
-      if (!s?.hook?.scopes) return;
-      $('hookGrid').innerHTML = s.hook.scopes.map(h =>
-        '<div class="hook-card"><h4>' + esc(h.scope) + ' scope</h4>' +
-        '<div class="hook-row"><span>UserPromptSubmit</span><span class="' + (h.installed ? 'text-ok' : 'text-warn') + '">' + (h.installed ? 'installed' : 'not installed') + '</span></div>' +
-        '<div class="hook-row"><span>Stop hooks</span><span class="' + (h.stopClean ? 'text-ok' : 'text-err') + '">' + (h.stopClean ? 'clean' : 'contains LazyBrain') + '</span></div>' +
-        '<div class="hook-row"><span>SessionStart</span><span>' + (h.sessionStart ? 'present' : 'none') + '</span></div>' +
-        '</div>'
-      ).join('');
-      if (s.hook) {
-        $('hookRuntime').innerHTML =
-          '<div class="hook-grid">' +
-          '<div class="hook-card"><h4>Runtime</h4>' +
-          '<div class="hook-row"><span>Active runs</span><span>' + s.hook.activeRuns + '</span></div>' +
-          '<div class="hook-row"><span>Hung runs</span><span>' + s.hook.hungRuns + '</span></div>' +
-          '<div class="hook-row"><span>Breaker</span><span class="' + (s.hook.breakerOpen ? 'text-err' : 'text-ok') + '">' + (s.hook.breakerOpen ? 'open' : 'closed') + '</span></div>' +
-          '<div class="hook-row"><span>P95 duration</span><span>' + s.hook.p95DurationMs + 'ms</span></div>' +
+      var s = state.status;
+      var el = $('hookDetail');
+      if (!s || !s.hook || !s.hook.scopes) {
+        el.innerHTML = '<div class="text-3" style="text-align:center;padding:20px">无 Hook 状态数据</div>';
+        return;
+      }
+      var html = '<div class="hook-grid">';
+      for (var i = 0; i < s.hook.scopes.length; i++) {
+        var h = s.hook.scopes[i];
+        html += '<div class="hook-card"><h4>' + esc(h.scope) + ' 作用域</h4>' +
+          '<div class="hook-row"><span>UserPromptSubmit</span><span class="' + (h.installed ? 'text-ok' : 'text-warn') + '">' + (h.installed ? '已安装' : '未安装') + '</span></div>' +
+          '<div class="hook-row"><span>Stop 钩子</span><span class="' + (h.stopClean ? 'text-ok' : 'text-err') + '">' + (h.stopClean ? '正常' : '包含 LazyBrain') + '</span></div>' +
+          '<div class="hook-row"><span>SessionStart</span><span>' + (h.sessionStart ? '已配置' : '无') + '</span></div>' +
+          '</div>';
+      }
+      html += '</div>';
+
+      if (s.hook.activeRuns != null) {
+        html += '<div class="hook-grid mt-sm">' +
+          '<div class="hook-card"><h4>运行时统计</h4>' +
+          '<div class="hook-row"><span>活跃运行数</span><span>' + s.hook.activeRuns + '</span></div>' +
+          '<div class="hook-row"><span>挂起运行数</span><span>' + (s.hook.hungRuns || 0) + '</span></div>' +
+          '<div class="hook-row"><span>断路器</span><span class="' + (s.hook.breakerOpen ? 'text-err' : 'text-ok') + '">' + (s.hook.breakerOpen ? '已断开' : '正常') + '</span></div>' +
+          '<div class="hook-row"><span>P95 耗时</span><span>' + (s.hook.p95DurationMs || 0) + 'ms</span></div>' +
           '</div></div>';
       }
+
+      el.innerHTML = html;
     }
 
     // ─── Advanced ────────────────────────────────────────────────
     function renderAdvanced() {
-      const s = state.status;
+      var s = state.status;
       if (!s) return;
-      const items = [];
-      if (s.readiness?.blockers?.length) items.push({ title: 'Issues found', detail: s.readiness.blockers.join(', '), cmd: 'lazybrain ready', cls: 'err' });
-      if (s.embedding?.state !== 'ok') items.push({ title: 'Semantic search degraded', detail: s.embedding?.message || 'Check embedding config', cmd: 'lazybrain embeddings status', cls: 'warn' });
-      if (!s.server?.running) items.push({ title: 'Server record missing', detail: 'Server PID not detected', cmd: 'lazybrain ui', cls: 'warn' });
-      if (!items.length) items.push({ title: 'Everything looks good', detail: 'All checks passed', cmd: 'lazybrain route "test query"', cls: 'ok' });
-      $('trouble').innerHTML = items.map(it =>
-        '<div style="border:1px solid var(--' + it.cls + '-border);border-radius:var(--radius-sm);padding:12px;margin-bottom:8px;background:var(--' + it.cls + '-bg)">' +
-        '<strong>' + esc(it.title) + '</strong><div class="text-2" style="font-size:13px">' + esc(it.detail) + '</div>' +
-        '<code style="display:block;margin-top:6px">' + esc(it.cmd) + '</code></div>'
-      ).join('');
-      $('configDump').innerHTML = '<details><summary style="cursor:pointer;font-weight:600;font-size:14px">Raw Config</summary>' +
+      // Troubleshooting
+      var items = [];
+      if (s.readiness && s.readiness.blockers && s.readiness.blockers.length) {
+        items.push({ title: '发现问题', detail: s.readiness.blockers.join(', '), cmd: 'lazybrain ready', cls: 'err' });
+      }
+      if (s.embedding && s.embedding.state !== 'ok') {
+        items.push({ title: '语义搜索异常', detail: s.embedding.message || '请检查 Embedding 配置', cmd: 'lazybrain embeddings status', cls: 'warn' });
+      }
+      if (!s.server || !s.server.running) {
+        items.push({ title: '服务器状态异常', detail: '未检测到服务器进程', cmd: 'lazybrain ui', cls: 'warn' });
+      }
+      if (!items.length) {
+        items.push({ title: '一切正常', detail: '所有检查项通过', cmd: 'lazybrain route "test query"', cls: 'ok' });
+      }
+      var html = '';
+      for (var i = 0; i < items.length; i++) {
+        var it = items[i];
+        html += '<div style="border:1px solid var(--' + it.cls + '-border);border-radius:var(--radius-sm);padding:12px;margin-bottom:8px;background:var(--' + it.cls + '-bg)">' +
+          '<strong>' + esc(it.title) + '</strong><div class="text-2" style="font-size:13px">' + esc(it.detail) + '</div>' +
+          '<code style="display:block;margin-top:6px;font-size:12px">' + esc(it.cmd) + '</code></div>';
+      }
+      $('trouble').innerHTML = html;
+
+      // Render hook detail
+      renderHook();
+
+      // Raw config
+      $('configDump').innerHTML = '<details><summary>原始配置 (Raw Config)</summary>' +
         '<pre class="code-block mt-sm">' + esc(JSON.stringify(s.config || {}, null, 2)) + '</pre></details>';
     }
 
     // ─── Init ────────────────────────────────────────────────────
-    $('runRoute').onclick = () => {
-      const q = $('queryInput').value.trim();
+    $('runRoute').onclick = function() {
+      var q = $('queryInput').value.trim();
       if (q) doRoute(q);
     };
-    $('queryInput').onkeydown = e => { if (e.key === 'Enter') $('runRoute').click(); };
-    for (const btn of document.querySelectorAll('.try-suggestions button')) {
-      btn.onclick = () => { $('queryInput').value = btn.dataset.q; doRoute(btn.dataset.q); };
+    $('queryInput').onkeydown = function(e) {
+      if (e.key === 'Enter') $('runRoute').click();
+    };
+    var suggestionBtns = document.querySelectorAll('.try-suggestions button');
+    for (var bi = 0; bi < suggestionBtns.length; bi++) {
+      (function(btn) {
+        btn.onclick = function() {
+          $('queryInput').value = btn.dataset.q;
+          doRoute(btn.dataset.q);
+        };
+      })(suggestionBtns[bi]);
     }
     $('refreshBtn').onclick = load;
-    $('toolSearch').oninput = () => renderTools($('toolSearch').value, $('toolKindFilter').value);
-    $('toolKindFilter').onchange = () => renderTools($('toolSearch').value, $('toolKindFilter').value);
+    $('toolSearch').oninput = function() {
+      renderTools($('toolSearch').value, $('toolKindFilter').value);
+    };
+    $('toolKindFilter').onchange = function() {
+      renderTools($('toolSearch').value, $('toolKindFilter').value);
+    };
+
+    // Config edit/save/cancel via event delegation
+    $('configSection').addEventListener('click', function(e) {
+      var btn = e.target.closest('button');
+      if (!btn) return;
+      var key = btn.dataset.key;
+      if (!key) return;
+      if (btn.classList.contains('config-edit-btn')) editConfig(key);
+      else if (btn.classList.contains('config-save-btn')) saveConfig(key);
+      else if (btn.classList.contains('config-cancel-btn')) cancelConfig(key);
+    });
 
     async function load() {
+      state.configEditing = {};
       try {
         state.status = await api('/api/status');
-        if (state.status?.graph?.nodes) {
-          const searchResult = await api('/api/search?' + new URLSearchParams({ limit: '500' }));
-          state.tools = Array.isArray(searchResult) ? searchResult : [];
+        if (state.status && state.status.graph && state.status.graph.nodes) {
+          try {
+            var searchResult = await api('/api/search?' + new URLSearchParams({ limit: '500' }));
+            state.tools = Array.isArray(searchResult) ? searchResult : [];
+          } catch (e) {
+            state.tools = [];
+          }
+        }
+        try {
+          state.diagnostics = await api('/api/diagnostics');
+        } catch (e) {
+          state.diagnostics = null;
         }
       } catch (e) {
-        $('heroTitle').textContent = 'Cannot connect';
+        $('heroTitle').textContent = '无法连接';
         $('heroDesc').textContent = e.message;
         return;
       }
       renderHero();
       renderStats();
       renderTools('', '');
+      renderConfig();
+      renderDiagnostics();
       renderSetup();
-      renderHook();
       renderAdvanced();
     }
 
