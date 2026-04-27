@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v1.5.0] - 2026-04-27
+
+### Added
+- Persistent statusline with active (bold) vs dormant (dim) visual distinction, always visible in combined HUD mode.
+- Complete UI/UX redesign: unified design system, dark mode support, Chinese-first scrollable single-page layout.
+- Chinese admin panel with 6 sections: status overview, live route tester, tool browser, API config editor, system diagnostics, and setup guide.
+- Inline API config editing (compile/embedding/secretary LLM settings, API keys, routing engine) with save-to-config.
+- `POST /api/config` endpoint to write configuration from the web UI (14 whitelisted keys).
+- `GET /api/diagnostics` endpoint returning hook runtime stats, recent events, graph status, and embedding cache health.
+- Tiny gate hook now runs lightweight tag-layer matching and injects real results with scores (🟢🟡⚪), tool names, descriptions, and personality roasts.
+- Auto language detection (zh/en) for hook-injected routing suggestions.
+- Project CLAUDE.md with model-friendly install instructions.
+
+### Changed
+- Search API (`/api/search`) now returns all nodes when no query or filter is specified, fixing the empty tools display.
+- Lab page redesigned to match the unified design system.
+
+### Fixed
+- JavaScript syntax error in setup guide cmd strings due to unescaped newlines in TypeScript template literals.
+- Config fields displaying as "未配置" (not configured) due to field name mismatch in renderConfig().
+- `autoThreshold` validation now rejects NaN values.
+- `POST /api/config` now checks Origin header for defense-in-depth.
+- Tiny gate hook now writes `last-match.json` so the statusline shows real match results instead of "建议路由".
+- Platform-specific native packages moved to `optionalDependencies` for cross-platform CI compatibility.
+
 ## [v1.4.5] - 2026-04-26
 
 ### Added
