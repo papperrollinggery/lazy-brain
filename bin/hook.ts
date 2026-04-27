@@ -478,8 +478,10 @@ function runTinyGate(prompt: string): void {
         return;
       }
     }
-  } catch {
-    // Graph load or match failed — fall through to generic prompt
+  } catch (err) {
+    if (process.env.LAZYBRAIN_DEBUG_HOOK === '1') {
+      process.stderr.write(`[LazyBrain] Tiny gate match failed: ${err instanceof Error ? err.message : String(err)}\n`);
+    }
   }
 
   output({

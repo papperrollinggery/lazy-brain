@@ -485,6 +485,12 @@ async function handleUpdateConfig(
   req: http.IncomingMessage,
   res: http.ServerResponse,
 ): Promise<void> {
+  // Only accept requests from local origin (defense-in-depth)
+  const origin = req.headers.origin ?? req.headers.referer ?? '';
+  if (origin && !origin.startsWith('http://127.0.0.1') && !origin.startsWith('http://localhost')) {
+    return json(res, 403, { ok: false, error: 'Forbidden: config writes only allowed from localhost' });
+  }
+
   let body: Record<string, unknown>;
   try {
     body = JSON.parse(await readBody(req)) as Record<string, unknown>;
@@ -506,8 +512,8 @@ async function handleUpdateConfig(
   // Validate values
   for (const [key, value] of Object.entries(body)) {
     if (key === 'autoThreshold') {
-      if (typeof value !== 'number' || value < 0 || value > 1) {
-        return json(res, 400, { ok: false, error: 'autoThreshold must be a number between 0 and 1' });
+      if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
+        return json(res, 400, { ok: false, error: 'autoThreshold must be a finite number between 0 and 1' });
       }
     } else if (key === 'engine') {
       if (!VALID_ENGINES.has(value as string)) {
