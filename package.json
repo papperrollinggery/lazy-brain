@@ -1,6 +1,6 @@
 {
   "name": "lazybrain",
-  "version": "1.4.5",
+  "version": "1.5.0",
   "description": "Semantic skill router for AI coding agents — your second brain for capabilities",
   "type": "module",
   "bin": {
@@ -41,6 +41,8 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
+    "@esbuild/darwin-arm64": "^0.28.0",
+    "@rollup/rollup-darwin-arm64": "^4.60.2",
     "@types/node": "^25.6.0",
     "husky": "^9.1.7",
     "tsup": "^8.0.0",
@@ -51,10 +53,11 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "@huggingface/transformers": "^4.1.0"
+    "@huggingface/transformers": "^4.1.0",
+    "esbuild": "^0.28.0"
   },
   "optionalDependencies": {
-    "@rollup/rollup-darwin-arm64": "^4.60.1",
+    "@rollup/rollup-darwin-arm64": "^4.60.2",
     "@rollup/rollup-darwin-x64": "^4.60.2",
     "@rollup/rollup-linux-x64-gnu": "^4.60.1"
   },
