@@ -51,7 +51,7 @@ function runCommand(command: string, stdin: string): string {
       input: stdin,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'ignore'],
-      timeout: 1500,
+      timeout: 5000,
       env: process.env,
     }).trim();
   } catch {
