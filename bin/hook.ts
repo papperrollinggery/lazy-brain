@@ -41,6 +41,8 @@ import { beginHookRun, finishHookRun } from '../src/hook/runtime.js';
 import type { HookRunRecord } from '../src/hook/types.js';
 import { classifyRouteNeed } from '../src/orchestrator/route-gate.js';
 import { recordRouteEvent } from '../src/orchestrator/route-events.js';
+import { tagMatch } from '../src/matcher/tag-layer.js';
+import type { Capability } from '../src/types.js';
 
 // ─── Server HTTP Client (optional fast path) ─────────────────────────────────
 
@@ -388,6 +390,58 @@ let _hookConfig: ReturnType<typeof loadConfig> | null = null;
 
 const TINY_GATE_PROMPT = 'Consider calling lazybrain.route for skill routing, context reduction, and verification planning.';
 
+function detectLang(prompt: string): 'zh' | 'en' {
+  const cjk = (prompt.match(/[一-鿿㐀-䶿]/g) || []).length;
+  return cjk >= 2 ? 'zh' : 'en';
+}
+
+function formatMatchInjection(matches: Array<{ name: string; score: number; reason: string }>, lang: 'zh' | 'en', routeMode: string): string {
+  const lines: string[] = [];
+  if (lang === 'zh') {
+    lines.push('🧠 LazyBrain 匹配结果：');
+  } else {
+    lines.push('🧠 LazyBrain match results:');
+  }
+  for (const m of matches.slice(0, 3)) {
+    const pct = Math.round(m.score * 100);
+    const bar = pct >= 80 ? '🟢' : pct >= 55 ? '🟡' : '⚪';
+    lines.push(`  ${bar} /${m.name} (${pct}%) — ${m.reason}`);
+  }
+  if (lang === 'zh') {
+    const top = matches[0];
+    if (routeMode === 'needs_clarification') {
+      lines.push(`\n🤔 你的需求有点模糊，要不要用 /${top.name} 试试？`);
+    } else if (top.score >= 0.75) {
+      const roasts = [
+        '我帮你找好了，别自己硬写啊',
+        '放着现成的工具不用，手写不累吗',
+        '这个匹配度很高，信我一次',
+        '你每次都不选，我很难办啊',
+      ];
+      const roast = roasts[Math.floor(Math.random() * roasts.length)];
+      lines.push(`\n→ 建议用 /${top.name}，${roast}`);
+    } else {
+      lines.push(`\n→ 建议调用 /${top.name}，或者看看上面哪个合适`);
+    }
+  } else {
+    const top = matches[0];
+    if (routeMode === 'needs_clarification') {
+      lines.push(`\n🤔 Your request is a bit vague — try /${top.name}?`);
+    } else if (top.score >= 0.75) {
+      const roasts = [
+        'I already checked — save yourself the typing',
+        'Trust me on this one, the match is solid',
+        'Why do I even bother if you never pick these',
+      ];
+      const roast = roasts[Math.floor(Math.random() * roasts.length)];
+      lines.push(`\n→ Try /${top.name} — ${roast}`);
+    } else {
+      lines.push(`\n→ Consider /${top.name}, or pick from above`);
+    }
+  }
+  return lines.join('\n');
+}
+
 function runTinyGate(prompt: string): void {
   const decision = classifyRouteNeed(prompt);
   recordRouteEvent({
@@ -400,6 +454,32 @@ function runTinyGate(prompt: string): void {
   if (!decision.shouldCallLazyBrain) {
     output({ continue: true });
     return;
+  }
+
+  // Try a fast tag-layer match so we can show real results
+  try {
+    if (existsSync(GRAPH_PATH)) {
+      const graph = Graph.load(GRAPH_PATH);
+      const capabilities: Capability[] = graph.getAllNodes();
+      const results = tagMatch(prompt, capabilities, undefined, 5);
+      const topMatches = results
+        .filter(r => r.score >= 0.35)
+        .slice(0, 3)
+        .map(r => ({
+          name: r.capability.name,
+          score: r.score,
+          reason: (r.capability.description || r.capability.category || '').slice(0, 60),
+        }));
+
+      if (topMatches.length > 0) {
+        const lang = detectLang(prompt);
+        const injection = formatMatchInjection(topMatches, lang, decision.mode);
+        output({ continue: true, additionalSystemPrompt: injection });
+        return;
+      }
+    }
+  } catch {
+    // Graph load or match failed — fall through to generic prompt
   }
 
   output({
