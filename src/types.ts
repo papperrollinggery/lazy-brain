@@ -438,6 +438,14 @@ export interface UserConfig {
   secretaryApiKey?: string;
   /** Secretary model name */
   secretaryModel?: string;
+  /** Embedding source: api (cloud), custom (local endpoint), local (transformers.js) */
+  embeddingSource?: 'api' | 'custom' | 'local';
+  /** Custom system prompt for compile LLM */
+  compileSystemPrompt?: string;
+  /** Custom tag generation prompt template */
+  compileTagPrompt?: string;
+  /** Custom relation inference prompt template */
+  compileRelationPrompt?: string;
   /** Enable external capability discovery */
   externalDiscovery: boolean;
   /** Current platform (auto-detected or manual) */

@@ -123,6 +123,7 @@ export interface CompileResult {
 }
 
 export interface CompileOptions {
+  config?: { compileSystemPrompt?: string; compileTagPrompt?: string; compileRelationPrompt?: string };
   /** LLM provider for compilation */
   llm: LLMProvider;
   /** Model name for metadata */

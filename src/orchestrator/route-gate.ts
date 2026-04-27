@@ -57,8 +57,8 @@ export function classifyRouteNeed(query: string): RouteGateDecision {
     };
   }
 
-  var hasCJK = /[一-鿿㐀-䶿]/.test(q);
-  var shortThreshold = hasCJK ? 8 : 28;
+  const hasCJK = /[一-鿿㐀-䶿]/.test(q);
+  const shortThreshold = hasCJK ? 8 : 28;
   if (simple || q.length <= shortThreshold) {
     return {
       mode: 'no_route_needed',

@@ -7,6 +7,7 @@
 
 import type * as http from 'node:http';
 import { readdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import type { Graph } from '../graph/graph.js';
@@ -577,6 +578,7 @@ function handleCompileStart(
   }
   
   try {
+    const COMPILE_TIMEOUT_MS = 5 * 60 * 1000;
     const child = spawn(process.execPath, [join(LAZYBRAIN_DIR, '..', '..', 'dist', 'bin', 'lazybrain.js'), ...args], {
       cwd: process.cwd(),
       env: { ...process.env, FORCE_COLOR: '0' },
@@ -599,7 +601,8 @@ function handleCompileStart(
       _compileLog.push('[err] ' + data.toString().trim());
     });
     
-    child.on('close', (code) => {
+    const _compileTimer = setTimeout(() => { if (child.exitCode === null) { child.kill(); _compilePhase = 'timeout'; _compileProcess = null; } }, COMPILE_TIMEOUT_MS);
+    child.on('close', (code) => { clearTimeout(_compileTimer);
       _compilePhase = code === 0 ? 'completed' : 'failed';
       _compileProcess = null;
     });
@@ -715,24 +718,19 @@ async function handleEmbeddingDiscover(
 
   const results: Array<{ label: string; url: string; model: string; reachable: boolean; error?: string }> = [];
   
-  for (const c of candidates) {
+  const probes = candidates.map(async (c) => {
     try {
-      await new Promise<void>((resolve, reject) => {
+      await new Promise<void>((resolve) => {
         const req = request(c.url, { method: 'GET', timeout: 2000 }, (resp) => {
           results.push({ ...c, reachable: resp.statusCode !== undefined && resp.statusCode < 500 });
-          resp.resume();
-          resolve();
+          resp.resume(); resolve();
         });
-        req.on('error', (err: Error) => {
-          results.push({ ...c, reachable: false, error: err.message });
-          resolve();
-        });
+        req.on('error', (err: Error) => { results.push({ ...c, reachable: false, error: err.message }); resolve(); });
         req.end();
       });
-    } catch {
-      results.push({ ...c, reachable: false, error: 'timeout' });
-    }
-  }
+    } catch { results.push({ ...c, reachable: false, error: 'timeout' }); }
+  });
+  await Promise.all(probes);
   
   json(res, 200, { services: results });
 }

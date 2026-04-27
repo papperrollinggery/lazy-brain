@@ -566,6 +566,7 @@ async function cmdCompile() {
       existingGraph: liveGraph,
       forceRelations: args.includes('--force'),
       skipRelations: !args.includes('--with-relations'),
+      config: { compileSystemPrompt: config.compileSystemPrompt, compileTagPrompt: config.compileTagPrompt, compileRelationPrompt: config.compileRelationPrompt },
       checkpointPath: GRAPH_PATH,
       onProgress: (current, total, name) => {
         phase1Bar.update(current, name);

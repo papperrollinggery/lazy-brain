@@ -1205,8 +1205,7 @@ export const UI_HTML = `<!doctype html>
       $('compileStatus').textContent = '启动中...';
       api('/api/compile', { method: 'POST' }).then(function(res) {
         if (res.ok) pollCompile();
-        else showToast('编译失败: ' + esc(res.error), 'error');
-        $('compileBtn').disabled = false;
+        else { showToast('编译失败: ' + esc(res.error), 'error'); $('compileBtn').disabled = false; }
       }).catch(function(e) {
         showToast('编译失败: ' + esc(e.message), 'error');
         $('compileBtn').disabled = false;
@@ -1218,6 +1217,7 @@ export const UI_HTML = `<!doctype html>
         if (s.running) {
           _compilePollTimer = setTimeout(pollCompile, 2000);
         } else {
+          $('compileBtn').disabled = false;
           $('compileStatus').textContent = s.exitCode === 0 ? '✓ 编译完成' : '✗ 编译失败';
           setTimeout(function() { $('compileStatus').textContent = ''; }, 8000);
           load(); // Refresh all data
@@ -1226,9 +1226,11 @@ export const UI_HTML = `<!doctype html>
     }
     function startScan() {
       $('scanBtn').disabled = true;
-      $('compileStatus').textContent = '扫描中...';
-      // Scan is server-side via spawning lazybrain scan
-      api('/api/compile', { method: 'POST' }).then(function() { pollCompile(); $('scanBtn').disabled = false; });
+      $('compileStatus').textContent = '扫描+编译中...';
+      api('/api/compile', { method: 'POST' }).then(function(res) {
+        if (res.ok) { pollCompile(); }
+        else { showToast('启动失败: ' + esc(res.error), 'error'); $('scanBtn').disabled = false; }
+      }).catch(function(e) { showToast('失败: ' + esc(e.message), 'error'); $('scanBtn').disabled = false; });
     }
     $('compileBtn').onclick = startCompile;
     $('scanBtn').onclick = startScan;
