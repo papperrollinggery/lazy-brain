@@ -488,6 +488,7 @@ export const UI_HTML = `<!doctype html>
         <span class="collapse-arrow">&#9660;</span>
       </div>
       <div class="section-body">
+        <span class="text-3" id="graphInfo" style="display:block;margin-bottom:8px;font-size:12px"></span>
         <div id="graphContainer"></div>
         <div class="graph-legend">
           <span><span class="dot" style="background:#3b82f6"></span> Skill</span>
@@ -878,32 +879,50 @@ export const UI_HTML = `<!doctype html>
     var _cy = null;
     function renderGraph() {
       var container = $('graphContainer');
-      if (!container || container.offsetParent === null) return; // hidden
+      if (!container || container.offsetParent === null) return;
       if (_cy) { _cy.destroy(); _cy = null; }
       if (typeof cytoscape === 'undefined') return;
 
+      container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-3)">加载图谱数据...</div>';
+
+      var isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
       var KIND_COLORS = { skill: '#3b82f6', agent: '#8b5cf6', command: '#10b981', mode: '#f59e0b', hook: '#ef4444' };
-      var EDGE_STYLES = { similar_to: 'solid', composes_with: 'dashed', depends_on: 'dotted', supersedes: 'dotted', belongs_to: 'solid' };
+      var EDGE_COLOR = isDark ? '#64748b' : '#94a3b8';
 
-      api('/api/graph?limit=150').then(function(data) {
-        if (!data || !data.nodes) return;
-        var nodes = data.nodes.map(function(n) { return { data: { id: n.id, label: n.name, kind: n.kind, category: n.category } }; });
-        var edges = (data.edges || []).map(function(e) { return { data: { id: e.source + '_' + e.target + '_' + e.type, source: e.source, target: e.target, type: e.type, confidence: e.confidence } }; });
+      api('/api/graph?limit=500').then(function(data) {
+        if (!data || !data.nodes) { container.innerHTML = ''; return; }
+        var connectedIds = new Set();
+        (data.edges || []).forEach(function(e) { connectedIds.add(e.source); connectedIds.add(e.target); });
 
+        var nodes = data.nodes.map(function(n) {
+          var hasLinks = connectedIds.has(n.id);
+          return { data: { id: n.id, label: n.name, kind: n.kind, category: n.category, hasLinks: hasLinks }, classes: hasLinks ? 'linked' : 'isolated' };
+        });
+        var edges = (data.edges || []).map(function(e) {
+          return { data: { id: e.source + '_' + e.target + '_' + e.type, source: e.source, target: e.target, type: e.type, confidence: e.confidence } };
+        });
+
+        container.innerHTML = '';
         _cy = cytoscape({
           container: container,
           elements: { nodes: nodes, edges: edges },
           style: [
-            { selector: 'node', style: { 'label': 'data(label)', 'font-size': '10px', 'text-valign': 'center', 'text-halign': 'center', 'color': 'var(--text)', 'background-color': function(e) { return KIND_COLORS[e.data('kind')] || '#94a3b8'; }, 'width': 18, 'height': 18, 'border-width': 1, 'border-color': 'var(--border)', 'border-opacity': 0.6 } },
-            { selector: 'edge', style: { 'width': 1.2, 'line-color': '#94a3b8', 'line-style': function(e) { return EDGE_STYLES[e.data('type')] || 'solid'; }, 'target-arrow-shape': 'triangle', 'target-arrow-color': '#94a3b8', 'arrow-scale': 0.6, 'opacity': 0.5, 'curve-style': 'bezier' } },
-            { selector: 'edge[type="composes_with"]', style: { 'width': 2, 'line-color': '#6366f1', 'target-arrow-color': '#6366f1', 'opacity': 0.7 } },
-            { selector: 'edge[type="depends_on"]', style: { 'line-color': '#f59e0b', 'target-arrow-color': '#f59e0b', 'opacity': 0.6 } },
-            { selector: ':selected', style: { 'border-color': '#ef4444', 'border-width': 2, 'border-opacity': 1 } },
+            { selector: 'node', style: { 'label': 'data(label)', 'font-size': '10px', 'text-valign': 'center', 'text-halign': 'center', 'color': isDark ? '#e2e8f0' : '#334155', 'background-color': function(e) { return KIND_COLORS[e.data('kind')] || '#94a3b8'; }, 'width': 16, 'height': 16, 'border-width': 1, 'border-color': isDark ? '#475569' : '#cbd5e1', 'border-opacity': 0.5 } },
+            { selector: 'node.linked', style: { 'width': 22, 'height': 22, 'font-size': '11px', 'font-weight': 'bold' } },
+            { selector: 'node.isolated', style: { 'width': 8, 'height': 8, 'font-size': '0px', 'opacity': 0.35 } },
+            { selector: 'edge', style: { 'width': 1.5, 'line-color': EDGE_COLOR, 'target-arrow-shape': 'triangle', 'target-arrow-color': EDGE_COLOR, 'arrow-scale': 0.7, 'opacity': 0.7, 'curve-style': 'bezier' } },
+            { selector: 'edge[type="composes_with"]', style: { 'width': 2.5, 'line-color': isDark ? '#818cf8' : '#6366f1', 'target-arrow-color': isDark ? '#818cf8' : '#6366f1', 'opacity': 0.85 } },
+            { selector: 'edge[type="depends_on"]', style: { 'width': 2, 'line-color': isDark ? '#fbbf24' : '#f59e0b', 'target-arrow-color': isDark ? '#fbbf24' : '#f59e0b', 'opacity': 0.8 } },
+            { selector: ':selected', style: { 'border-color': '#ef4444', 'border-width': 3, 'border-opacity': 1 } },
+            { selector: '.highlighted', style: { 'border-color': '#ef4444', 'border-width': 2, 'border-opacity': 0.9, 'z-index': 10 } },
+            { selector: 'edge.highlighted', style: { 'width': 3, 'line-color': isDark ? '#f87171' : '#ef4444', 'target-arrow-color': isDark ? '#f87171' : '#ef4444', 'opacity': 1, 'z-index': 9 } },
           ],
-          layout: { name: 'cose', animate: false, nodeRepulsion: function() { return 8000; }, idealEdgeLength: function() { return 60; }, gravity: 0.3, numIter: 2000, initialTemp: 200, coolingFactor: 0.95 },
-          minZoom: 0.15, maxZoom: 3,
+          layout: { name: 'cose', animate: false, nodeRepulsion: function(n) { return n.data('hasLinks') ? 6000 : 300; }, idealEdgeLength: function() { return 70; }, gravity: 0.25, numIter: 3000, initialTemp: 150, coolingFactor: 0.97 },
+          minZoom: 0.1, maxZoom: 4,
           wheelSensitivity: 0.3,
         });
+
+        $('graphInfo').textContent = data.nodes.length + ' 个节点 · ' + (data.edges || []).length + ' 条连线 · ' + connectedIds.size + ' 个节点有关联';
 
         _cy.on('tap', 'node', function(evt) {
           var node = evt.target;
@@ -915,7 +934,7 @@ export const UI_HTML = `<!doctype html>
         _cy.on('tap', function(evt) {
           if (evt.target === _cy) { _cy.elements().removeClass('highlighted'); }
         });
-      }).catch(function() {});
+      }).catch(function() { container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--err)">图谱加载失败</div>'; });
     }
 
     // ─── Diagnostics ─────────────────────────────────────────────
