@@ -111,6 +111,7 @@ describe('GUI routes', () => {
       expect(text).toContain('LazyBrain');
       expect(text).toContain('Try Router');
       expect(text).toContain('/cytoscape.min.js');
+      expect(text).toContain("/api/compile?scan=1");
       expect(text).not.toContain('unpkg.com/cytoscape');
     }
   });

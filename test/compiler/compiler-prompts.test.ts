@@ -219,4 +219,19 @@ describe('compiler prompt overrides', () => {
 
     expect(result.errors.some(error => error.startsWith('relation_parse_failed:'))).toBe(true);
   });
+
+  it('classifies non-array relation responses instead of silently dropping them', async () => {
+    const result = await compile([raw('frontend-design'), raw('design-review')], {
+      llm: relationResponder(JSON.stringify({
+        target: 'design-review',
+        type: 'depends_on',
+        confidence: 0.9,
+      })),
+      modelName: 'test-model',
+      forceRelations: true,
+    });
+
+    expect(result.errors.some(error => error.startsWith('relation_invalid_shape:'))).toBe(true);
+    expect(result.graph.getAllLinks()).toHaveLength(0);
+  });
 });

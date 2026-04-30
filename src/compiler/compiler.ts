@@ -366,7 +366,12 @@ export async function compile(
           return { nodeId: node.id, relations: [] };
         }
 
-        return { nodeId: node.id, relations: Array.isArray(relations) ? relations : [] };
+        if (!Array.isArray(relations)) {
+          errors.push(`relation_invalid_shape:${node.name}:${node.id}: relation response must be an array`);
+          return { nodeId: node.id, relations: [] };
+        }
+
+        return { nodeId: node.id, relations };
       }),
     );
 

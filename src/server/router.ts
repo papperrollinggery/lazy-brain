@@ -552,9 +552,10 @@ let _compileExitCode: number | null = null;
 let _compileTimedOut = false;
 
 function handleCompileStart(
-  _req: http.IncomingMessage,
+  req: http.IncomingMessage,
   res: http.ServerResponse,
   config: UserConfig,
+  onReload: () => void,
 ): void {
   if (_compileProcess && _compileProcess.exitCode === null) {
     return json(res, 409, { ok: false, error: 'Compilation is already running' });
@@ -564,10 +565,12 @@ function handleCompileStart(
   _compileExitCode = null;
   _compileTimedOut = false;
 
-  // Use the CLI's compile command - it already handles progress display
-  const args = ['compile'];
+  const url = new URL(req.url ?? '/', 'http://localhost');
+  const scanFirst = url.searchParams.get('scan') === '1';
+
+  const compileArgs = ['compile'];
   if (config.compileApiBase && config.compileApiKey) {
-    args.push('--with-relations');
+    compileArgs.push('--with-relations');
   }
   
   try {
@@ -576,42 +579,77 @@ function handleCompileStart(
     if (!cliPath) {
       return json(res, 500, { ok: false, error: 'LazyBrain CLI build not found. Run `npm run build` first.' });
     }
-    const child = spawn(process.execPath, [cliPath, ...args], {
-      cwd: process.cwd(),
-      env: { ...process.env, FORCE_COLOR: '0' },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    
-    child.stdout.on('data', (data: Buffer) => {
-      const lines = data.toString().split('\n').filter(Boolean);
-      _compileLog.push(...lines);
-      // Keep only last 100 lines
-      if (_compileLog.length > 100) _compileLog = _compileLog.slice(-100);
-      for (const line of lines) {
-        if (line.includes('Phase 1')) _compilePhase = 'Phase 1/2: 标签生成中...';
-        if (line.includes('Phase 2')) _compilePhase = 'Phase 2/2: 关系推理中...';
-        if (line.includes('complete') || line.includes('Graph saved')) _compilePhase = '完成';
-      }
-    });
-    
-    child.stderr.on('data', (data: Buffer) => {
-      _compileLog.push('[err] ' + data.toString().trim());
-    });
-    
-    const _compileTimer = setTimeout(() => {
-      if (child.exitCode === null) {
-        _compileTimedOut = true;
-        _compilePhase = 'timeout';
-        child.kill();
-      }
-    }, COMPILE_TIMEOUT_MS);
-    child.on('close', (code, signal) => { clearTimeout(_compileTimer);
-      _compileExitCode = code ?? (_compileTimedOut ? 124 : signal ? 1 : null);
-      _compilePhase = _compileTimedOut ? 'timeout' : _compileExitCode === 0 ? 'completed' : 'failed';
-      _compileProcess = null;
-    });
-    
-    _compileProcess = child;
+
+    const startTask = (taskArgs: string[], kind: 'scan' | 'compile', onSuccess?: () => void): void => {
+      _compilePhase = kind === 'scan' ? 'scanning' : 'starting';
+      const child = spawn(process.execPath, [cliPath, ...taskArgs], {
+        cwd: process.cwd(),
+        env: { ...process.env, FORCE_COLOR: '0' },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      _compileProcess = child;
+
+      child.stdout.on('data', (data: Buffer) => {
+        const lines = data.toString().split('\n').filter(Boolean);
+        _compileLog.push(...lines);
+        if (_compileLog.length > 100) _compileLog = _compileLog.slice(-100);
+        for (const line of lines) {
+          if (kind === 'scan') {
+            if (line.includes('Scan complete')) _compilePhase = 'scan completed';
+          } else {
+            if (line.includes('Phase 1')) _compilePhase = 'Phase 1/2: 标签生成中...';
+            if (line.includes('Phase 2')) _compilePhase = 'Phase 2/2: 关系推理中...';
+            if (line.includes('complete') || line.includes('Graph saved')) _compilePhase = '完成';
+          }
+        }
+      });
+
+      child.stderr.on('data', (data: Buffer) => {
+        _compileLog.push('[err] ' + data.toString().trim());
+        if (_compileLog.length > 100) _compileLog = _compileLog.slice(-100);
+      });
+
+      child.on('error', (error) => {
+        _compileLog.push(`[err] ${error.message}`);
+        _compileExitCode = 1;
+        _compilePhase = 'failed';
+        _compileProcess = null;
+      });
+
+      const compileTimer = setTimeout(() => {
+        if (child.exitCode === null) {
+          _compileTimedOut = true;
+          _compilePhase = 'timeout';
+          child.kill();
+        }
+      }, COMPILE_TIMEOUT_MS);
+
+      child.on('close', (code, signal) => {
+        clearTimeout(compileTimer);
+        const exitCode = code ?? (_compileTimedOut ? 124 : signal ? 1 : null);
+        if (!_compileTimedOut && exitCode === 0 && onSuccess) {
+          onSuccess();
+          return;
+        }
+        if (!_compileTimedOut && exitCode === 0 && kind === 'compile') {
+          try {
+            onReload();
+          } catch (error) {
+            _compileLog.push(`[err] reload failed: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        }
+        _compileExitCode = exitCode;
+        _compilePhase = _compileTimedOut ? 'timeout' : exitCode === 0 ? 'completed' : 'failed';
+        _compileProcess = null;
+      });
+    };
+
+    if (scanFirst) {
+      startTask(['scan'], 'scan', () => startTask(compileArgs, 'compile'));
+    } else {
+      startTask(compileArgs, 'compile');
+    }
+
     json(res, 200, { ok: true, phase: _compilePhase });
   } catch (err) {
     json(res, 500, { ok: false, error: err instanceof Error ? err.message : 'Failed to start compile' });
@@ -798,7 +836,7 @@ export function createRouter(opts: RouterOptions): http.RequestListener {
       return handleDiagnostics(req, res, graph, opts.config);
     }
     if (method === 'POST' && pathname === '/api/compile') {
-      return handleCompileStart(req, res, opts.config);
+      return handleCompileStart(req, res, opts.config, opts.onReload);
     }
     if (method === 'GET' && pathname === '/api/embedding/discover') {
       return handleEmbeddingDiscover(req, res);

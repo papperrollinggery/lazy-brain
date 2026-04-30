@@ -1242,8 +1242,8 @@ export const UI_HTML = `<!doctype html>
     }
     function startScan() {
       setCompileButtonsDisabled(true);
-      $('compileStatus').textContent = '编译中...';
-      api('/api/compile', { method: 'POST' }).then(function(res) {
+      $('compileStatus').textContent = '扫描中...';
+      api('/api/compile?scan=1', { method: 'POST' }).then(function(res) {
         if (res.ok) { pollCompile(); }
         else { showToast('启动失败: ' + esc(res.error), 'error'); setCompileButtonsDisabled(false); }
       }).catch(function(e) { showToast('失败: ' + esc(e.message), 'error'); setCompileButtonsDisabled(false); });
