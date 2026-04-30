@@ -39,6 +39,7 @@ function checkPack() {
     file === 'README_CN.md' ||
     file === 'CHANGELOG.md' ||
     file === 'LICENSE' ||
+    file === 'src/ui/cytoscape.min.js' ||
     file.startsWith('dist/'));
   if (!allowed) {
     fail(`npm package includes unexpected files: ${files.filter(file =>
@@ -47,6 +48,7 @@ function checkPack() {
       file !== 'README_CN.md' &&
       file !== 'CHANGELOG.md' &&
       file !== 'LICENSE' &&
+      file !== 'src/ui/cytoscape.min.js' &&
       !file.startsWith('dist/')).join(', ')}`);
   }
   const required = ['dist/bin/lazybrain.js', 'dist/bin/hook.js', 'dist/index.js', 'dist/index.d.ts'];

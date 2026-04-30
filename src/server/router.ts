@@ -8,8 +8,9 @@
 import type * as http from 'node:http';
 import { readdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import type { Graph } from '../graph/graph.js';
 import type { Platform, RouteTarget, UserConfig } from '../types.js';
 import { buildGraphView, formatGraphMermaid } from '../graph/graph-view.js';
@@ -39,6 +40,12 @@ import { recordRouteSpec } from '../orchestrator/route-events.js';
 
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT = 100; // per second per IP
+const ROUTER_DIR = dirname(fileURLToPath(import.meta.url));
+const CYTOSCAPE_ASSET_CANDIDATES = [
+  join(process.cwd(), 'src', 'ui', 'cytoscape.min.js'),
+  join(ROUTER_DIR, '..', 'ui', 'cytoscape.min.js'),
+  join(ROUTER_DIR, '..', '..', 'src', 'ui', 'cytoscape.min.js'),
+];
 
 function isRateLimited(ip: string): boolean {
   const now = Date.now();
@@ -72,6 +79,16 @@ function html(res: http.ServerResponse, status: number, body: string): void {
 
 function err(res: http.ServerResponse, code: number, message: string): void {
   json(res, code, { error: message, code });
+}
+
+function readCytoscapeAsset(): Buffer | null {
+  for (const path of CYTOSCAPE_ASSET_CANDIDATES) {
+    if (!existsSync(path)) continue;
+    try {
+      return readFileSync(path);
+    } catch {}
+  }
+  return null;
 }
 
 async function readBody(req: http.IncomingMessage, maxBytes = 64 * 1024): Promise<string> {
@@ -813,6 +830,12 @@ export function createRouter(opts: RouterOptions): http.RequestListener {
     }
     if (method === 'POST' && pathname === '/api/embeddings/rebuild') {
       return handleEmbeddingRebuild(req, res, graph, opts.config);
+    }
+    if (method === 'GET' && pathname === '/cytoscape.min.js') {
+      const cy = readCytoscapeAsset();
+      if (!cy) return err(res, 404, 'Not found');
+      res.writeHead(200, { 'Content-Type': 'application/javascript', 'Cache-Control': 'public, max-age=86400' });
+      return res.end(cy);
     }
     if (method === 'GET' && pathname === '/lab') {
       return handleLabPage(req, res);

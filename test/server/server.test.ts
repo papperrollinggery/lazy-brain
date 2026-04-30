@@ -109,7 +109,16 @@ describe('GUI routes', () => {
       expect(res.headers.get('content-type')).toContain('text/html');
       expect(text).toContain('LazyBrain');
       expect(text).toContain('Try Router');
+      expect(text).toContain('/cytoscape.min.js');
     }
+  });
+
+  it('serves the local Cytoscape asset', async () => {
+    const res = await fetch(`${baseUrl}/cytoscape.min.js`);
+    const text = await res.text();
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('application/javascript');
+    expect(text).toContain('cytoscape');
   });
 
   it('returns stable /api/status schema', async () => {

@@ -414,7 +414,12 @@ export const UI_HTML = `<!doctype html>
     .graph-legend span { display: inline-flex; align-items: center; gap: 5px; }
     .graph-legend .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
   </style>
-  <script src="https://unpkg.com/cytoscape@3.30.4/dist/cytoscape.min.js"></script>
+  <script src="/cytoscape.min.js"></script>
+  <script>
+    if (typeof cytoscape === 'undefined') {
+      document.write('<script src="https://unpkg.com/cytoscape@3.30.4/dist/cytoscape.min.js"><\\/script>');
+    }
+  </script>
 </head>
 <body>
   <div class="topbar">

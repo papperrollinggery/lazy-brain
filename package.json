@@ -18,6 +18,7 @@
   },
   "files": [
     "dist",
+    "src/ui/cytoscape.min.js",
     "README_CN.md",
     "CHANGELOG.md"
   ],
