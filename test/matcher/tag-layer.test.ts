@@ -214,6 +214,156 @@ describe('tagMatch', () => {
     expect(results[0]?.capability.name).toBe('Software Architect');
   });
 
+  it('prefers AI slop cleaner over generic simplification for AI-generated slop', () => {
+    const generic = cap({
+      id: '15',
+      name: 'code-simplifier',
+      tags: ['code-cleanup', 'refactor', 'code-quality'],
+      exampleQueries: ['clean up code', 'simplify code'],
+      description: 'Simplifies and refactors code for maintainability.',
+    });
+    const slop = cap({
+      id: '16',
+      name: 'ai-slop-cleaner',
+      tags: ['ai-generated-code', 'code-cleanup', 'slop'],
+      exampleQueries: ['clean up AI generated code'],
+      description: 'Remove low-quality AI-generated code while preserving behavior.',
+    });
+
+    const results = tagMatch('清理 AI 生成的垃圾代码', [generic, slop], 'claude-code', 3);
+    expect(results[0]?.capability.name).toBe('ai-slop-cleaner');
+  });
+
+  it('prefers database specialists over broad backend workflows for database migration', () => {
+    const broad = cap({
+      id: '17',
+      name: 'multi-backend',
+      category: 'development',
+      tags: ['backend', 'development', 'planning', 'optimization'],
+      exampleQueries: ['backend development workflow', 'database backend planning'],
+      description: 'Structured end-to-end backend workflow.',
+    });
+    const database = cap({
+      id: '18',
+      name: 'Database Optimizer',
+      category: 'data',
+      tags: ['database', 'schema', 'migration', 'postgres'],
+      exampleQueries: ['database migration', 'design database schemas'],
+      description: 'Design database schemas and tune database performance.',
+    });
+
+    const results = tagMatch('database migration', [broad, database], 'claude-code', 3);
+    expect(results[0]?.capability.name).toBe('Database Optimizer');
+  });
+
+  it('breaks capped score ties using specialized intent priority', () => {
+    const broad = cap({
+      id: '21',
+      name: 'make-plan',
+      category: 'planning',
+      tags: ['api', 'documentation', 'planning'],
+      exampleQueries: ['generate api documentation'],
+      description: 'Plan a complex task before executing it.',
+    });
+    const writer = cap({
+      id: '22',
+      name: 'Technical Writer',
+      category: 'content',
+      tags: ['api', 'documentation', 'writer'],
+      exampleQueries: ['generate api documentation'],
+      description: 'Write API docs and developer documentation.',
+    });
+
+    const results = tagMatch('生成 API 文档', [broad, writer], 'claude-code', 3);
+    expect(results[0]?.capability.name).toBe('Technical Writer');
+  });
+
+  it('routes production deploy wording toward product/frontend release capabilities', () => {
+    const setup = cap({
+      id: '23',
+      name: 'setup',
+      category: 'operations',
+      tags: ['deployment', 'production'],
+      exampleQueries: ['deploy to production'],
+      description: 'Install and configure tools.',
+    });
+    const product = cap({
+      id: '24',
+      name: 'product-capability',
+      category: 'product',
+      tags: ['product', 'release'],
+      exampleQueries: ['deploy to production'],
+      description: 'Shape production product capability choices.',
+    });
+
+    const results = tagMatch('deploy to production', [setup, product], 'claude-code', 3);
+    expect(results[0]?.capability.name).toBe('product-capability');
+  });
+
+  it('routes Chinese production deploy wording toward setup and verification capabilities', () => {
+    const product = cap({
+      id: '27',
+      name: 'product-capability',
+      category: 'product',
+      tags: ['product', 'release'],
+      exampleQueries: ['deploy to production'],
+      description: 'Shape production product capability choices.',
+    });
+    const verify = cap({
+      id: '28',
+      name: 'verification-loop',
+      category: 'deployment',
+      tags: ['deployment', 'production', 'verification'],
+      exampleQueries: ['部署到生产环境'],
+      description: 'Verify production deployment readiness.',
+    });
+
+    const results = tagMatch('部署到生产环境', [product, verify], 'claude-code', 3);
+    expect(results[0]?.capability.name).toBe('verification-loop');
+  });
+
+  it('routes backend refactor wording toward backend/refactor specialists', () => {
+    const broad = cap({
+      id: '25',
+      name: 'multi-backend',
+      category: 'development',
+      tags: ['backend', 'workflow', 'refactor'],
+      exampleQueries: ['refactor backend'],
+      description: 'Broad backend workflow.',
+    });
+    const backend = cap({
+      id: '26',
+      name: 'backend-patterns',
+      category: 'development',
+      tags: ['backend', 'architecture', 'refactor'],
+      exampleQueries: ['refactor backend'],
+      description: 'Backend architecture patterns and refactor guidance.',
+    });
+
+    const results = tagMatch('帮我重构整个后端', [broad, backend], 'claude-code', 3);
+    expect(results[0]?.capability.name).toBe('backend-patterns');
+  });
+
+  it('uses name coverage to break code-review ties toward code-specific reviewers', () => {
+    const critic = cap({
+      id: '19',
+      name: 'critic',
+      tags: ['code', 'review'],
+      exampleQueries: ['code review'],
+      description: 'Broad work plan and code review expert.',
+    });
+    const codeReviewer = cap({
+      id: '20',
+      name: 'Code Reviewer',
+      tags: ['code', 'review'],
+      exampleQueries: ['code review'],
+      description: 'Focused code reviewer.',
+    });
+
+    const results = tagMatch('code review', [critic, codeReviewer], 'claude-code', 3);
+    expect(results[0]?.capability.name).toBe('Code Reviewer');
+  });
+
   it('layer is always "tag"', () => {
     const results = tagMatch('code review', caps, 'claude-code', 3);
     for (const r of results) {

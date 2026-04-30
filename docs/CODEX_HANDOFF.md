@@ -169,6 +169,9 @@ Completed commit boundary:
 - `e8b1b35 feat(route): preserve registry conflict metadata`
 - `165fceb feat(route): learn local choice preferences`
 - `e221bf8 fix(route): preserve high-risk choice metadata`
+- Continuation pass: specialized intent routing for AI slop cleanup, database
+  work, planning, review, architecture, API docs, deploy, performance, and
+  backend refactor queries.
 
 Final validation evidence:
 
@@ -248,17 +251,17 @@ Recommended mental model:
 
 ## Routing Benchmark Status
 
-The benchmark suite currently passes its enforced thresholds, but individual
-log-only cases still miss expected labels. Do not claim perfect routing quality
-from the current suite output.
+The benchmark suite now has perfect top-3 coverage on the current golden set.
+Some log-only cases still miss top-1, so do not claim perfect first-choice
+routing quality.
 
 ### Current benchmark output
 
-- Top-1: `39/55 = 70.9%`
-- Top-3: `51/55 = 92.7%`
-- Chinese Top-1: `23/33 = 69.7%`
-- Chinese Top-3: `31/33 = 93.9%`
-- Tag-only Top-3: `51/55 = 92.7%`
+- Top-1: `49/55 = 89.1%`
+- Top-3: `55/55 = 100.0%`
+- Chinese Top-1: `29/33 = 87.9%`
+- Chinese Top-3: `33/33 = 100.0%`
+- Tag-only Top-3: `55/55 = 100.0%`
 
 ### Regressions that should stay protected or re-tuned
 

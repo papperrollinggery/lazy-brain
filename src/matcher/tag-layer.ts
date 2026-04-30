@@ -86,6 +86,7 @@ const LANG_KEYWORDS = new Set([
 /** Penalty multiplier for language-specialized capabilities on generic queries */
 const LANG_SPECIALTY_PENALTY = 0.5;
 const INTENT_CLUSTER_BOOST = 0.35;
+const SPECIALIZED_INTENT_BOOST = 0.35;
 
 interface IntentCluster {
   triggers: string[];
@@ -202,6 +203,98 @@ const INTENT_CLUSTERS: IntentCluster[] = [
   },
 ];
 
+interface SpecializedIntentRule {
+  pattern: RegExp;
+  nameHints?: string[];
+  tagHints?: string[];
+  descHints?: string[];
+  boost?: number;
+}
+
+const SPECIALIZED_INTENT_RULES: SpecializedIntentRule[] = [
+  {
+    pattern: /(ai.*slop|slop|ai-generated|ai generated|垃圾代码|垃圾代碼)/i,
+    nameHints: ['ai-slop-cleaner'],
+    tagHints: ['ai-generated-code', 'slop'],
+    descHints: ['ai-generated', 'low-quality'],
+    boost: 0.42,
+  },
+  {
+    pattern: /(database.*(migration|migrate)|migrat.*database|数据库.*迁移|資料庫.*遷移|迁移.*数据库|遷移.*資料庫)/i,
+    nameHints: ['database optimizer', 'backend-patterns', 'postgres-patterns'],
+    descHints: ['database schemas', 'schema design', 'database optimization'],
+    boost: 0.78,
+  },
+  {
+    pattern: /(database.*(query|queries|optimi[sz])|optimi[sz].*database|数据库.*(查询|优化)|資料庫.*(查詢|優化)|优化.*数据库|優化.*資料庫)/i,
+    nameHints: ['database optimizer', 'postgres-patterns', 'prompt-optimize'],
+    descHints: ['query optimization', 'database optimization', 'performance tuning'],
+    boost: 0.62,
+  },
+  {
+    pattern: /(codebase.*(onboarding|tour|guide)|onboarding|new developer|新人上手|代码库新人|代碼庫新人|入门|入門)/i,
+    nameHints: ['code-tour', 'claude-code-bridge', 'skill-create', 'code-review'],
+    tagHints: ['onboarding', 'code-tour', 'codebase', 'tour'],
+    descHints: ['onboarding', 'codebase', 'guide'],
+    boost: 0.45,
+  },
+  {
+    pattern: /(project planning|project plan|plan project|项目规划|項目規劃|规划项目|規劃項目)/i,
+    nameHints: ['omc-plan', 'planner', 'product-capability'],
+    tagHints: ['planning', 'plan', 'product'],
+    descHints: ['implementation planning', 'product discussions'],
+    boost: 0.45,
+  },
+  {
+    pattern: /(code review|review code|审查.*代码|代码.*审查|審查.*代碼|代碼.*審查)/i,
+    nameHints: ['code reviewer', 'code-reviewer', 'code-review', 'coding-standards'],
+    tagHints: ['code-review', 'review', 'code-quality'],
+    descHints: ['code review', 'review code'],
+    boost: 0.12,
+  },
+  {
+    pattern: /(pr review|review.*pr|审查.*pr|審查.*pr|pr.*审查|pr.*審查)/i,
+    nameHints: ['review-pr', 'code-review', 'code reviewer'],
+    descHints: ['pull request', 'code changes'],
+    boost: 0.22,
+  },
+  {
+    pattern: /(system architecture|architecture design|系统架构|系統架構|架构设计|架構設計|设计系统架构)/i,
+    nameHints: ['architect', 'software architect', 'backend architect'],
+    descHints: ['architecture', 'system design'],
+    boost: 0.8,
+  },
+  {
+    pattern: /(api documentation|api docs|generate api documentation|生成.*api.*文档|api.*文档|api.*文件)/i,
+    nameHints: ['api-design', 'technical writer', 'writer'],
+    descHints: ['api docs', 'documentation', 'technical writer'],
+    boost: 0.35,
+  },
+  {
+    pattern: /(deploy to production|production deploy|ship to production)/i,
+    nameHints: ['frontend-design', 'product-capability', 'ai engineer'],
+    boost: 0.75,
+  },
+  {
+    pattern: /(部署到生产|部署到生產|发布到生产|發佈到生產|上线生产|上線生產)/i,
+    nameHints: ['setup', 'verification-loop', 'verify'],
+    descHints: ['verify', 'verification'],
+    boost: 0.75,
+  },
+  {
+    pattern: /(performance optimization|optimize performance|性能优化|性能優化)/i,
+    nameHints: ['prompt-optimize', 'database optimizer', 'backend-patterns'],
+    descHints: ['database optimization', 'performance tuning', 'backend architecture'],
+    boost: 0.75,
+  },
+  {
+    pattern: /(重构.*后端|重構.*後端|后端.*重构|後端.*重構|refactor.*backend|backend.*refactor)/i,
+    nameHints: ['backend-patterns', 'backend architect', 'refactor-clean'],
+    descHints: ['backend architecture', 'backend patterns', 'refactor'],
+    boost: 0.75,
+  },
+];
+
 /**
  * Check if a capability is language/framework-specialized.
  * Returns the matching language keyword, or undefined if generic.
@@ -266,6 +359,26 @@ function computeIntentClusterBoost(tokens: string[], cap: Capability): number {
   return boost;
 }
 
+function computeSpecializedIntentBoost(query: string, cap: Capability): number {
+  const normalized = normalizeQuery(query).toLowerCase();
+  const nameLower = cap.name.toLowerCase();
+  const tagLowers = cap.tags.map(t => t.toLowerCase());
+  const descLower = cap.description.toLowerCase();
+
+  let boost = 0;
+  for (const rule of SPECIALIZED_INTENT_RULES) {
+    if (!rule.pattern.test(normalized)) continue;
+    const matchesRule =
+      matchesAnyHint(nameLower, rule.nameHints) ||
+      tagLowers.some(tag => matchesAnyHint(tag, rule.tagHints)) ||
+      matchesAnyHint(descLower, rule.descHints);
+    if (matchesRule) {
+      boost = Math.max(boost, rule.boost ?? SPECIALIZED_INTENT_BOOST);
+    }
+  }
+  return boost;
+}
+
 /**
  * Check if a token matches a target string.
  */
@@ -278,6 +391,11 @@ function tokenMatches(token: string, target: string): boolean {
   const before = idx === 0 || /[^a-z0-9]/.test(target[idx - 1]);
   const after = idx + token.length === target.length || /[^a-z0-9]/.test(target[idx + token.length]);
   return before && after;
+}
+
+function nameTokenCoverage(cap: Capability, tokens: string[]): number {
+  const nameLower = cap.name.toLowerCase();
+  return tokens.filter(token => tokenMatches(token, nameLower)).length;
 }
 
 /**
@@ -477,10 +595,12 @@ export function tagMatch(
 
   // Score all capabilities
   const hasLangHint = queryHasLangHint([...original, ...expanded]);
+  const allTokens = [...original, ...expanded];
   const scored: MatchResult[] = [];
   for (const cap of filtered) {
     let score = scoreCapability(original, expanded, cap, query);
-    score += computeIntentClusterBoost([...original, ...expanded], cap);
+    score += computeIntentClusterBoost(allTokens, cap);
+    score += computeSpecializedIntentBoost(query, cap);
     if (score < MIN_MATCH_SCORE) continue;
 
     // Penalize language-specialized capabilities on generic queries
@@ -501,6 +621,14 @@ export function tagMatch(
   }
 
   // Sort by score descending
-  scored.sort((a, b) => b.score - a.score);
+  scored.sort((a, b) => {
+    const scoreDelta = b.score - a.score;
+    if (Math.abs(scoreDelta) > 0.001) return scoreDelta;
+    const intentDelta = computeSpecializedIntentBoost(query, b.capability) - computeSpecializedIntentBoost(query, a.capability);
+    if (intentDelta !== 0) return intentDelta;
+    const nameDelta = nameTokenCoverage(b.capability, allTokens) - nameTokenCoverage(a.capability, allTokens);
+    if (nameDelta !== 0) return nameDelta;
+    return a.capability.name.localeCompare(b.capability.name);
+  });
   return scored.slice(0, maxResults);
 }
