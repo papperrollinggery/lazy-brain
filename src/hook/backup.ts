@@ -2,7 +2,7 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync,
 import { basename, dirname, join } from 'node:path';
 import type { HookInstallScope } from './types.js';
 
-export type HookBackupFileKey = 'settings' | 'statuslineChain' | 'installStateMap' | 'legacyInstallState';
+export type HookBackupFileKey = 'settings' | 'hooks' | 'statuslineChain' | 'installStateMap' | 'legacyInstallState';
 
 export interface HookBackupFile {
   key: HookBackupFileKey;
@@ -21,6 +21,7 @@ export interface HookBackupManifest {
 export interface CreateHookBackupOptions {
   scope: HookInstallScope;
   settingsPath: string;
+  hooksPath: string;
   statuslineChainPath: string;
   installStateMapPath: string;
   legacyInstallStatePath: string;
@@ -47,6 +48,7 @@ export function createHookBackup(options: CreateHookBackupOptions): HookBackupMa
 
   const files: HookBackupFile[] = [
     { key: 'settings', sourcePath: options.settingsPath, backupName: backupFileName('settings', options.settingsPath), existed: existsSync(options.settingsPath) },
+    { key: 'hooks', sourcePath: options.hooksPath, backupName: backupFileName('hooks', options.hooksPath), existed: existsSync(options.hooksPath) },
     { key: 'statuslineChain', sourcePath: options.statuslineChainPath, backupName: backupFileName('statuslineChain', options.statuslineChainPath), existed: existsSync(options.statuslineChainPath) },
     { key: 'installStateMap', sourcePath: options.installStateMapPath, backupName: backupFileName('installStateMap', options.installStateMapPath), existed: existsSync(options.installStateMapPath) },
     { key: 'legacyInstallState', sourcePath: options.legacyInstallStatePath, backupName: backupFileName('legacyInstallState', options.legacyInstallStatePath), existed: existsSync(options.legacyInstallStatePath) },

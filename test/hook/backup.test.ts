@@ -17,15 +17,18 @@ describe('hook backup', () => {
 
   it('creates backup and restores previous settings', () => {
     const settingsPath = join(tempDir, '.claude', 'settings.json');
+    const hooksPath = join(tempDir, '.claude', 'hooks', 'hooks.json');
     const chainPath = join(tempDir, '.claude', 'lazybrain-statusline-chain.json');
     const mapPath = join(tempDir, '.lazybrain', 'hook-install-map.json');
     const legacyPath = join(tempDir, '.lazybrain', 'hook-install.json');
-    mkdirSync(join(tempDir, '.claude'), { recursive: true });
+    mkdirSync(join(tempDir, '.claude', 'hooks'), { recursive: true });
     writeFileSync(settingsPath, '{"before":true}', { encoding: 'utf-8', flag: 'w' });
+    writeFileSync(hooksPath, '{"hooks":{"before":true}}', { encoding: 'utf-8', flag: 'w' });
 
     const backup = createHookBackup({
       scope: 'project',
       settingsPath,
+      hooksPath,
       statuslineChainPath: chainPath,
       installStateMapPath: mapPath,
       legacyInstallStatePath: legacyPath,
@@ -33,14 +36,17 @@ describe('hook backup', () => {
     });
 
     writeFileSync(settingsPath, '{"after":true}', 'utf-8');
+    writeFileSync(hooksPath, '{"hooks":{"after":true}}', 'utf-8');
     restoreHookBackup(settingsPath, backup);
 
     expect(readFileSync(settingsPath, 'utf-8')).toBe('{"before":true}');
+    expect(readFileSync(hooksPath, 'utf-8')).toBe('{"hooks":{"before":true}}');
     expect(findHookBackup(settingsPath, backup.id)?.id).toBe(backup.id);
   });
 
   it('removes files that did not exist at backup time', () => {
     const settingsPath = join(tempDir, '.claude', 'settings.json');
+    const hooksPath = join(tempDir, '.claude', 'hooks', 'hooks.json');
     const chainPath = join(tempDir, '.claude', 'lazybrain-statusline-chain.json');
     const mapPath = join(tempDir, '.lazybrain', 'hook-install-map.json');
     const legacyPath = join(tempDir, '.lazybrain', 'hook-install.json');
@@ -48,20 +54,25 @@ describe('hook backup', () => {
     const backup = createHookBackup({
       scope: 'project',
       settingsPath,
+      hooksPath,
       statuslineChainPath: chainPath,
       installStateMapPath: mapPath,
       legacyInstallStatePath: legacyPath,
       now: new Date('2026-04-25T00:00:00.000Z'),
     });
 
+    mkdirSync(join(tempDir, '.claude', 'hooks'), { recursive: true });
     writeFileSync(settingsPath, '{"after":true}', 'utf-8');
+    writeFileSync(hooksPath, '{"hooks":{"after":true}}', 'utf-8');
     restoreHookBackup(settingsPath, backup);
 
     expect(existsSync(settingsPath)).toBe(false);
+    expect(existsSync(hooksPath)).toBe(false);
   });
 
   it('finds a specific backup by timestamp id', () => {
     const settingsPath = join(tempDir, '.claude', 'settings.json');
+    const hooksPath = join(tempDir, '.claude', 'hooks', 'hooks.json');
     const chainPath = join(tempDir, '.claude', 'lazybrain-statusline-chain.json');
     const mapPath = join(tempDir, '.lazybrain', 'hook-install-map.json');
     const legacyPath = join(tempDir, '.lazybrain', 'hook-install.json');
@@ -69,6 +80,7 @@ describe('hook backup', () => {
     const first = createHookBackup({
       scope: 'project',
       settingsPath,
+      hooksPath,
       statuslineChainPath: chainPath,
       installStateMapPath: mapPath,
       legacyInstallStatePath: legacyPath,
@@ -77,6 +89,7 @@ describe('hook backup', () => {
     const second = createHookBackup({
       scope: 'project',
       settingsPath,
+      hooksPath,
       statuslineChainPath: chainPath,
       installStateMapPath: mapPath,
       legacyInstallStatePath: legacyPath,

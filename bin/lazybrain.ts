@@ -1765,6 +1765,7 @@ function cmdHook() {
       const backup = createHookBackup({
         scope: installScope,
         settingsPath,
+        hooksPath,
         statuslineChainPath,
         installStateMapPath: HOOK_INSTALL_STATE_MAP_PATH,
         legacyInstallStatePath: HOOK_INSTALL_STATE_PATH,
