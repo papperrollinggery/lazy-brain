@@ -223,7 +223,7 @@ const SPECIALIZED_INTENT_RULES: SpecializedIntentRule[] = [
     pattern: /(database.*(migration|migrate)|migrat.*database|数据库.*迁移|資料庫.*遷移|迁移.*数据库|遷移.*資料庫)/i,
     nameHints: ['database optimizer', 'backend-patterns', 'postgres-patterns'],
     descHints: ['database schemas', 'schema design', 'database optimization'],
-    boost: 0.78,
+    boost: 0.95,
   },
   {
     pattern: /(database.*(query|queries|optimi[sz])|optimi[sz].*database|数据库.*(查询|优化)|資料庫.*(查詢|優化)|优化.*数据库|優化.*資料庫)/i,
@@ -292,6 +292,23 @@ const SPECIALIZED_INTENT_RULES: SpecializedIntentRule[] = [
     nameHints: ['backend-patterns', 'backend architect', 'refactor-clean'],
     descHints: ['backend architecture', 'backend patterns', 'refactor'],
     boost: 0.75,
+  },
+  {
+    pattern: /(写 python 代码|寫 python 代碼|python.*(code|dev|development|开发|開發)|python 开发|python 開發)/i,
+    nameHints: ['python-review', 'python-patterns', 'code-review'],
+    descHints: ['python code', 'pythonic', 'python'],
+    boost: 0.35,
+  },
+  {
+    pattern: /(rust.*(dev|development|开发|開發)|rust 开发|rust 開發)/i,
+    nameHints: ['rust-review', 'rust-patterns', 'rust-build'],
+    boost: 0.45,
+  },
+  {
+    pattern: /(frontend ui component|frontend component|ui component)/i,
+    nameHints: ['frontend-design', 'designer', 'frontend-slides'],
+    descHints: ['frontend components', 'web components', 'visual design'],
+    boost: 0.35,
   },
 ];
 
@@ -600,11 +617,12 @@ export function tagMatch(
   for (const cap of filtered) {
     let score = scoreCapability(original, expanded, cap, query);
     score += computeIntentClusterBoost(allTokens, cap);
-    score += computeSpecializedIntentBoost(query, cap);
+    const specializedBoost = computeSpecializedIntentBoost(query, cap);
+    score += specializedBoost;
     if (score < MIN_MATCH_SCORE) continue;
 
     // Penalize language-specialized capabilities on generic queries
-    if (!hasLangHint && getLangSpecialty(cap)) {
+    if (!hasLangHint && specializedBoost === 0 && getLangSpecialty(cap)) {
       score *= LANG_SPECIALTY_PENALTY;
     }
 

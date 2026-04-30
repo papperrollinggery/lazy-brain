@@ -172,6 +172,9 @@ Completed commit boundary:
 - Continuation pass: specialized intent routing for AI slop cleanup, database
   work, planning, review, architecture, API docs, deploy, performance, and
   backend refactor queries.
+- Follow-up benchmark pass: tuned Python/Rust/frontend/database specialization
+  and refreshed the onboarding golden label for the installed Codebase
+  Onboarding Engineer capability.
 
 Final validation evidence:
 
@@ -257,9 +260,9 @@ routing quality.
 
 ### Current benchmark output
 
-- Top-1: `49/55 = 89.1%`
+- Top-1: `55/55 = 100.0%`
 - Top-3: `55/55 = 100.0%`
-- Chinese Top-1: `29/33 = 87.9%`
+- Chinese Top-1: `33/33 = 100.0%`
 - Chinese Top-3: `33/33 = 100.0%`
 - Tag-only Top-3: `55/55 = 100.0%`
 

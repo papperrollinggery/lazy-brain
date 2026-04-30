@@ -256,6 +256,28 @@ describe('tagMatch', () => {
     expect(results[0]?.capability.name).toBe('Database Optimizer');
   });
 
+  it('keeps database migration above memory and broad workflow matches', () => {
+    const memory = cap({
+      id: '29',
+      name: 'mem-search',
+      category: 'development',
+      tags: ['database', 'migration'],
+      exampleQueries: ['database migration'],
+      description: 'Search previous session memory.',
+    });
+    const database = cap({
+      id: '30',
+      name: 'Database Optimizer',
+      category: 'data',
+      tags: ['database', 'schema', 'postgres'],
+      exampleQueries: ['database migration'],
+      description: 'Design database schemas and tune database performance.',
+    });
+
+    const results = tagMatch('database migration', [memory, database], 'claude-code', 3);
+    expect(results[0]?.capability.name).toBe('Database Optimizer');
+  });
+
   it('breaks capped score ties using specialized intent priority', () => {
     const broad = cap({
       id: '21',
@@ -342,6 +364,72 @@ describe('tagMatch', () => {
 
     const results = tagMatch('帮我重构整个后端', [broad, backend], 'claude-code', 3);
     expect(results[0]?.capability.name).toBe('backend-patterns');
+  });
+
+  it('routes generic Python development toward Python-specific capabilities', () => {
+    const writer = cap({
+      id: '31',
+      name: 'khazix-writer',
+      category: 'content',
+      tags: ['code', 'development'],
+      exampleQueries: ['写 Python 代码'],
+      description: 'Generate explanatory writing for a codebase.',
+    });
+    const python = cap({
+      id: '32',
+      name: 'python-review',
+      category: 'code-quality',
+      tags: ['python', 'code', 'review'],
+      exampleQueries: ['写 Python 代码'],
+      description: 'Review Python code for Pythonic idioms.',
+    });
+
+    const results = tagMatch('写 Python 代码', [writer, python], 'claude-code', 3);
+    expect(results[0]?.capability.name).toBe('python-review');
+  });
+
+  it('routes generic Rust development toward Rust review/build capabilities', () => {
+    const test = cap({
+      id: '33',
+      name: 'rust-test',
+      category: 'testing',
+      tags: ['rust', 'test'],
+      exampleQueries: ['Rust 开发'],
+      description: 'Write Rust tests first.',
+    });
+    const review = cap({
+      id: '34',
+      name: 'rust-review',
+      category: 'code-quality',
+      tags: ['rust', 'review'],
+      exampleQueries: ['Rust 开发'],
+      description: 'Review idiomatic Rust code.',
+    });
+
+    const results = tagMatch('Rust 开发', [test, review], 'claude-code', 3);
+    expect(results[0]?.capability.name).toBe('rust-review');
+  });
+
+  it('routes frontend UI component wording toward frontend design specialists', () => {
+    const dev = cap({
+      id: '35',
+      name: 'frontend-dev',
+      category: 'development',
+      tags: ['frontend', 'ui', 'component'],
+      exampleQueries: ['frontend UI component'],
+      description: 'Build frontend components.',
+    });
+    const design = cap({
+      id: '36',
+      name: 'frontend-design',
+      category: 'design',
+      tags: ['frontend', 'ui', 'component'],
+      exampleQueries: ['frontend UI component'],
+      description: 'Build web components where visual design quality matters.',
+    });
+
+    const results = tagMatch('frontend UI component', [dev, design], 'claude-code', 3);
+    expect(results[0]?.capability.name).toBe('frontend-design');
   });
 
   it('uses name coverage to break code-review ties toward code-specific reviewers', () => {
