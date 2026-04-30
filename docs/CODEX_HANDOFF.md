@@ -126,11 +126,22 @@ Do not start with animations or a heavy UI framework. The sequence should be:
 - Added model and mode ranking inside adaptive choices: fast/balanced/strong/private
   model strategies plus route-plan, review, QA, autopilot, and team mode options.
   High-risk routes now set the choice policy to ask before execution.
+- Added local choice preference learning. `lazybrain choices prefs` inspects
+  stored preference counters, and `lazybrain choices feedback <choice-id>
+  --accepted|--rejected` records accepted/rejected choices without storing raw
+  prompts. Preference weighting can promote safer alternatives but does not
+  bypass high-risk ask-user policy.
 - Added conflict-diagnostics substrate: capabilities now carry derived provider,
   conflict group, and side-effect metadata, and `lazybrain doctor --json` exposes
   structured hook/capability conflicts without mutating third-party state.
 - Scanner frontmatter can now declare provider/conflictGroup/sideEffects; route
   skill refs preserve those fields and emit registry conflict-group notices.
+- Graph load/save now preserves governance metadata used by routing decisions:
+  `costLevel`, `riskLevel`, `requiresConfirmation`, `hiddenByDefault`,
+  `sourcePriority`, `overlapsWith`, and conflict metadata.
+- Sensitive high-risk routes now keep `model:local-private` in visible
+  alternatives before truncation, so token/secret/privacy tasks surface a local
+  or private model option.
 - Repositioned session summary as a manual audit surface instead of a
   Stop-hook-driven “savings” report.
 - Converted the session dashboard from a table into a narrative value surface.
@@ -144,6 +155,32 @@ Do not start with animations or a heavy UI framework. The sequence should be:
 
 This workspace now includes several in-progress but validated changes aimed at
 turning LazyBrain from a pure capability router into a companion sidecar agent.
+
+### Adaptive Routing Completion
+
+The adaptive-routing Ralph run is complete and reviewer-approved.
+
+Completed commit boundary:
+
+- `c3392d6 docs: add adaptive routing roadmap`
+- `912e984 feat(route): add adaptive choice set`
+- `5a978c7 feat(route): rank adaptive model and mode choices`
+- `6f3ef65 feat(doctor): report capability conflicts`
+- `e8b1b35 feat(route): preserve registry conflict metadata`
+- `165fceb feat(route): learn local choice preferences`
+- `e221bf8 fix(route): preserve high-risk choice metadata`
+
+Final validation evidence:
+
+- `npm run build` passed.
+- `npm test` passed: 58 files / 629 tests.
+- `npm run lint` passed.
+- `npm run audit:public` passed.
+- `npm pack --dry-run --json` passed with 21 entries, including dist JS/map
+  artifacts and `src/ui/cytoscape.min.js`.
+- `node dist/bin/lazybrain.js ready --release` returned `READY`.
+- Reviewer re-verification returned `APPROVED`.
+- Bounded ai-slop-cleaner pass found no required cleanup edits.
 
 ### Routing / Matching
 
