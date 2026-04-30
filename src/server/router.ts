@@ -26,6 +26,7 @@ import { scanAgentInventory } from '../lab/agent-inventory.js';
 import { UI_HTML } from '../ui/html.js';
 import { buildStatusReport } from './status.js';
 import { loadConfig, saveConfig } from '../config/config.js';
+import { validateConfigUpdate } from '../config/schema.js';
 import { getHookRuntimeSnapshot, getHookRuntimeStats } from '../hook/runtime.js';
 import { runApiTests, type ApiTestTarget } from '../health/api-test.js';
 import { getEmbeddingCacheStatus } from '../embeddings/cache.js';
@@ -499,33 +500,6 @@ function handleReportSession(
 
 // ─── Config /api/config ───────────────────────────────────────────────────────
 
-const CONFIG_ALLOWED_KEYS = new Set([
-  'compileApiBase', 'compileApiKey', 'compileModel',
-  'embeddingApiBase', 'embeddingApiKey', 'embeddingModel', 'embeddingSource',
-  'secretaryApiBase', 'secretaryApiKey', 'secretaryModel',
-  'engine', 'strategy', 'mode', 'autoThreshold', 'language',
-  'compileSystemPrompt', 'compileTagPrompt', 'compileRelationPrompt',
-]);
-
-const VALID_ENGINES = new Set(['tag', 'semantic', 'hybrid', 'llm']);
-const VALID_STRATEGIES = new Set(['always-main', 'optimal', 'ask']);
-const VALID_MODES = new Set(['auto', 'select', 'ask']);
-const VALID_LANGUAGES = new Set(['auto', 'en', 'zh']);
-const SECRET_CONFIG_KEYS = new Set(['compileApiKey', 'embeddingApiKey', 'secretaryApiKey']);
-
-export function sanitizeConfigUpdate(body: Record<string, unknown>): { patch: Record<string, unknown>; ignoredKeys: string[] } {
-  const patch: Record<string, unknown> = {};
-  const ignoredKeys: string[] = [];
-  for (const [key, value] of Object.entries(body)) {
-    if (SECRET_CONFIG_KEYS.has(key) && typeof value === 'string' && value.trim() === '') {
-      ignoredKeys.push(key);
-      continue;
-    }
-    patch[key] = value;
-  }
-  return { patch, ignoredKeys };
-}
-
 async function handleUpdateConfig(
   req: http.IncomingMessage,
   res: http.ServerResponse,
@@ -548,42 +522,13 @@ async function handleUpdateConfig(
     return json(res, 400, { ok: false, error: 'Body must be a JSON object' });
   }
 
-  // Validate keys
-  for (const key of Object.keys(body)) {
-    if (!CONFIG_ALLOWED_KEYS.has(key)) {
-      return json(res, 400, { ok: false, error: `Unknown config key: ${key}` });
-    }
-  }
-
-  // Validate values
-  for (const [key, value] of Object.entries(body)) {
-    if (key === 'autoThreshold') {
-      if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) {
-        return json(res, 400, { ok: false, error: 'autoThreshold must be a finite number between 0 and 1' });
-      }
-    } else if (key === 'engine') {
-      if (!VALID_ENGINES.has(value as string)) {
-        return json(res, 400, { ok: false, error: `Invalid engine. Must be one of: ${[...VALID_ENGINES].join(', ')}` });
-      }
-    } else if (key === 'strategy') {
-      if (!VALID_STRATEGIES.has(value as string)) {
-        return json(res, 400, { ok: false, error: `Invalid strategy. Must be one of: ${[...VALID_STRATEGIES].join(', ')}` });
-      }
-    } else if (key === 'mode') {
-      if (!VALID_MODES.has(value as string)) {
-        return json(res, 400, { ok: false, error: `Invalid mode. Must be one of: ${[...VALID_MODES].join(', ')}` });
-      }
-    } else if (key === 'language') {
-      if (!VALID_LANGUAGES.has(value as string)) {
-        return json(res, 400, { ok: false, error: `Invalid language. Must be one of: ${[...VALID_LANGUAGES].join(', ')}` });
-      }
-    } else if (typeof value !== 'string') {
-      return json(res, 400, { ok: false, error: `config key "${key}" must be a string` });
-    }
+  const validation = validateConfigUpdate(body);
+  if (!validation.ok) {
+    return json(res, 400, { ok: false, error: validation.error });
   }
 
   try {
-    const { patch, ignoredKeys } = sanitizeConfigUpdate(body);
+    const { patch, ignoredKeys } = validation;
     const config = loadConfig();
     Object.assign(config, patch);
     saveConfig(config);

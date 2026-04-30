@@ -43,6 +43,7 @@ import { formatCompileErrorReport, summarizeCompileErrors } from '../src/compile
 import { createLLMProvider } from '../src/compiler/llm-provider.js';
 import { classifyCategory } from '../src/compiler/category-classifier.js';
 import { loadConfig, saveConfig, updateConfig } from '../src/config/config.js';
+import { validateConfigUpdate } from '../src/config/schema.js';
 import { generateWiki } from '../src/graph/wiki-generator.js';
 import { createProgressBar } from '../src/utils/progress.js';
 import { loadRecentHistory } from '../src/history/history.js';
@@ -1490,10 +1491,20 @@ function cmdConfig() {
       // Try to parse as JSON for booleans/numbers
       let parsed: unknown = value;
       try { parsed = JSON.parse(value); } catch { /* keep as string */ }
-      updateConfig(key, parsed);
-      const displayValue = isSensitiveConfigKey(key) && typeof parsed === 'string' && parsed
+      const validation = validateConfigUpdate({ [key]: parsed });
+      if (!validation.ok) {
+        console.error(validation.error);
+        process.exit(1);
+      }
+      if (validation.ignoredKeys.includes(key)) {
+        console.log(`Config unchanged: ${key} blank value ignored`);
+        break;
+      }
+      const nextValue = validation.patch[key];
+      updateConfig(key, nextValue);
+      const displayValue = isSensitiveConfigKey(key) && typeof nextValue === 'string' && nextValue
         ? '<redacted>'
-        : parsed;
+        : nextValue;
       console.log(`Config set: ${key} = ${JSON.stringify(displayValue)}`);
       break;
     }

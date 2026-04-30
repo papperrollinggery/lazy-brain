@@ -5,7 +5,8 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as http from 'node:http';
 import { homedir } from 'node:os';
-import { createRouter, sanitizeConfigUpdate } from '../../src/server/router.js';
+import { createRouter } from '../../src/server/router.js';
+import { sanitizeConfigUpdate } from '../../src/config/schema.js';
 import { Graph } from '../../src/graph/graph.js';
 import type { UserConfig } from '../../src/types.js';
 import { DEFAULT_CONFIG } from '../../src/constants.js';
