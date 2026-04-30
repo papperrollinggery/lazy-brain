@@ -628,7 +628,7 @@ npm pack --dry-run --json
 
 The stable required GitHub check is `Test`. It runs Node 18/20/22, package dry-run, public privacy scan, version consistency checks, hook-focused tests, and Lab/server smoke.
 
-Public package contents are limited to `dist`, `README.md`, `README_CN.md`, `CHANGELOG.md`, `LICENSE`, and package metadata. npm publishing is handled by the GitHub Release workflow.
+Public package contents are limited to `dist`, `src/ui/cytoscape.min.js`, `README.md`, `README_CN.md`, `CHANGELOG.md`, `LICENSE`, and package metadata. npm publishing is handled by the GitHub Release workflow.
 
 Optional Codex review instructions are in [`docs/REVIEW.md`](docs/REVIEW.md).
 

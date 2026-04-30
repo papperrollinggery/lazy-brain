@@ -620,7 +620,7 @@ npm pack --dry-run --json
 
 GitHub 必需检查只依赖稳定聚合 check：`Test`。它覆盖 Node 18/20/22、package dry-run、公开隐私扫描、版本一致性、hook 重点测试和 Lab/server smoke。
 
-公开 npm 包只包含 `dist`、`README.md`、`README_CN.md`、`CHANGELOG.md`、`LICENSE` 和 package metadata。npm 发布只通过 GitHub Release workflow。
+公开 npm 包只包含 `dist`、`src/ui/cytoscape.min.js`、`README.md`、`README_CN.md`、`CHANGELOG.md`、`LICENSE` 和 package metadata。npm 发布只通过 GitHub Release workflow。
 
 可选 Codex 审查流程见 [`docs/REVIEW.md`](docs/REVIEW.md)。
 
