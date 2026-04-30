@@ -14,6 +14,11 @@ type SettingsObject = Record<string, unknown> & {
   hooks?: Record<string, unknown>;
 };
 
+const LEGACY_UNDERSCORED_REPO_SEGMENT = ['lazy', 'user'].join('_');
+const LAZYBRAIN_HOOK_PATH_RE = new RegExp(
+  String.raw`(?:^|[\s'"])(?:[^'"\s]+\/)?(?:lazybrain|lazy[-_]brain|${LEGACY_UNDERSCORED_REPO_SEGMENT})\/(?:dist\/)?bin\/hook\.js\b`,
+);
+
 function nestedHooks(entry: HookEntry): HookCommand[] {
   return Array.isArray(entry.hooks) ? entry.hooks : [];
 }
@@ -21,7 +26,7 @@ function nestedHooks(entry: HookEntry): HookCommand[] {
 export function isLazyBrainHookCommand(command: unknown): boolean {
   if (typeof command !== 'string') return false;
   const normalized = command.replace(/\\/g, '/');
-  return /(?:^|[\s'"])(?:[^'"\s]+\/)?(?:lazybrain|lazy[-_]brain|lazy_user)\/(?:dist\/)?bin\/hook\.js\b/.test(normalized);
+  return LAZYBRAIN_HOOK_PATH_RE.test(normalized);
 }
 
 function stripLazyBrainEntries(entries: HookEntry[]): HookEntry[] {

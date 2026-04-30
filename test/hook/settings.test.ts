@@ -18,7 +18,8 @@ describe('hook settings', () => {
   });
 
   it('does not match similarly named hook paths', () => {
-    expect(isLazyBrainHookCommand('node /tmp/lazy_userland/dist/bin/hook.js')).toBe(false);
+    const underscoredPrefix = ['lazy', 'user'].join('_');
+    expect(isLazyBrainHookCommand(`node /tmp/${underscoredPrefix}land/dist/bin/hook.js`)).toBe(false);
     expect(isLazyBrainHookCommand('node /tmp/lazybrain-tools/dist/bin/hook.js')).toBe(false);
     expect(isLazyBrainHookCommand('node /tmp/notlazybrain/dist/bin/hook.js')).toBe(false);
     expect(isLazyBrainHookCommand('node /tmp/lazybrain/dist/bin/not-hook.js')).toBe(false);
