@@ -39,6 +39,7 @@ import { match } from '../src/matcher/matcher.js';
 import { recommendTeam } from '../src/matcher/team-recommender.js';
 import { scan } from '../src/scanner/scanner.js';
 import { compile, makeCapabilityId } from '../src/compiler/compiler.js';
+import { formatCompileErrorReport, summarizeCompileErrors } from '../src/compiler/compile-errors.js';
 import { createLLMProvider } from '../src/compiler/llm-provider.js';
 import { classifyCategory } from '../src/compiler/category-classifier.js';
 import { loadConfig, saveConfig, updateConfig } from '../src/config/config.js';
@@ -463,6 +464,11 @@ async function interactiveSelect(
 // ─── Compile ──────────────────────────────────────────────────────────────
 
 async function cmdCompile() {
+  if (args[1] === 'errors') {
+    cmdCompileErrors();
+    return;
+  }
+
   // ─── Concurrency lock ─────────────────────────────────────────────────────
   const lockPath = join(LAZYBRAIN_DIR, 'compile.lock');
   if (existsSync(lockPath)) {
@@ -670,6 +676,41 @@ async function cmdCompile() {
       lastCompileErrors: result.errors.slice(0, 20),
     }));
   }
+}
+
+function parseLimit(defaultValue = 20): number {
+  const limitIdx = args.indexOf('--limit');
+  if (limitIdx === -1) return defaultValue;
+  const parsed = parseInt(args[limitIdx + 1], 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : defaultValue;
+}
+
+function cmdCompileErrors() {
+  const asJson = args.includes('--json');
+  const limit = parseLimit();
+
+  if (!existsSync(GRAPH_PATH)) {
+    if (asJson) {
+      console.log(JSON.stringify({ total: 0, byCode: {}, errors: [], graphExists: false }, null, 2));
+      return;
+    }
+    console.error('No graph found. Run `lazybrain scan && lazybrain compile` first.');
+    process.exit(1);
+  }
+
+  const errors = Graph.load(GRAPH_PATH).getCompileErrors();
+  const summary = summarizeCompileErrors(errors);
+  if (asJson) {
+    console.log(JSON.stringify({
+      ...summary,
+      errors: errors.slice(0, limit),
+      truncated: errors.length > limit,
+      graphExists: true,
+    }, null, 2));
+    return;
+  }
+
+  console.log(formatCompileErrorReport(errors, limit));
 }
 
 /**
@@ -2629,6 +2670,7 @@ Usage:
   lazybrain compile --with-relations Include Phase 2 relation inference (slow)
   lazybrain compile --with-relations --force-relations
                                      Re-run relation inference for existing graph nodes
+  lazybrain compile errors [--json]  Show persisted compile errors from graph.json
   lazybrain compile --all            Compile all platforms
   lazybrain compile --select         Interactive platform selection
   lazybrain compile --platform <p>   Compile specific platform only

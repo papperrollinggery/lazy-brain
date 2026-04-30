@@ -74,7 +74,7 @@ export function evaluateReady(options: EvaluateReadyOptions): ReadyReport {
     blockers.push('Graph missing. Run `lazybrain scan && lazybrain compile --offline` first.');
   }
   if ((options.compileErrors?.length ?? 0) > 0) {
-    blockers.push(`Graph has ${options.compileErrors?.length} compile errors. Run \`lazybrain compile --with-relations --force-relations\` after fixing the reported errors.`);
+    blockers.push(`Graph has ${options.compileErrors?.length} compile errors. Run \`lazybrain compile errors\` to inspect them, then rerun \`lazybrain compile --with-relations --force-relations\`.`);
   }
 
   if (isRecentActiveStatus(options.status, now)) {
