@@ -76,6 +76,7 @@ LazyBrain: → /review-pr (92%) | /critic (78%) | /santa-loop (71%)
 lazybrain scan
 lazybrain compile --offline
 lazybrain ready
+lazybrain ready --release
 lazybrain ui
 lazybrain route "帮我审查这个 PR"
 lazybrain prompt "帮我审查这个 PR" --target claude
@@ -285,6 +286,7 @@ lazybrain route "帮我审查这个 PR"      # 生成 advisory RouteSpec
 lazybrain prompt "帮我审查这个 PR" --target claude
 lazybrain mcp status                 # 检查 MCP 入口是否可用
 lazybrain ready                      # 检查图谱、hook、HUD、semantic 状态
+lazybrain ready --release            # 发布/package 门禁；只忽略瞬时主机负载
 lazybrain ui                         # 启动本地 GUI
 lazybrain hook plan                  # 预览 hook 改动
 lazybrain hook install               # 安装 project scope hook
@@ -616,6 +618,7 @@ npm test
 npm run lint
 npm run audit:public
 npm pack --dry-run --json
+node dist/bin/lazybrain.js ready --release
 ```
 
 GitHub 必需检查只依赖稳定聚合 check：`Test`。它覆盖 Node 18/20/22、package dry-run、公开隐私扫描、版本一致性、hook 重点测试和 Lab/server smoke。

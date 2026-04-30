@@ -164,6 +164,27 @@ describe('evaluateReady', () => {
     expect(report.blockers.join('\n')).toContain('Host load average is high');
   });
 
+  it('can ignore current host load for release readiness checks', () => {
+    const report = evaluateReady({
+      ...base,
+      loadAverage1m: 12,
+      ignoreLoadAverage: true,
+      config: {
+        engine: 'tag',
+        hookSafety: {
+          maxConcurrentHooks: 3,
+          staleHookMs: 15000,
+          avgDurationBreakerMs: 3000,
+          loadAvgBreaker: 8,
+          breakerCooldownMs: 60000,
+          recentDurationsWindow: 12,
+        },
+      },
+    });
+    expect(report.state).toBe('READY');
+    expect(report.blockers.join('\n')).not.toContain('Host load average is high');
+  });
+
   it('keeps project and global reports separate', () => {
     const report = evaluateReady({
       ...base,

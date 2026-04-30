@@ -103,6 +103,7 @@ Default flow for public users:
 lazybrain scan
 lazybrain compile --offline
 lazybrain ready
+lazybrain ready --release
 lazybrain ui
 lazybrain route "review this PR"
 lazybrain prompt "review this PR" --target claude
@@ -318,6 +319,7 @@ lazybrain --version
 lazybrain scan                        # Scan local tools
 lazybrain compile --offline           # Build tag-layer graph without API key
 lazybrain ready                       # Check graph, hook, HUD, and semantic readiness
+lazybrain ready --release             # Release/package gate; ignores only transient host load
 
 # Non-install visual check / 非安装式可视化检查
 lazybrain ui                          # Opens http://127.0.0.1:18450/
@@ -624,6 +626,7 @@ npm test
 npm run lint
 npm run audit:public
 npm pack --dry-run --json
+node dist/bin/lazybrain.js ready --release
 ```
 
 The stable required GitHub check is `Test`. It runs Node 18/20/22, package dry-run, public privacy scan, version consistency checks, hook-focused tests, and Lab/server smoke.

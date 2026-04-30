@@ -2314,6 +2314,7 @@ function readJsonStatus(path: string): Record<string, unknown> | null {
 }
 
 function cmdReady() {
+  const releaseMode = args.includes('--release');
   const config = loadConfig();
   const status = readJsonStatus(STATUS_PATH);
   const runtime = getHookRuntimeSnapshot({ config });
@@ -2356,10 +2357,14 @@ function cmdReady() {
     embeddingsIndexExists: existsSync(EMBEDDINGS_INDEX_PATH),
     embeddingsBinExists: existsSync(EMBEDDINGS_BIN_PATH),
     loadAverage1m: loadavg()[0],
+    ignoreLoadAverage: releaseMode,
     initialBlockers,
   });
 
   console.log(report.state);
+  if (releaseMode) {
+    console.log('Mode: release readiness (host load average ignored)');
+  }
   if (report.blockers.length > 0) {
     console.log('BLOCKERS:');
     for (const blocker of report.blockers) console.log(`  - ${blocker}`);
@@ -2721,6 +2726,7 @@ Usage:
   lazybrain embeddings status        Show embedding cache coverage
   lazybrain embeddings rebuild --yes Rebuild embedding cache atomically
   lazybrain ready                    Check graph, hook, HUD, and semantic readiness
+  lazybrain ready --release          Check release readiness without transient host load
   lazybrain hook plan                Preview hook install changes without writing files
   lazybrain hook install             Install project-scoped Claude Code hook
   lazybrain hook install --global --yes

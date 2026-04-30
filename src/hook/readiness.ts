@@ -46,6 +46,7 @@ export interface EvaluateReadyOptions {
   embeddingsBinExists: boolean;
   now?: number;
   loadAverage1m?: number;
+  ignoreLoadAverage?: boolean;
   initialBlockers?: string[];
 }
 
@@ -86,7 +87,7 @@ export function evaluateReady(options: EvaluateReadyOptions): ReadyReport {
   }
 
   const loadAvgBreaker = options.config.hookSafety?.loadAvgBreaker;
-  if (typeof options.loadAverage1m === 'number' && typeof loadAvgBreaker === 'number' && options.loadAverage1m > loadAvgBreaker) {
+  if (!options.ignoreLoadAverage && typeof options.loadAverage1m === 'number' && typeof loadAvgBreaker === 'number' && options.loadAverage1m > loadAvgBreaker) {
     blockers.push(`Host load average is high (${options.loadAverage1m.toFixed(2)} > ${loadAvgBreaker}); LazyBrain hook would fail closed until load drops.`);
   }
 
