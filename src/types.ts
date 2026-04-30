@@ -30,6 +30,17 @@ export interface CapabilityMeta {
   lastUpdated?: string;
 }
 
+export type CapabilitySideEffect =
+  | 'reads_files'
+  | 'writes_files'
+  | 'executes_commands'
+  | 'network'
+  | 'changes_config'
+  | 'installs_hooks'
+  | 'publishes'
+  | 'destructive'
+  | 'unknown';
+
 // ─── Skill Schema (Frontmatter Extension) ──────────────────────────────────
 
 export type RouteTarget = 'generic' | 'claude' | 'codex' | 'cursor';
@@ -82,6 +93,12 @@ export interface Capability {
   description: string;
   /** Source ecosystem: "ECC", "OMC", "plugin", "external", etc. */
   origin: string;
+  /** Normalized provider used for conflict diagnostics */
+  provider?: string;
+  /** Capabilities with the same conflict group should be ranked, not blindly chained */
+  conflictGroup?: string;
+  /** Coarse side effects for safe routing and doctor diagnostics */
+  sideEffects?: CapabilitySideEffect[];
   /** Installation status */
   status: 'installed' | 'available' | 'disabled';
   /** Platforms this capability works on */
@@ -632,6 +649,9 @@ export interface RawCapability {
   name: string;
   description: string;
   origin: string;
+  provider?: string;
+  conflictGroup?: string;
+  sideEffects?: CapabilitySideEffect[];
   filePath: string;
   triggers?: string[];
   compatibility: Platform[];

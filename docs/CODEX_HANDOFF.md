@@ -126,6 +126,9 @@ Do not start with animations or a heavy UI framework. The sequence should be:
 - Added model and mode ranking inside adaptive choices: fast/balanced/strong/private
   model strategies plus route-plan, review, QA, autopilot, and team mode options.
   High-risk routes now set the choice policy to ask before execution.
+- Added conflict-diagnostics substrate: capabilities now carry derived provider,
+  conflict group, and side-effect metadata, and `lazybrain doctor --json` exposes
+  structured hook/capability conflicts without mutating third-party state.
 - Repositioned session summary as a manual audit surface instead of a
   Stop-hook-driven “savings” report.
 - Converted the session dashboard from a table into a narrative value surface.

@@ -261,6 +261,8 @@ handoff：
 
 ### P3 技能和插件冲突解析
 
+状态：部分完成，2026-04-30
+
 目标：避免技能、插件、hook 互相冲突。
 
 交付：
@@ -289,6 +291,32 @@ handoff：
 - 记录冲突组清单
 - 记录所有 auto-fix 行为
 - 记录禁止 auto-fix 的场景
+
+结果：
+
+- capability metadata 新增 `provider`
+- capability metadata 新增 `conflictGroup`
+- capability metadata 新增 `sideEffects`
+- compile 阶段会派生 provider/conflictGroup/sideEffects
+- graph load 会保留这些字段
+- 新增 capability conflict diagnostics
+- `doctor --json` 输出 `conflicts.hooks` 和 `conflicts.capabilities`
+- `doctor --all --json` 输出 project/global 两个 scope
+- 当前实现只诊断，不自动修改第三方插件或配置
+
+仍未完成：
+
+- scanner frontmatter 显式读取 provider/conflictGroup/sideEffects
+- route 直接使用 registry conflictGroup 排序
+- doctor --fix 对 LazyBrain-owned 冲突的更细颗粒修复报告
+
+验证：
+
+- `npm run lint`
+- `npm test -- test/diagnostics/conflicts.test.ts test/compiler/compiler-prompts.test.ts test/scanner/scanner.test.ts`
+- `npm run build`
+- `node dist/bin/lazybrain.js doctor --json`
+- `node dist/bin/lazybrain.js doctor --all --json`
 
 ### P4 自适应偏好和反馈
 
@@ -430,13 +458,13 @@ handoff：
 
 ## 当前首个执行任务
 
-下一步应从 P3 开始。
+下一步应继续 P3 剩余项。
 
 最小有效切片：
 
-- 给 capability registry 增加冲突字段
-- 输出 provider/conflictGroup/sideEffects
-- `doctor --json` 暴露 hook、plugin、skill 冲突
+- scanner frontmatter 读取 provider/conflictGroup/sideEffects
+- route 使用 registry conflictGroup 生成更准的 suppressed alternatives
+- doctor --fix 报告 LazyBrain-owned 冲突修复细节
 - 写 handoff
 
-P1/P2 已完成，底层选择契约和模型/模式 ranking 已稳定到 `RouteSpec` v1.5.0。
+P1/P2 已完成；P3 已完成 registry 字段、派生和 doctor JSON 诊断，剩余项继续按 P3 执行。

@@ -3,6 +3,7 @@ export type {
   CapabilityGraph,
   CapabilityKind,
   CapabilityMeta,
+  CapabilitySideEffect,
   ChoiceCost,
   ChoiceLatency,
   ChoiceOption,

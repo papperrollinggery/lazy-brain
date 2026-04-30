@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `RouteSpec` v1.5.0 now includes adaptive `choices` with a recommended option, alternatives, conflict notices, and decision policy across CLI, HTTP, and MCP route outputs.
 - Adaptive choices now rank model strategies (`fast-low-cost`, `balanced`, `strong-reasoning`, `local-private`) and mode strategies (`route-plan`, `review`, `qa`, `autopilot`, `team`) using task risk, cost, latency, and explicit user wording.
+- Capability metadata now includes derived `provider`, `conflictGroup`, and `sideEffects` fields for conflict-safe routing.
+- `lazybrain doctor --json` now returns structured hook and capability conflict diagnostics; `doctor --all --json` returns both scopes in one JSON object.
 
 ### Changed
 - Combo route entry commands now render for the requested target instead of hardcoding `--target codex`.

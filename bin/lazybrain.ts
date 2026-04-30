@@ -79,6 +79,7 @@ import { buildRouteSpec, formatRouteSpec, isRouteTarget } from '../src/orchestra
 import { readRouteStats, recordRouteSpec } from '../src/orchestrator/route-events.js';
 import { formatComboList, listCombos } from '../src/combos/registry.js';
 import { getMcpToolNames, runMcpStdioServer } from '../src/mcp/server.js';
+import { detectCapabilityConflicts, type CapabilityConflictDiagnostic } from '../src/diagnostics/conflicts.js';
 
 const args = process.argv.slice(2);
 const cmd = args[0];
@@ -2191,7 +2192,82 @@ function getBudgetCheckerState(): string {
   }
 }
 
-function printDoctorForScope(doctorScope: HookInstallScope, shouldFix: boolean): void {
+type DoctorHookConflict = {
+  group: string;
+  winner: string;
+  suppressed: string[];
+  severity: 'info' | 'warn' | 'block';
+  reason: string;
+};
+
+type DoctorReport = {
+  scope: HookInstallScope;
+  mode: 'diagnose' | 'diagnose+fix';
+  paths: {
+    settings: string;
+    hooks: string;
+  };
+  installState: {
+    present: boolean;
+    scope: string;
+    workspaceRoot?: string;
+  };
+  lifecycle: {
+    userPromptSubmitInstalled: boolean;
+    userPromptSubmitCount: number;
+    stopClean: boolean;
+  };
+  runtime: {
+    activeHooks: number;
+    hungHooks: number;
+    staleHooksCleaned: number;
+    breakerOpen: boolean;
+    avgDurationMs: number;
+    p95DurationMs: number;
+    lastSkipReason?: string;
+    lastError?: string;
+  };
+  budgetChecker: string;
+  repairs: string[];
+  conflicts: {
+    hooks: DoctorHookConflict[];
+    capabilities: CapabilityConflictDiagnostic[];
+  };
+};
+
+function hookConflictDiagnostics(lifecycle: ReturnType<typeof getHookLifecycleStatus>): DoctorHookConflict[] {
+  const conflicts: DoctorHookConflict[] = [];
+  if (lifecycle.lazybrainUserPromptSubmitCount > 1) {
+    conflicts.push({
+      group: 'hook:user-prompt-submit',
+      winner: 'lazybrain:user-prompt-submit',
+      suppressed: Array.from({ length: lifecycle.lazybrainUserPromptSubmitCount - 1 }, (_, index) => `duplicate:${index + 1}`),
+      severity: 'warn',
+      reason: 'Multiple LazyBrain UserPromptSubmit registrations are present; only one should own the event.',
+    });
+  }
+  if (lifecycle.lazybrainStop) {
+    conflicts.push({
+      group: 'hook:stop',
+      winner: 'none',
+      suppressed: ['lazybrain:stop'],
+      severity: 'warn',
+      reason: 'LazyBrain should not own Stop; Stop registrations are legacy and should be removed by doctor --fix.',
+    });
+  }
+  return conflicts;
+}
+
+function graphConflictDiagnostics(): CapabilityConflictDiagnostic[] {
+  if (!existsSync(GRAPH_PATH)) return [];
+  try {
+    return detectCapabilityConflicts(Graph.load(GRAPH_PATH).getAllNodes());
+  } catch {
+    return [];
+  }
+}
+
+function printDoctorForScope(doctorScope: HookInstallScope, shouldFix: boolean, options: { json?: boolean; silent?: boolean } = {}): DoctorReport {
   const config = loadConfig();
   const settingsPath = getClaudeSettingsPath(doctorScope);
   const hooksPath = getClaudeHooksPath(doctorScope);
@@ -2258,6 +2334,46 @@ function printDoctorForScope(doctorScope: HookInstallScope, shouldFix: boolean):
   const runtime = getHookRuntimeSnapshot({ config });
   const runtimeStats = getHookRuntimeStats(runtime);
   const lifecycle = getHookLifecycleStatus(settingsWithMergedHooks(settings, hooks), { runtime, installState });
+  const report: DoctorReport = {
+    scope: doctorScope,
+    mode: shouldFix ? 'diagnose+fix' : 'diagnose',
+    paths: {
+      settings: settingsPath,
+      hooks: hooksPath,
+    },
+    installState: {
+      present: Boolean(installState),
+      scope: installState?.scope ?? 'unknown',
+      ...(installState?.workspaceRoot ? { workspaceRoot: installState.workspaceRoot } : {}),
+    },
+    lifecycle: {
+      userPromptSubmitInstalled: lifecycle.lazybrainUserPromptSubmit,
+      userPromptSubmitCount: lifecycle.lazybrainUserPromptSubmitCount,
+      stopClean: !lifecycle.lazybrainStop,
+    },
+    runtime: {
+      activeHooks: runtime.activeRuns.length,
+      hungHooks: runtime.hungRuns.length,
+      staleHooksCleaned: runtime.staleRuns.length,
+      breakerOpen: runtimeStats.breakerOpen,
+      avgDurationMs: runtimeStats.avgDurationMs,
+      p95DurationMs: runtimeStats.p95DurationMs,
+      ...(runtime.health.lastSkipReason ? { lastSkipReason: runtime.health.lastSkipReason } : {}),
+      ...(runtime.health.lastError ? { lastError: runtime.health.lastError } : {}),
+    },
+    budgetChecker: budgetCheckerState,
+    repairs,
+    conflicts: {
+      hooks: hookConflictDiagnostics(lifecycle),
+      capabilities: graphConflictDiagnostics(),
+    },
+  };
+
+  if (options.json) {
+    if (!options.silent) console.log(JSON.stringify(report, null, 2));
+    return report;
+  }
+  if (options.silent) return report;
 
   console.log(`LazyBrain doctor (${doctorScope})`);
   console.log(`  Mode: ${shouldFix ? 'diagnose+fix' : 'diagnose'}`);
@@ -2286,22 +2402,32 @@ function printDoctorForScope(doctorScope: HookInstallScope, shouldFix: boolean):
       console.log('  Note: budget checker 已启用，但 doctor --fix 不会自动修改 LaunchAgent 状态。');
     }
   }
+  return report;
 }
 
 function cmdDoctor() {
   const shouldFix = args.includes('--fix');
   const allScopes = args.includes('--all');
+  const asJson = args.includes('--json');
   if (allScopes && shouldFix) {
     console.error('doctor --all --fix is disabled. Run doctor --fix for one scope at a time.');
     process.exit(1);
   }
   if (allScopes) {
+    if (asJson) {
+      const scopes = [
+        printDoctorForScope('project', false, { json: true, silent: true }),
+        printDoctorForScope('global', false, { json: true, silent: true }),
+      ];
+      console.log(JSON.stringify({ scopes }, null, 2));
+      return;
+    }
     printDoctorForScope('project', false);
     console.log('');
     printDoctorForScope('global', false);
     return;
   }
-  printDoctorForScope(args.includes('--global') ? 'global' : 'project', shouldFix);
+  printDoctorForScope(args.includes('--global') ? 'global' : 'project', shouldFix, { json: asJson });
 }
 
 function readJsonStatus(path: string): Record<string, unknown> | null {
@@ -2735,7 +2861,7 @@ Usage:
   lazybrain hook status              Show LazyBrain hook lifecycle status
   lazybrain hook ps                  Show active LazyBrain hook runs
   lazybrain hook clean               Remove stale LazyBrain hook records
-  lazybrain doctor [--fix|--all]      Show runtime diagnostics and optional self-repair
+  lazybrain doctor [--json|--fix|--all] Show runtime diagnostics and optional self-repair
   lazybrain summary                  Show manual session audit
   lazybrain --version                Show version
 `);

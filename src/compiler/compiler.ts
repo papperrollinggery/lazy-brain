@@ -15,6 +15,7 @@ import type {
 import { isLinkType } from '../types.js';
 import { CATEGORIES, GRAPH_VERSION } from '../constants.js';
 import { Graph } from '../graph/graph.js';
+import { inferCapabilityConflictGroup, inferCapabilityProvider, inferCapabilitySideEffects } from '../diagnostics/conflicts.js';
 
 /** Generate deterministic capability ID with optional platform prefix */
 export function makeCapabilityId(kind: string, name: string, origin: string, platform?: string): string {
@@ -269,6 +270,9 @@ export async function compile(
           name: raw.name,
           description: raw.description,
           origin: raw.origin,
+          provider: inferCapabilityProvider(raw),
+          conflictGroup: inferCapabilityConflictGroup(raw),
+          sideEffects: inferCapabilitySideEffects(raw),
           status: raw.disabled ? 'disabled' : 'installed',
           compatibility: raw.compatibility,
           filePath: raw.filePath,
@@ -296,6 +300,9 @@ export async function compile(
           name: raw.name,
           description: raw.description,
           origin: raw.origin,
+          provider: inferCapabilityProvider(raw),
+          conflictGroup: inferCapabilityConflictGroup(raw),
+          sideEffects: inferCapabilitySideEffects(raw),
           status: raw.disabled ? 'disabled' : 'installed',
           compatibility: raw.compatibility,
           filePath: raw.filePath,
