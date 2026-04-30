@@ -119,6 +119,10 @@ Do not start with animations or a heavy UI framework. The sequence should be:
 
 ## Recent Codex Changes
 
+- Added adaptive `ChoiceSet` output to `RouteSpec` v1.5.0 across CLI JSON,
+  HTTP `/api/route`, and MCP `lazybrain.route`. Route responses now expose a
+  recommended option, alternatives, conflict notices, and decision policy while
+  preserving the existing RouteSpec fields.
 - Repositioned session summary as a manual audit surface instead of a
   Stop-hook-driven “savings” report.
 - Converted the session dashboard from a table into a narrative value surface.

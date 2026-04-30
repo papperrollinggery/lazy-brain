@@ -66,15 +66,18 @@ describe('MCP server', () => {
       params: { name: 'lazybrain.route', arguments: { query: 'review code for regressions', target: 'codex' } },
     }, ctx()));
     const text = toolContentText(response);
-    expect(text).toContain('"schemaVersion": "1.4.6"');
+    expect(text).toContain('"schemaVersion": "1.5.0"');
     expect(text).toContain('"target": "codex"');
+    expect(text).toContain('"choices"');
     expect(text).not.toContain('/tmp/example-agent');
     const payload = toolPayload(response);
     expect(payload.status).toBe('success');
     expect(payload).toHaveProperty('summary');
     expect(payload).toHaveProperty('next_actions');
     expect(payload).toHaveProperty('artifacts');
-    expect((payload.data as Record<string, unknown>).schemaVersion).toBe('1.4.6');
+    expect(payload).toHaveProperty('choices');
+    expect((payload.choices as Record<string, unknown>).recommended).toBeTruthy();
+    expect((payload.data as Record<string, unknown>).schemaVersion).toBe('1.5.0');
   });
 
   it('returns combo entry metadata through lazybrain.route', async () => {

@@ -76,9 +76,14 @@ describe('buildRouteSpec', () => {
     });
 
     expect(spec.mode).toBe('route_plan');
-    expect(spec.schemaVersion).toBe('1.4.6');
+    expect(spec.schemaVersion).toBe('1.5.0');
     expect(spec.combo).toBe('dashboard_ceo');
     expect(spec.whyRoute).toContain('dashboard_ceo');
+    expect(spec.choices.recommended.kind).toBe('workflow');
+    expect(spec.choices.recommended.id).toBe('workflow:dashboard_ceo');
+    expect(spec.choices.alternatives.some(choice => choice.kind === 'model')).toBe(true);
+    expect(spec.choices.conflicts.some(conflict => conflict.group === 'skill:same-intent')).toBe(true);
+    expect(spec.adapters.generic.prompt).toContain('Recommended choice: dashboard_ceo');
     expect(spec.tokenStrategy.includeFullSkillBody).toBe(false);
     expect(spec.tokenStrategy.topKSkills).toBeGreaterThan(0);
     expect(spec.skills.some(skill => skill.name === 'dashboard-builder')).toBe(true);
@@ -188,6 +193,9 @@ describe('buildRouteSpec', () => {
     });
 
     expect(spec.mode).toBe('needs_clarification');
+    expect(spec.choices.recommended.id).toBe('mode:clarify-first');
+    expect(spec.choices.policy.defaultAction).toBe('ask');
+    expect(spec.choices.policy.askUser).toBe(true);
     expect(spec.tokenStrategy.shouldClarifyFirst).toBe(true);
     expect(spec.clarificationQuestions?.length).toBeGreaterThan(0);
     expect(spec.skills).toEqual([]);
@@ -200,6 +208,8 @@ describe('buildRouteSpec', () => {
     });
 
     expect(spec.mode).toBe('no_route_needed');
+    expect(spec.choices.recommended.id).toBe('mode:direct');
+    expect(spec.choices.policy.askUser).toBe(false);
     expect(spec.skills).toEqual([]);
     expect(spec.tokenStrategy.topKSkills).toBe(0);
     expect(spec.tokenStrategy.includeFullSkillBody).toBe(false);

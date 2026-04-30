@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `RouteSpec` v1.5.0 now includes adaptive `choices` with a recommended option, alternatives, conflict notices, and decision policy across CLI, HTTP, and MCP route outputs.
+
 ### Changed
 - Combo route entry commands now render for the requested target instead of hardcoding `--target codex`.
 - GUI config controls now use backend-valid routing engine and strategy values.

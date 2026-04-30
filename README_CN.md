@@ -153,7 +153,7 @@ Use this skill when the user asks for a focused engineering review.
 |------|----------|------|
 | 离线路由 | 已实现 | 手工别名 + tag/CJK bridge，无 API key 也可用 |
 | semantic / hybrid | 条件可用 | 需要 embedding 配置和 `graph.embeddings.*` 缓存；缺失时降级并提示 |
-| Route plan | 已实现 | `lazybrain route` 输出 v1.4.6 `RouteSpec`，包含 `route_plan`、`needs_clarification`、`no_route_needed` 和 combo 入口元数据 |
+| Route plan | 已实现 | `lazybrain route` 输出 v1.5.0 `RouteSpec`，包含 `route_plan`、`needs_clarification`、`no_route_needed`、combo 入口元数据和自适应 `choices` |
 | MCP | 已实现 | `lazybrain mcp --stdio` 暴露只读 route/search/card/combo 工具 |
 | 手动 prompt | 已实现 | `lazybrain prompt` 输出目标 CLI 风格的可复制建议 |
 | Combo 模板 | 已实现 | `lazybrain combos [category]` 只读展示高频编排模板 |

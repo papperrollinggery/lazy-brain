@@ -1,4 +1,4 @@
-import type { Capability, RouteSpec, RouteTarget, UserConfig } from '../types.js';
+import type { Capability, ChoiceSet, RouteSpec, RouteTarget, UserConfig } from '../types.js';
 import type { Graph } from '../graph/graph.js';
 import { buildRouteSpec, isRouteTarget } from '../orchestrator/route.js';
 import { listCombos } from '../combos/registry.js';
@@ -30,6 +30,7 @@ interface ToolObservation<T = unknown> {
   summary: string;
   next_actions: string[];
   artifacts: string[];
+  choices?: ChoiceSet;
   data?: T;
   error?: {
     message: string;
@@ -65,12 +66,14 @@ function successObservation<T>(
   data: T,
   nextActions: string[],
   artifacts: string[] = [],
+  choices?: ChoiceSet,
 ): ToolObservation<T> {
   return {
     status: 'success',
     summary,
     next_actions: nextActions,
     artifacts,
+    ...(choices ? { choices } : {}),
     data,
   };
 }
@@ -243,6 +246,7 @@ async function callTool(name: string, args: Record<string, unknown>, ctx: McpCon
         spec,
         routeNextActions(spec),
         routeArtifacts(spec),
+        spec.choices,
       ));
     }
     case 'lazybrain.search': {

@@ -247,10 +247,13 @@ describe('POST /api/route', () => {
     const { status, body } = await req('POST', '/api/route', { query: 'review code for regressions', target: 'codex' });
     expect(status).toBe(200);
     expect(body).toHaveProperty('query');
-    expect(body).toHaveProperty('schemaVersion', '1.4.6');
+    expect(body).toHaveProperty('schemaVersion', '1.5.0');
     expect(body).toHaveProperty('mode');
     expect(body).toHaveProperty('intent');
     expect(body).toHaveProperty('whyRoute');
+    expect(body).toHaveProperty('choices');
+    expect(body.choices).toHaveProperty('recommended');
+    expect(body.choices.alternatives.some((choice: { kind: string }) => choice.kind === 'model')).toBe(true);
     expect(body).toHaveProperty('skills');
     expect(body).toHaveProperty('tokenStrategy');
     expect(body.tokenStrategy.includeFullSkillBody).toBe(false);

@@ -300,6 +300,45 @@ export interface RouteTokenStrategy {
   summary: string;
 }
 
+export type ChoiceOptionKind = 'mode' | 'model' | 'skill' | 'plugin' | 'workflow';
+export type ChoiceCost = 'low' | 'medium' | 'high';
+export type ChoiceLatency = 'fast' | 'normal' | 'slow';
+export type ChoiceRisk = 'low' | 'medium' | 'high';
+
+export interface ChoiceOption {
+  id: string;
+  kind: ChoiceOptionKind;
+  label: string;
+  confidence: number;
+  cost: ChoiceCost;
+  latency: ChoiceLatency;
+  risk: ChoiceRisk;
+  reason: string;
+  command?: string;
+}
+
+export interface ConflictNotice {
+  group: string;
+  winner: string;
+  suppressed: string[];
+  reason: string;
+  severity: 'info' | 'warn' | 'block';
+}
+
+export interface DecisionPolicy {
+  defaultAction: 'auto' | 'ask' | 'skip';
+  askUser: boolean;
+  reason: string;
+}
+
+export interface ChoiceSet {
+  intent: string;
+  recommended: ChoiceOption;
+  alternatives: ChoiceOption[];
+  conflicts: ConflictNotice[];
+  policy: DecisionPolicy;
+}
+
 export interface RouteSpec {
   schemaVersion: string;
   query: string;
@@ -320,6 +359,7 @@ export interface RouteSpec {
   verification: VerificationRequirement[];
   doneWhen: string[];
   tokenStrategy: RouteTokenStrategy;
+  choices: ChoiceSet;
   adapters: {
     generic: RouteAdapterPayload;
     claude?: RouteAdapterPayload;

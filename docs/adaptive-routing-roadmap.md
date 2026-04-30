@@ -152,6 +152,8 @@ handoff：
 
 ### P1 ChoiceSet schema
 
+状态：已完成，2026-04-30
+
 目标：把“单一推荐”升级为“推荐 + 备选 + 冲突说明”。
 
 交付：
@@ -180,6 +182,25 @@ handoff：
 - 记录 schema 兼容策略
 - 记录旧消费者影响
 - 记录未接入 UI 的字段
+
+结果：
+
+- `RouteSpec` schema 升级到 `1.5.0`
+- 新增 `choices.recommended`
+- 新增 `choices.alternatives`
+- 新增 `choices.conflicts`
+- 新增 `choices.policy`
+- CLI JSON、HTTP `/api/route`、MCP `lazybrain.route` 均返回 choices
+- MCP harness envelope 顶层也返回 `choices`
+- 旧字段保留，旧消费者仍可读原 RouteSpec 主体
+
+验证：
+
+- `npm run build`
+- `npm run lint`
+- `npm test -- test/orchestrator/route.test.ts test/server/server.test.ts test/mcp/server.test.ts`
+- `node dist/bin/lazybrain.js route "选择合适模型做架构评审" --json`
+- `node dist/bin/lazybrain.js route "what is TypeScript?" --json`
 
 ### P2 模型和模式推荐策略
 
@@ -393,13 +414,13 @@ handoff：
 
 ## 当前首个执行任务
 
-下一步应从 P1 开始。
+下一步应从 P2 开始。
 
 最小有效切片：
 
-- 新增 ChoiceSet 类型
-- route JSON 输出 choices
-- 保持现有 benchmark 不回退
+- 增加模式推荐规则表
+- 增加模型策略 ranking
+- 覆盖高风险任务不会误走低成本 direct
 - 写 handoff
 
-完成后再进入 P2，避免先做 UI 或自适应学习导致底层契约不稳定。
+P1 已完成，底层选择契约已稳定到 `RouteSpec` v1.5.0。

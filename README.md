@@ -224,7 +224,7 @@ The default hook does not run Secretary or inject full recommendations. Secretar
 |------|------------------|-------|
 | Offline routing | Manual alias + tag/CJK bridge | Works without API keys |
 | Semantic / hybrid | Uses embedding cache when configured | Falls back with warnings when cache is missing |
-| Route plan | `lazybrain route` returns v1.4.6 `RouteSpec` | Includes `route_plan`, `needs_clarification`, `no_route_needed`, and combo entry metadata |
+| Route plan | `lazybrain route` returns v1.5.0 `RouteSpec` | Includes `route_plan`, `needs_clarification`, `no_route_needed`, combo entry metadata, and adaptive `choices` |
 | MCP | `lazybrain mcp --stdio` exposes read-only route/search/card/combo tools | Does not write target CLI config or return agent bodies |
 | Manual prompt | `lazybrain prompt` renders target-specific copyable guidance | Useful when MCP is not configured |
 | Combo templates | Built-in high-frequency orchestration templates | `lazybrain combos [category]` is read-only |

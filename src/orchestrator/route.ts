@@ -7,6 +7,10 @@
 
 import type {
   Capability,
+  ChoiceOption,
+  ChoiceSet,
+  ConflictNotice,
+  DecisionPolicy,
   GuardrailRule,
   HistoryEntry,
   Recommendation,
@@ -36,7 +40,9 @@ export interface BuildRouteSpecOptions {
 }
 
 const TARGETS: RouteTarget[] = ['generic', 'claude', 'codex', 'cursor'];
-export const ROUTE_SPEC_SCHEMA_VERSION = '1.4.6';
+export const ROUTE_SPEC_SCHEMA_VERSION = '1.5.0';
+
+type RouteSpecDraft = Omit<RouteSpec, 'adapters' | 'choices'>;
 
 export function isRouteTarget(value: string): value is RouteTarget {
   return TARGETS.includes(value as RouteTarget);
@@ -198,6 +204,20 @@ function adapterPrompt(spec: Omit<RouteSpec, 'adapters'>, target: RouteTarget): 
   if (spec.executionMode) lines.push(`Execution mode: ${spec.executionMode}`);
   if (spec.modelStrategy) lines.push(`Model strategy: ${spec.modelStrategy}`);
 
+  lines.push(`Recommended choice: ${spec.choices.recommended.label} (${spec.choices.recommended.kind})`);
+  if (spec.choices.alternatives.length > 0) {
+    lines.push('Alternatives:');
+    for (const choice of spec.choices.alternatives.slice(0, 3)) {
+      lines.push(`- ${choice.label} (${choice.kind}, ${Math.round(choice.confidence * 100)}%)`);
+    }
+  }
+  if (spec.choices.conflicts.length > 0) {
+    lines.push('Conflict notices:');
+    for (const conflict of spec.choices.conflicts.slice(0, 3)) {
+      lines.push(`- ${conflict.group}: ${conflict.reason}`);
+    }
+  }
+
   lines.push('', 'Token strategy:');
   lines.push(`- Top-K skills: ${spec.tokenStrategy.topKSkills}`);
   lines.push(`- Full skill body: ${spec.tokenStrategy.includeFullSkillBody ? 'yes' : 'no'}`);
@@ -295,15 +315,264 @@ function tokenStrategyFor(input: {
       ? 'Clarify before loading skill context.'
       : input.mode === 'no_route_needed'
         ? 'Handle directly; no skill body should be loaded.'
-        : `Load only ${topKSkills} compact skill card${topKSkills === 1 ? '' : 's'} plus verification guidance.`,
+      : `Load only ${topKSkills} compact skill card${topKSkills === 1 ? '' : 's'} plus verification guidance.`,
   };
+}
+
+function clampConfidence(value: number | undefined, fallback: number): number {
+  const raw = Number.isFinite(value) ? value as number : fallback;
+  return Math.max(0, Math.min(1, Math.round(raw * 100) / 100));
+}
+
+function routeCostFromCapability(cap: Capability | undefined): ChoiceOption['cost'] {
+  if (cap?.costLevel === 'high') return 'high';
+  if (cap?.costLevel === 'medium') return 'medium';
+  return 'low';
+}
+
+function routeRiskFromCapability(cap: Capability | undefined, available: boolean): ChoiceOption['risk'] {
+  if (!available) return 'medium';
+  if (cap?.requiresConfirmation || cap?.riskLevel === 'destructive') return 'high';
+  if (cap?.riskLevel === 'caution') return 'medium';
+  return 'low';
+}
+
+function latencyFromCost(cost: ChoiceOption['cost']): ChoiceOption['latency'] {
+  if (cost === 'high') return 'slow';
+  if (cost === 'medium') return 'normal';
+  return 'fast';
+}
+
+function choiceKindForSkill(skill: RouteSkillRef): ChoiceOption['kind'] {
+  if (skill.kind === 'mode') return 'mode';
+  return skill.origin.toLowerCase().includes('plugin') ? 'plugin' : 'skill';
+}
+
+function skillChoice(skill: RouteSkillRef, graph: Graph, fallbackConfidence: number): ChoiceOption {
+  const cap = graph.getNode(skill.id);
+  const cost = routeCostFromCapability(cap);
+  return {
+    id: `${choiceKindForSkill(skill)}:${skill.id}`,
+    kind: choiceKindForSkill(skill),
+    label: skill.name,
+    confidence: clampConfidence(skill.score, fallbackConfidence),
+    cost,
+    latency: latencyFromCost(cost),
+    risk: routeRiskFromCapability(cap, skill.available),
+    reason: skill.reason ?? `${skill.name} is a matched capability for this route.`,
+  };
+}
+
+function modeChoice(mode: RouteSpec['mode'], confidence: number, reason: string): ChoiceOption {
+  if (mode === 'no_route_needed') {
+    return {
+      id: 'mode:direct',
+      kind: 'mode',
+      label: 'Direct execution',
+      confidence: clampConfidence(confidence, 0.9),
+      cost: 'low',
+      latency: 'fast',
+      risk: 'low',
+      reason,
+    };
+  }
+  if (mode === 'needs_clarification') {
+    return {
+      id: 'mode:clarify-first',
+      kind: 'mode',
+      label: 'Clarify before routing',
+      confidence: clampConfidence(confidence, 0.85),
+      cost: 'low',
+      latency: 'fast',
+      risk: 'low',
+      reason,
+    };
+  }
+  return {
+    id: 'mode:route-plan',
+    kind: 'mode',
+    label: 'Route plan',
+    confidence: clampConfidence(confidence, 0.75),
+    cost: 'low',
+    latency: 'normal',
+    risk: 'medium',
+    reason,
+  };
+}
+
+function modelChoice(modelStrategy: string | undefined, highRisk: boolean): ChoiceOption {
+  if (modelStrategy) {
+    const strong = /strong|deep|senior|review|audit|security|architecture|高|深|强|审查|安全|架构/i.test(modelStrategy);
+    return {
+      id: 'model:recommended-strategy',
+      kind: 'model',
+      label: strong ? 'Stronger reasoning model' : 'Balanced model strategy',
+      confidence: strong ? 0.82 : 0.75,
+      cost: strong ? 'high' : 'medium',
+      latency: strong ? 'slow' : 'normal',
+      risk: 'low',
+      reason: modelStrategy,
+    };
+  }
+  if (highRisk) {
+    return {
+      id: 'model:strong-reasoning',
+      kind: 'model',
+      label: 'Stronger reasoning model',
+      confidence: 0.78,
+      cost: 'high',
+      latency: 'slow',
+      risk: 'low',
+      reason: 'The route contains high-risk capabilities, so the model strategy should favor stronger reasoning and review.',
+    };
+  }
+  return {
+    id: 'model:balanced',
+    kind: 'model',
+    label: 'Balanced coding model',
+    confidence: 0.7,
+    cost: 'medium',
+    latency: 'normal',
+    risk: 'low',
+    reason: 'The task is non-trivial but does not require an expensive model by default.',
+  };
+}
+
+function workflowChoice(draft: RouteSpecDraft): ChoiceOption {
+  return {
+    id: draft.combo ? `workflow:${draft.combo}` : 'workflow:route-plan',
+    kind: 'workflow',
+    label: draft.combo ?? draft.intent,
+    confidence: draft.combo ? 0.86 : 0.72,
+    cost: 'low',
+    latency: 'normal',
+    risk: draft.guardrails.some(rule => rule.strength === 'strict') ? 'medium' : 'low',
+    reason: draft.combo
+      ? `Matched built-in workflow ${draft.combo}.`
+      : 'Use the generated route plan, compact context, and listed verification.',
+    command: draft.entryCommand,
+  };
+}
+
+function uniqueChoices(items: ChoiceOption[]): ChoiceOption[] {
+  return unique(items, item => item.id);
+}
+
+function choiceConflicts(skills: RouteSkillRef[], skillChoices: ChoiceOption[]): ConflictNotice[] {
+  const conflicts: ConflictNotice[] = [];
+  const available = skillChoices.filter(choice => !choice.id.startsWith('skill:missing:'));
+  if (available.length > 1) {
+    conflicts.push({
+      group: 'skill:same-intent',
+      winner: available[0].id,
+      suppressed: available.slice(1, 4).map(choice => choice.id),
+      reason: 'Only the top matched capability should drive initial context; alternatives remain available in choices.',
+      severity: 'info',
+    });
+  }
+  const missing = skills.filter(skill => !skill.available);
+  if (missing.length > 0) {
+    conflicts.push({
+      group: 'skill:missing',
+      winner: available[0]?.id ?? 'mode:route-plan',
+      suppressed: missing.map(skill => `skill:${skill.id}`),
+      reason: 'Some recommended combo roles are not installed, so the route should fall back to available capabilities or the generic workflow.',
+      severity: 'warn',
+    });
+  }
+  return conflicts;
+}
+
+function decisionPolicy(draft: RouteSpecDraft, highRisk: boolean): DecisionPolicy {
+  if (draft.mode === 'needs_clarification') {
+    return {
+      defaultAction: 'ask',
+      askUser: true,
+      reason: 'The request is too broad or low-confidence; clarify before spending context or selecting tools.',
+    };
+  }
+  if (highRisk) {
+    return {
+      defaultAction: 'ask',
+      askUser: true,
+      reason: 'A matched capability is destructive or requires confirmation, so execution should pause for approval.',
+    };
+  }
+  if (draft.mode === 'no_route_needed') {
+    return {
+      defaultAction: 'auto',
+      askUser: false,
+      reason: 'The task is small enough to handle directly without loading routing context.',
+    };
+  }
+  return {
+    defaultAction: 'auto',
+    askUser: false,
+    reason: 'Use the recommended route by default; alternatives are advisory unless the caller has stricter policy.',
+  };
+}
+
+function buildChoiceSet(draft: RouteSpecDraft, graph: Graph): ChoiceSet {
+  const skillChoices = draft.skills.slice(0, 5).map((skill, index) => skillChoice(skill, graph, 0.68 - (index * 0.06)));
+  const highRisk = skillChoices.some(choice => choice.risk === 'high');
+  const mode = modeChoice(draft.mode, draft.mode === 'route_plan' ? 0.76 : 0.9, draft.whyRoute);
+  const model = modelChoice(draft.modelStrategy, highRisk);
+
+  let recommended: ChoiceOption;
+  const alternatives: ChoiceOption[] = [];
+
+  if (draft.mode === 'route_plan') {
+    const workflow = workflowChoice(draft);
+    recommended = draft.combo ? workflow : skillChoices[0] ?? workflow;
+    alternatives.push(model, mode, workflow, ...skillChoices);
+  } else if (draft.mode === 'needs_clarification') {
+    recommended = mode;
+    alternatives.push({
+      id: 'mode:route-plan-after-clarification',
+      kind: 'mode',
+      label: 'Route after clarification',
+      confidence: 0.62,
+      cost: 'low',
+      latency: 'normal',
+      risk: 'medium',
+      reason: 'After the target output is clear, run route planning with the clarified task.',
+    });
+  } else {
+    recommended = mode;
+    alternatives.push({
+      id: 'mode:route-plan-if-task-grows',
+      kind: 'mode',
+      label: 'Route if task grows',
+      confidence: 0.48,
+      cost: 'low',
+      latency: 'normal',
+      risk: 'low',
+      reason: 'Use route planning only if the direct task expands into coding, review, testing, or release work.',
+    });
+  }
+
+  return {
+    intent: draft.intent,
+    recommended,
+    alternatives: uniqueChoices(alternatives).filter(choice => choice.id !== recommended.id).slice(0, 5),
+    conflicts: choiceConflicts(draft.skills, skillChoices),
+    policy: decisionPolicy(draft, highRisk),
+  };
+}
+
+function finalizeRouteSpec(draft: RouteSpecDraft, graph: Graph): RouteSpec {
+  const withChoices: Omit<RouteSpec, 'adapters'> = {
+    ...draft,
+    choices: buildChoiceSet(draft, graph),
+  };
+  return { ...withChoices, adapters: buildAdapters(withChoices) };
 }
 
 export async function buildRouteSpec(query: string, options: BuildRouteSpecOptions): Promise<RouteSpec> {
   const target = options.target ?? 'generic';
   const gate = classifyRouteNeed(query);
   if (gate.mode === 'no_route_needed') {
-    const partial: Omit<RouteSpec, 'adapters'> = {
+    const draft: RouteSpecDraft = {
       schemaVersion: ROUTE_SPEC_SCHEMA_VERSION,
       query,
       target,
@@ -322,7 +591,7 @@ export async function buildRouteSpec(query: string, options: BuildRouteSpecOptio
       tokenStrategy: tokenStrategyFor({ mode: 'no_route_needed', skills: [], query }),
       warnings: [],
     };
-    return { ...partial, adapters: buildAdapters(partial) };
+    return finalizeRouteSpec(draft, options.graph);
   }
 
   const rec = await match(query, {
@@ -340,7 +609,7 @@ export async function buildRouteSpec(query: string, options: BuildRouteSpecOptio
   const warnings = unique([...(rec.warnings ?? []), ...schemaWarnings], item => item);
 
   if (needsClarification(query, rec, combo)) {
-    const partial: Omit<RouteSpec, 'adapters'> = {
+    const draft: RouteSpecDraft = {
       schemaVersion: ROUTE_SPEC_SCHEMA_VERSION,
       query,
       target,
@@ -361,7 +630,7 @@ export async function buildRouteSpec(query: string, options: BuildRouteSpecOptio
       warnings,
       clarificationQuestions: clarificationQuestions(query),
     };
-    return { ...partial, adapters: buildAdapters(partial) };
+    return finalizeRouteSpec(draft, options.graph);
   }
 
   const top = rec.matches[0]?.capability;
@@ -388,7 +657,7 @@ export async function buildRouteSpec(query: string, options: BuildRouteSpecOptio
     catalog.doneWhen,
   );
 
-  const partial: Omit<RouteSpec, 'adapters'> = {
+  const draft: RouteSpecDraft = {
     schemaVersion: ROUTE_SPEC_SCHEMA_VERSION,
     query,
     target,
@@ -413,7 +682,7 @@ export async function buildRouteSpec(query: string, options: BuildRouteSpecOptio
     warnings,
   };
 
-  return { ...partial, adapters: buildAdapters(partial) };
+  return finalizeRouteSpec(draft, options.graph);
 }
 
 export function formatRouteSpec(spec: RouteSpec): string {
@@ -428,6 +697,22 @@ export function formatRouteSpec(spec: RouteSpec): string {
   if (spec.entryCommand) lines.push(`Entry command: ${spec.entryCommand}`);
   if (spec.executionMode) lines.push(`Execution mode: ${spec.executionMode}`);
   if (spec.modelStrategy) lines.push(`Model strategy: ${spec.modelStrategy}`);
+
+  lines.push('', 'Choice:');
+  lines.push(`  - Recommended: ${spec.choices.recommended.label} [${spec.choices.recommended.kind}, ${Math.round(spec.choices.recommended.confidence * 100)}%]`);
+  if (spec.choices.recommended.command) lines.push(`    Command: ${spec.choices.recommended.command}`);
+  if (spec.choices.alternatives.length > 0) {
+    lines.push('  - Alternatives:');
+    for (const choice of spec.choices.alternatives.slice(0, 3)) {
+      lines.push(`    - ${choice.label} [${choice.kind}, ${Math.round(choice.confidence * 100)}%]`);
+    }
+  }
+  if (spec.choices.conflicts.length > 0) {
+    lines.push('  - Conflict notices:');
+    for (const conflict of spec.choices.conflicts.slice(0, 3)) {
+      lines.push(`    - ${conflict.group}: ${conflict.reason}`);
+    }
+  }
 
   lines.push('', 'Token strategy:');
   lines.push(`  - Top-K skills: ${spec.tokenStrategy.topKSkills}`);
