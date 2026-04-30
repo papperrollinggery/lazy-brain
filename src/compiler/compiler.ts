@@ -186,6 +186,14 @@ export interface CompileOptions {
   onRelationProgress?: (current: number, total: number) => void;
 }
 
+function isRelationCompileError(error: string): boolean {
+  return error.startsWith('relation_');
+}
+
+function mergeCompileErrors(currentErrors: string[], preservedErrors: string[]): string[] {
+  return [...new Set([...currentErrors, ...preservedErrors])];
+}
+
 export async function compile(
   rawCapabilities: RawCapability[],
   options: CompileOptions,
@@ -201,6 +209,9 @@ export async function compile(
   const errors: string[] = [];
   let progressCount = 0;
   const newlyCompiledIds: string[] = [];
+  const preservedRelationErrors = existingGraph && (skipRelations || !forceRelations)
+    ? existingGraph.getCompileErrors().filter(isRelationCompileError)
+    : [];
 
   // Phase 1: Enrich each capability with tags, example queries, category
   // Filter out already-compiled nodes first
@@ -309,8 +320,9 @@ export async function compile(
   // Only process tier 0+1 nodes for relations; tier 2 is skipped for speed
   // If forceRelations is false, only process newly compiled nodes (incremental mode)
   if (skipRelations) {
-    graph.setCompileInfo(modelName, errors);
-    return { graph, compiled, skipped, errors, totalTokens };
+    const finalErrors = mergeCompileErrors(errors, preservedRelationErrors);
+    graph.setCompileInfo(modelName, finalErrors);
+    return { graph, compiled, skipped, errors: finalErrors, totalTokens };
   }
 
   const allNodes = graph.getAllNodes();
@@ -320,13 +332,14 @@ export async function compile(
 
   // Skip Phase 2 if no new nodes to process
   if (relationNodes.length === 0) {
-    graph.setCompileInfo(modelName, errors);
+    const finalErrors = mergeCompileErrors(errors, preservedRelationErrors);
+    graph.setCompileInfo(modelName, finalErrors);
     return {
       graph,
       compiled,
       skipped,
       totalTokens,
-      errors,
+      errors: finalErrors,
     };
   }
 
@@ -417,8 +430,9 @@ export async function compile(
     onRelationProgress?.(relationCount, relationNodes.length);
   }
 
-  graph.setCompileInfo(modelName, errors);
-  return { graph, totalTokens, compiled, skipped, errors };
+  const finalErrors = mergeCompileErrors(errors, preservedRelationErrors);
+  graph.setCompileInfo(modelName, finalErrors);
+  return { graph, totalTokens, compiled, skipped, errors: finalErrors };
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────

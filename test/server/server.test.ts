@@ -138,6 +138,18 @@ describe('GUI routes', () => {
     expect(body.config).not.toHaveProperty('compileApiKey');
   });
 
+  it('reports persisted graph compile errors through /api/status', async () => {
+    graph.setCompileInfo('test-model', ['relation_invalid_type:source->target: blocks']);
+    try {
+      const { status, body } = await req('GET', '/api/status');
+      expect(status).toBe(200);
+      expect(body.ok).toBe(false);
+      expect(body.readiness.blockers.join('\n')).toContain('Graph has 1 compile errors');
+    } finally {
+      graph.setCompileInfo('test-model', []);
+    }
+  });
+
   it('reports embedding status through the GUI API', async () => {
     const { status, body } = await req('GET', '/api/embeddings/status');
     expect(status).toBe(200);

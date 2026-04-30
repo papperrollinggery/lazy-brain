@@ -234,4 +234,41 @@ describe('compiler prompt overrides', () => {
     expect(result.errors.some(error => error.startsWith('relation_invalid_shape:'))).toBe(true);
     expect(result.graph.getAllLinks()).toHaveLength(0);
   });
+
+  it('preserves relation errors on tags-only compile until relations are forced', async () => {
+    const initial = await compile([raw('frontend-design'), raw('design-review')], {
+      llm: relationResponder(JSON.stringify([
+        {
+          target: 'design-review',
+          type: 'blocks',
+          description: 'Unsupported relation type',
+          confidence: 0.9,
+        },
+      ])),
+      modelName: 'test-model',
+      forceRelations: true,
+    });
+
+    expect(initial.errors.some(error => error.startsWith('relation_invalid_type:'))).toBe(true);
+
+    const tagsOnly = await compile([raw('frontend-design'), raw('design-review')], {
+      llm: relationResponder('[]'),
+      modelName: 'test-model',
+      existingGraph: initial.graph,
+      skipRelations: true,
+    });
+
+    expect(tagsOnly.errors.some(error => error.startsWith('relation_invalid_type:'))).toBe(true);
+    expect(tagsOnly.graph.getCompileErrors()).toEqual(tagsOnly.errors);
+
+    const repaired = await compile([raw('frontend-design'), raw('design-review')], {
+      llm: relationResponder('[]'),
+      modelName: 'test-model',
+      existingGraph: tagsOnly.graph,
+      forceRelations: true,
+    });
+
+    expect(repaired.errors.some(error => error.startsWith('relation_invalid_type:'))).toBe(false);
+    expect(repaired.graph.getCompileErrors()).toEqual([]);
+  });
 });

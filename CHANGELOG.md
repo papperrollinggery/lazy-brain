@@ -17,7 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Hook install backups now include `.claude/hooks/hooks.json`; rollback restores or removes that file according to the captured manifest.
 - Relation compile output now validates link types, records missing targets and parse failures as structured errors, persists compile errors in `graph.json`, and makes `lazybrain ready` block on unresolved compile errors.
 - Relation compile now records non-array relation responses as structured shape errors instead of silently dropping them.
+- Tags-only compile now preserves unresolved relation compile errors until relations are recompiled with force.
 - `lazybrain compile errors` now exposes persisted relation compile errors and summary counts for follow-up.
+- GUI/API readiness now blocks on persisted graph compile errors just like `lazybrain ready`.
 - GUI "scan and compile" now runs `lazybrain scan` before `lazybrain compile`.
 - GUI compile success now reloads the in-memory graph before the status view refreshes.
 - Hook cleanup now matches exact LazyBrain hook path segments instead of similarly named paths.

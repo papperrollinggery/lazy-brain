@@ -113,6 +113,7 @@ export function buildStatusReport(graph: Graph, config: UserConfig): Record<stri
   }));
   const ready = evaluateReady({
     graphExists: existsSync(GRAPH_PATH),
+    compileErrors: graph.getCompileErrors(),
     status: readJson(STATUS_PATH),
     runtime,
     scopes: readyScopes,
