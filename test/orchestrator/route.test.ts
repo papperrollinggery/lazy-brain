@@ -259,6 +259,7 @@ describe('buildRouteSpec', () => {
     expect(spec.choices.policy.defaultAction).toBe('ask');
     expect(spec.choices.policy.askUser).toBe(true);
     expect(spec.choices.alternatives.some(choice => choice.id === 'model:strong-reasoning')).toBe(true);
+    expect(spec.choices.alternatives.some(choice => choice.id === 'model:local-private')).toBe(true);
     expect(spec.choices.alternatives.some(choice => choice.id === 'mode:review' || choice.id === 'mode:qa')).toBe(true);
   });
 

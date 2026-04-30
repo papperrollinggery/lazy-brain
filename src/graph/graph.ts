@@ -63,6 +63,22 @@ import type {
 import { isLinkType } from '../types.js';
 import { GRAPH_PATH, GRAPH_VERSION } from '../constants.js';
 
+function isCapabilityCostLevel(value: unknown): value is Capability['costLevel'] {
+  return value === 'free' || value === 'low' || value === 'medium' || value === 'high';
+}
+
+function isCapabilityRiskLevel(value: unknown): value is Capability['riskLevel'] {
+  return value === 'safe' || value === 'caution' || value === 'destructive';
+}
+
+function isBoolean(value: unknown): value is boolean {
+  return typeof value === 'boolean';
+}
+
+function isNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
 export class Graph {
   private nodes: Map<string, Capability> = new Map();
   private adjacency: Map<string, Link[]> = new Map();
@@ -95,11 +111,18 @@ export class Graph {
           exampleQueries: Array.isArray(node.exampleQueries) ? node.exampleQueries : [],
           category: node.category ?? 'other',
           scenario: node.scenario,
+          explanation_template: node.explanation_template,
           meta: node.meta,
           triggers: Array.isArray(node.triggers) ? node.triggers : undefined,
           aliases: Array.isArray(node.aliases) ? node.aliases : undefined,
           tier: node.tier,
           evolvedTags: Array.isArray(node.evolvedTags) ? node.evolvedTags : undefined,
+          costLevel: isCapabilityCostLevel(node.costLevel) ? node.costLevel : undefined,
+          riskLevel: isCapabilityRiskLevel(node.riskLevel) ? node.riskLevel : undefined,
+          requiresConfirmation: isBoolean(node.requiresConfirmation) ? node.requiresConfirmation : undefined,
+          hiddenByDefault: isBoolean(node.hiddenByDefault) ? node.hiddenByDefault : undefined,
+          sourcePriority: isNumber(node.sourcePriority) ? node.sourcePriority : undefined,
+          overlapsWith: Array.isArray(node.overlapsWith) ? node.overlapsWith.filter((name): name is string => typeof name === 'string') : undefined,
           schema: node.schema,
         };
         g.nodes.set(validNode.id, validNode);

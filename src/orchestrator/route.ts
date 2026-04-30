@@ -449,8 +449,13 @@ function modelChoice(modelStrategy: string | undefined, highRisk: boolean): Choi
   };
 }
 
+function hasSensitiveDataSignal(query: string): boolean {
+  return /secret|token|credential|private|privacy|密钥|隐私/i.test(query);
+}
+
 function rankedModelChoices(draft: RouteSpecDraft, highRisk: boolean): ChoiceOption[] {
   const recommended = modelChoice(draft.modelStrategy, highRisk);
+  const sensitive = hasSensitiveDataSignal(draft.query);
   const fast: ChoiceOption = {
     id: 'model:fast-low-cost',
     kind: 'model',
@@ -489,14 +494,16 @@ function rankedModelChoices(draft: RouteSpecDraft, highRisk: boolean): ChoiceOpt
     id: 'model:local-private',
     kind: 'model',
     label: 'Local or private model',
-    confidence: /secret|token|credential|private|privacy|密钥|隐私/.test(draft.query) ? 0.72 : 0.45,
+    confidence: sensitive ? 0.72 : 0.45,
     cost: 'low',
     latency: 'normal',
     risk: 'low',
     reason: 'Prefer this when sensitive data should stay local or inside a private runtime.',
   };
-  const ordered = highRisk
-    ? [strong, recommended, balanced, localPrivate, fast]
+  const ordered = highRisk && sensitive
+    ? [strong, localPrivate, recommended, balanced, fast]
+    : highRisk
+      ? [strong, recommended, balanced, localPrivate, fast]
     : [recommended, balanced, fast, strong, localPrivate];
   return uniqueChoices(ordered);
 }
