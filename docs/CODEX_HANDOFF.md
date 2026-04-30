@@ -246,20 +246,21 @@ Recommended mental model:
 - Relation inference for the graph still produces noisy edges; it should be
   denoised before becoming a polished product surface.
 
-## Routing Status After V1 Match Tuning
+## Routing Benchmark Status
 
-The latest routing pass is fully green on the current golden benchmark and is
-safe to treat as the new baseline.
+The benchmark suite currently passes its enforced thresholds, but individual
+log-only cases still miss expected labels. Do not claim perfect routing quality
+from the current suite output.
 
-### Current benchmark status
+### Current benchmark output
 
-- Top-1: `55/55 = 100.0%`
-- Top-3: `55/55 = 100.0%`
-- Chinese Top-1: `33/33 = 100.0%`
-- Chinese Top-3: `33/33 = 100.0%`
-- Tag-only Top-3: `55/55 = 100.0%`
+- Top-1: `39/55 = 70.9%`
+- Top-3: `51/55 = 92.7%`
+- Chinese Top-1: `23/33 = 69.7%`
+- Chinese Top-3: `31/33 = 93.9%`
+- Tag-only Top-3: `51/55 = 92.7%`
 
-### Fixed regressions that should stay protected
+### Regressions that should stay protected or re-tuned
 
 - `设计系统架构`
   - should continue to rank `Backend Architect / architect / Software Architect`
