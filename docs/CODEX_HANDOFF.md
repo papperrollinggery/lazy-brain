@@ -123,6 +123,9 @@ Do not start with animations or a heavy UI framework. The sequence should be:
   HTTP `/api/route`, and MCP `lazybrain.route`. Route responses now expose a
   recommended option, alternatives, conflict notices, and decision policy while
   preserving the existing RouteSpec fields.
+- Added model and mode ranking inside adaptive choices: fast/balanced/strong/private
+  model strategies plus route-plan, review, QA, autopilot, and team mode options.
+  High-risk routes now set the choice policy to ask before execution.
 - Repositioned session summary as a manual audit surface instead of a
   Stop-hook-driven “savings” report.
 - Converted the session dashboard from a table into a narrative value surface.

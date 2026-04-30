@@ -204,6 +204,8 @@ handoff：
 
 ### P2 模型和模式推荐策略
 
+状态：已完成，2026-04-30
+
 目标：让 LazyBrain 能按任务性质推荐模式和模型策略。
 
 模式策略：
@@ -242,6 +244,20 @@ handoff：
 - 记录推荐规则表
 - 记录误判样例
 - 记录需要用户确认的重大决策条件
+
+结果：
+
+- 高风险 route gate 会进入 `choices.policy.askUser = true`
+- 模型 ranking 包含 `fast-low-cost`、`balanced`、`strong-reasoning`、`local-private`
+- 模式 ranking 包含 `route-plan`、`review`、`qa`、`autopilot`、`team`
+- `autopilot`、`team` 只作为高风险/高成本显式选项暴露，不在 hook 中自动执行
+- 高风险 release、production、secret、rollback 类请求会优先暴露强推理模型和 review/QA 模式
+
+验证：
+
+- `npm run lint`
+- `npm test -- test/orchestrator/route.test.ts`
+- `npm test -- test/orchestrator/route.test.ts test/server/server.test.ts test/mcp/server.test.ts`
 
 ### P3 技能和插件冲突解析
 
@@ -414,13 +430,13 @@ handoff：
 
 ## 当前首个执行任务
 
-下一步应从 P2 开始。
+下一步应从 P3 开始。
 
 最小有效切片：
 
-- 增加模式推荐规则表
-- 增加模型策略 ranking
-- 覆盖高风险任务不会误走低成本 direct
+- 给 capability registry 增加冲突字段
+- 输出 provider/conflictGroup/sideEffects
+- `doctor --json` 暴露 hook、plugin、skill 冲突
 - 写 handoff
 
-P1 已完成，底层选择契约已稳定到 `RouteSpec` v1.5.0。
+P1/P2 已完成，底层选择契约和模型/模式 ranking 已稳定到 `RouteSpec` v1.5.0。

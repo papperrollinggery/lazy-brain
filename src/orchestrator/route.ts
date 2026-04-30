@@ -29,7 +29,7 @@ import { Graph } from '../graph/graph.js';
 import { match } from '../matcher/matcher.js';
 import { findCombo, formatComboEntryCommand, type ComboTemplate } from '../combos/registry.js';
 import { getVerificationBundle } from '../verification/catalog.js';
-import { classifyRouteNeed } from './route-gate.js';
+import { classifyRouteNeed, type RouteGateDecision } from './route-gate.js';
 
 export interface BuildRouteSpecOptions {
   graph: Graph;
@@ -43,6 +43,9 @@ const TARGETS: RouteTarget[] = ['generic', 'claude', 'codex', 'cursor'];
 export const ROUTE_SPEC_SCHEMA_VERSION = '1.5.0';
 
 type RouteSpecDraft = Omit<RouteSpec, 'adapters' | 'choices'>;
+type ChoiceContext = {
+  gate: RouteGateDecision;
+};
 
 export function isRouteTarget(value: string): value is RouteTarget {
   return TARGETS.includes(value as RouteTarget);
@@ -438,6 +441,143 @@ function modelChoice(modelStrategy: string | undefined, highRisk: boolean): Choi
   };
 }
 
+function rankedModelChoices(draft: RouteSpecDraft, highRisk: boolean): ChoiceOption[] {
+  const recommended = modelChoice(draft.modelStrategy, highRisk);
+  const fast: ChoiceOption = {
+    id: 'model:fast-low-cost',
+    kind: 'model',
+    label: 'Fast low-cost model',
+    confidence: highRisk ? 0.38 : 0.62,
+    cost: 'low',
+    latency: 'fast',
+    risk: highRisk ? 'medium' : 'low',
+    reason: highRisk
+      ? 'Available only as a fallback because this task has high-risk signals.'
+      : 'Good for small implementation, docs, and repeatable verification work.',
+  };
+  const balanced: ChoiceOption = {
+    id: 'model:balanced',
+    kind: 'model',
+    label: 'Balanced coding model',
+    confidence: highRisk ? 0.64 : 0.76,
+    cost: 'medium',
+    latency: 'normal',
+    risk: 'low',
+    reason: 'Default fit for normal coding, review, debugging, and documentation tasks.',
+  };
+  const strong: ChoiceOption = {
+    id: 'model:strong-reasoning',
+    kind: 'model',
+    label: 'Stronger reasoning model',
+    confidence: highRisk ? 0.86 : 0.58,
+    cost: 'high',
+    latency: 'slow',
+    risk: 'low',
+    reason: highRisk
+      ? 'Recommended for high-risk changes, releases, security, production, hooks, and irreversible operations.'
+      : 'Use when architecture, subtle bugs, or cross-module tradeoffs matter more than cost.',
+  };
+  const localPrivate: ChoiceOption = {
+    id: 'model:local-private',
+    kind: 'model',
+    label: 'Local or private model',
+    confidence: /secret|token|credential|private|privacy|密钥|隐私/.test(draft.query) ? 0.72 : 0.45,
+    cost: 'low',
+    latency: 'normal',
+    risk: 'low',
+    reason: 'Prefer this when sensitive data should stay local or inside a private runtime.',
+  };
+  const ordered = highRisk
+    ? [strong, recommended, balanced, localPrivate, fast]
+    : [recommended, balanced, fast, strong, localPrivate];
+  return uniqueChoices(ordered);
+}
+
+function wantsMode(query: string, pattern: RegExp): boolean {
+  return pattern.test(query);
+}
+
+function rankedModeChoices(draft: RouteSpecDraft, highRisk: boolean): ChoiceOption[] {
+  const q = draft.query;
+  const base = modeChoice(draft.mode, draft.mode === 'route_plan' ? 0.76 : 0.9, draft.whyRoute);
+  const review: ChoiceOption = {
+    id: 'mode:review',
+    kind: 'mode',
+    label: 'Review mode',
+    confidence: wantsMode(q, /review|audit|security|regression|审查|审核|安全|回归/i) || highRisk ? 0.78 : 0.48,
+    cost: 'medium',
+    latency: 'normal',
+    risk: 'low',
+    reason: 'Use this when the main value is catching regressions, security issues, or risky assumptions before execution.',
+  };
+  const qa: ChoiceOption = {
+    id: 'mode:qa',
+    kind: 'mode',
+    label: 'QA mode',
+    confidence: wantsMode(q, /test|qa|verify|build|lint|ci|release|publish|测试|验证|构建|发布/i) ? 0.74 : 0.5,
+    cost: 'medium',
+    latency: 'normal',
+    risk: 'low',
+    reason: 'Use this when verification evidence matters as much as the code or plan.',
+  };
+  const autopilot: ChoiceOption = {
+    id: 'mode:autopilot',
+    kind: 'mode',
+    label: 'Autopilot mode',
+    confidence: wantsMode(q, /autopilot|auto\s*pilot|end-to-end|end to end|全自动|自动完成|自动跑完|端到端|自己安排/i) ? 0.76 : 0.36,
+    cost: 'high',
+    latency: 'slow',
+    risk: 'high',
+    reason: 'Use only when the customer wants an end-to-end autonomous loop with checkpoints and handoff records.',
+  };
+  const team: ChoiceOption = {
+    id: 'mode:team',
+    kind: 'mode',
+    label: 'Team mode',
+    confidence: wantsMode(q, /team|subagent|multi-agent|parallel|团队|子智能体|多智能体|并行/i) ? 0.74 : 0.34,
+    cost: 'high',
+    latency: 'slow',
+    risk: 'medium',
+    reason: 'Use when independent subtasks can run in parallel without creating file ownership conflicts.',
+  };
+
+  if (draft.mode === 'no_route_needed') {
+    return uniqueChoices([
+      base,
+      {
+        id: 'mode:route-plan-if-task-grows',
+        kind: 'mode',
+        label: 'Route if task grows',
+        confidence: 0.48,
+        cost: 'low',
+        latency: 'normal',
+        risk: 'low',
+        reason: 'Use route planning only if the direct task expands into coding, review, testing, or release work.',
+      },
+    ]);
+  }
+
+  if (draft.mode === 'needs_clarification') {
+    return uniqueChoices([
+      base,
+      ...[autopilot, team].filter(choice => choice.confidence >= 0.7),
+      {
+        id: 'mode:route-plan-after-clarification',
+        kind: 'mode',
+        label: 'Route after clarification',
+        confidence: 0.62,
+        cost: 'low',
+        latency: 'normal',
+        risk: 'medium',
+        reason: 'After the target output is clear, run route planning with the clarified task.',
+      },
+    ]);
+  }
+
+  return uniqueChoices([base, review, qa, autopilot, team])
+    .sort((a, b) => b.confidence - a.confidence);
+}
+
 function workflowChoice(draft: RouteSpecDraft): ChoiceOption {
   return {
     id: draft.combo ? `workflow:${draft.combo}` : 'workflow:route-plan',
@@ -512,11 +652,12 @@ function decisionPolicy(draft: RouteSpecDraft, highRisk: boolean): DecisionPolic
   };
 }
 
-function buildChoiceSet(draft: RouteSpecDraft, graph: Graph): ChoiceSet {
+function buildChoiceSet(draft: RouteSpecDraft, graph: Graph, context: ChoiceContext): ChoiceSet {
   const skillChoices = draft.skills.slice(0, 5).map((skill, index) => skillChoice(skill, graph, 0.68 - (index * 0.06)));
-  const highRisk = skillChoices.some(choice => choice.risk === 'high');
-  const mode = modeChoice(draft.mode, draft.mode === 'route_plan' ? 0.76 : 0.9, draft.whyRoute);
-  const model = modelChoice(draft.modelStrategy, highRisk);
+  const highRisk = context.gate.category === 'high_risk' || skillChoices.some(choice => choice.risk === 'high');
+  const modelChoices = rankedModelChoices(draft, highRisk);
+  const modeChoices = rankedModeChoices(draft, highRisk);
+  const primaryMode = modeChoices[0] ?? modeChoice(draft.mode, draft.mode === 'route_plan' ? 0.76 : 0.9, draft.whyRoute);
 
   let recommended: ChoiceOption;
   const alternatives: ChoiceOption[] = [];
@@ -524,46 +665,34 @@ function buildChoiceSet(draft: RouteSpecDraft, graph: Graph): ChoiceSet {
   if (draft.mode === 'route_plan') {
     const workflow = workflowChoice(draft);
     recommended = draft.combo ? workflow : skillChoices[0] ?? workflow;
-    alternatives.push(model, mode, workflow, ...skillChoices);
+    alternatives.push(
+      ...modelChoices.slice(0, 2),
+      ...modeChoices,
+      workflow,
+      ...modelChoices.slice(2, 4),
+      ...skillChoices,
+    );
   } else if (draft.mode === 'needs_clarification') {
-    recommended = mode;
-    alternatives.push({
-      id: 'mode:route-plan-after-clarification',
-      kind: 'mode',
-      label: 'Route after clarification',
-      confidence: 0.62,
-      cost: 'low',
-      latency: 'normal',
-      risk: 'medium',
-      reason: 'After the target output is clear, run route planning with the clarified task.',
-    });
+    recommended = primaryMode;
+    alternatives.push(...modeChoices.slice(1), ...modelChoices);
   } else {
-    recommended = mode;
-    alternatives.push({
-      id: 'mode:route-plan-if-task-grows',
-      kind: 'mode',
-      label: 'Route if task grows',
-      confidence: 0.48,
-      cost: 'low',
-      latency: 'normal',
-      risk: 'low',
-      reason: 'Use route planning only if the direct task expands into coding, review, testing, or release work.',
-    });
+    recommended = primaryMode;
+    alternatives.push(...modeChoices.slice(1));
   }
 
   return {
     intent: draft.intent,
     recommended,
-    alternatives: uniqueChoices(alternatives).filter(choice => choice.id !== recommended.id).slice(0, 5),
+    alternatives: uniqueChoices(alternatives).filter(choice => choice.id !== recommended.id).slice(0, 8),
     conflicts: choiceConflicts(draft.skills, skillChoices),
     policy: decisionPolicy(draft, highRisk),
   };
 }
 
-function finalizeRouteSpec(draft: RouteSpecDraft, graph: Graph): RouteSpec {
+function finalizeRouteSpec(draft: RouteSpecDraft, graph: Graph, context: ChoiceContext): RouteSpec {
   const withChoices: Omit<RouteSpec, 'adapters'> = {
     ...draft,
-    choices: buildChoiceSet(draft, graph),
+    choices: buildChoiceSet(draft, graph, context),
   };
   return { ...withChoices, adapters: buildAdapters(withChoices) };
 }
@@ -591,7 +720,7 @@ export async function buildRouteSpec(query: string, options: BuildRouteSpecOptio
       tokenStrategy: tokenStrategyFor({ mode: 'no_route_needed', skills: [], query }),
       warnings: [],
     };
-    return finalizeRouteSpec(draft, options.graph);
+    return finalizeRouteSpec(draft, options.graph, { gate });
   }
 
   const rec = await match(query, {
@@ -630,7 +759,7 @@ export async function buildRouteSpec(query: string, options: BuildRouteSpecOptio
       warnings,
       clarificationQuestions: clarificationQuestions(query),
     };
-    return finalizeRouteSpec(draft, options.graph);
+    return finalizeRouteSpec(draft, options.graph, { gate });
   }
 
   const top = rec.matches[0]?.capability;
@@ -682,7 +811,7 @@ export async function buildRouteSpec(query: string, options: BuildRouteSpecOptio
     warnings,
   };
 
-  return finalizeRouteSpec(draft, options.graph);
+  return finalizeRouteSpec(draft, options.graph, { gate });
 }
 
 export function formatRouteSpec(spec: RouteSpec): string {

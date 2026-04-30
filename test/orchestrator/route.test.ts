@@ -63,6 +63,16 @@ function makeGraph(): Graph {
       exampleQueries: ['review code for regressions'],
       category: 'code-quality',
     }),
+    cap({
+      id: 'release-risk',
+      name: 'release-risk',
+      description: 'Review production release, rollback, hook, and secret risks.',
+      tags: ['release', 'publish', 'production', 'rollback', 'hook', 'secret', 'token'],
+      exampleQueries: ['publish release to production and check secret token rollback'],
+      category: 'release',
+      riskLevel: 'destructive',
+      requiresConfirmation: true,
+    }),
   ];
   for (const node of nodes) graph.addNode(node);
   return graph;
@@ -237,5 +247,29 @@ describe('buildRouteSpec', () => {
 
     expect(spec.entryCommand).toBe('lazybrain route "<query>" --target cursor');
     expect(spec.entryCommand).not.toContain('codex');
+  });
+
+  it('ranks strong models and verification modes for high-risk release work', async () => {
+    const spec = await buildRouteSpec('publish release to production and check secret token rollback', {
+      graph: makeGraph(),
+      config: { ...DEFAULT_CONFIG },
+    });
+
+    expect(spec.mode).toBe('route_plan');
+    expect(spec.choices.policy.defaultAction).toBe('ask');
+    expect(spec.choices.policy.askUser).toBe(true);
+    expect(spec.choices.alternatives.some(choice => choice.id === 'model:strong-reasoning')).toBe(true);
+    expect(spec.choices.alternatives.some(choice => choice.id === 'mode:review' || choice.id === 'mode:qa')).toBe(true);
+  });
+
+  it('surfaces autopilot mode as an explicit high-risk alternative', async () => {
+    const spec = await buildRouteSpec('autopilot 端到端完成这个 review', {
+      graph: makeGraph(),
+      config: { ...DEFAULT_CONFIG },
+    });
+
+    const autopilot = spec.choices.alternatives.find(choice => choice.id === 'mode:autopilot');
+    expect(autopilot?.confidence).toBeGreaterThanOrEqual(0.7);
+    expect(autopilot?.risk).toBe('high');
   });
 });
