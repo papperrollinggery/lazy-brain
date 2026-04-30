@@ -279,6 +279,7 @@ lazybrain prompt "帮我审查代码" --target claude
 lazybrain --version                  # 确认版本
 lazybrain scan                       # 刷新本地能力
 lazybrain compile --offline          # 无 API key 构建基础图谱
+lazybrain compile errors             # 查看持久化 compile errors
 lazybrain match "帮我审查这个 PR"      # 在终端测试推荐质量
 lazybrain route "帮我审查这个 PR"      # 生成 advisory RouteSpec
 lazybrain prompt "帮我审查这个 PR" --target claude
@@ -444,6 +445,7 @@ LazyBrain: "通常审查完会重构，要不要用 /refactor-clean？"
 | `lazybrain scan` | 扫描本地所有工具 |
 | `lazybrain compile` | 编译知识图谱（需要 API key） |
 | `lazybrain compile --offline` | 离线编译（不需要 API key） |
+| `lazybrain compile errors` | 查看持久化 compile errors |
 | `lazybrain match "你的话"` | 测试匹配效果 |
 | `lazybrain route "你的任务"` | 输出只读 RouteSpec 编排计划 |
 | `lazybrain route "你的任务" --target codex` | 按目标 CLI 风格渲染建议提示词 |
@@ -532,7 +534,7 @@ agent inventory 不返回 agent 正文，也不读取 Claude 私人 transcript�
 - `lazybrain hook plan` 只预演，不写 `.claude/hooks/hooks.json`、`.claude/settings.json` 或 `~/.lazybrain/*`
 - `lazybrain hook install` 会先创建 LazyBrain 备份，再写入 hook/settings/install-state 文件
 - `lazybrain hook rollback` 恢复 LazyBrain 自动备份过的文件；备份时存在的 `.claude/hooks/hooks.json` 也会恢复
-- `lazybrain ready` 会在图谱存在持久化 compile errors 时阻断
+- `lazybrain ready` 会在图谱存在持久化 compile errors 时阻断；用 `lazybrain compile errors` 查看原因
 - `lazybrain hook install --global` 必须加 `--yes`
 - LazyBrain 只会在记录的项目根目录下工作
 - 其他 cwd 的调用会直接 no-op 跳过
@@ -686,7 +688,7 @@ lazybrain config set mode auto        # 静默推荐模式
 
 配置文件位置：`~/.lazybrain/config.json`
 
-`lazybrain config show` 会对 API key 做脱敏展示。
+`lazybrain config show` 会对 API key 做脱敏展示。`lazybrain config set` 会拒绝未知 key、非法枚举、非字符串文本值，以及超出 `0..1` 的 `autoThreshold`。
 
 ## 数据都在哪？
 

@@ -350,6 +350,7 @@ Use these commands for the normal public flow:
 lazybrain --version                  # Confirm the installed version
 lazybrain scan                       # Refresh local capabilities
 lazybrain compile --offline          # Build graph without an API key
+lazybrain compile errors             # Inspect persisted compile errors
 lazybrain match "review this PR"     # Test recommendation quality in terminal
 lazybrain route "review this PR"     # Build advisory RouteSpec plan
 lazybrain prompt "review this PR" --target claude
@@ -403,6 +404,7 @@ lazybrain config set mode auto        # Auto-inject (silent)
 Config file / 配置文件：`~/.lazybrain/config.json`
 
 `lazybrain config show` redacts API keys in terminal output.
+`lazybrain config set` rejects unknown keys, invalid enum values, non-string text values, and `autoThreshold` values outside `0..1`.
 
 ## Commands / 命令
 
@@ -439,6 +441,7 @@ lazybrain scan                       # Re-scan tools
 lazybrain compile                    # Recompile knowledge graph
 lazybrain compile --force            # Force full recompile
 lazybrain compile --offline          # Compile without LLM (tag-based only)
+lazybrain compile errors             # Show persisted compile errors
 lazybrain list                       # List all tools
 lazybrain stats                      # Graph statistics
 lazybrain ready                      # Check graph, hook, HUD, and semantic readiness
@@ -519,7 +522,7 @@ lazybrain doctor --all               # Report project and global scopes, no fix
 - `lazybrain hook plan` previews the target hooks/settings paths, lifecycle hooks, third-party hooks, statusline handling, install-state path, and risk conclusion without writing `.claude/hooks/hooks.json`, `.claude/settings.json`, or `~/.lazybrain/*`
 - `lazybrain hook install` creates a LazyBrain backup before writing hook/settings/install-state files
 - `lazybrain hook rollback` restores backed-up LazyBrain files, including `.claude/hooks/hooks.json` when it existed at backup time
-- `lazybrain ready` blocks when the graph contains persisted compile errors
+- `lazybrain ready` blocks when the graph contains persisted compile errors; inspect them with `lazybrain compile errors`
 - `lazybrain hook install --global` is refused unless `--yes` is also present
 - runtime tiny gate only applies inside the recorded workspace root
 - if a prompt comes from another cwd, LazyBrain returns no-op immediately

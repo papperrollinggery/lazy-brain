@@ -11,10 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Combo route entry commands now render for the requested target instead of hardcoding `--target codex`.
 - GUI config controls now use backend-valid routing engine and strategy values.
 - GUI Cytoscape loading now uses only packaged local assets.
+- CLI and GUI config writes now share the same whitelist, enum checks, string checks, secret blank-value no-op behavior, and `autoThreshold` bounds.
 
 ### Fixed
 - Hook install backups now include `.claude/hooks/hooks.json`; rollback restores or removes that file according to the captured manifest.
 - Relation compile output now validates link types, records missing targets and parse failures as structured errors, persists compile errors in `graph.json`, and makes `lazybrain ready` block on unresolved compile errors.
+- `lazybrain compile errors` now exposes persisted relation compile errors and summary counts for follow-up.
+- Hook cleanup now matches exact LazyBrain hook path segments instead of similarly named paths.
 - GUI API key edits no longer clear existing keys when the field is left blank.
 - GUI compile polling now preserves the final exit code, re-enables both compile controls, and resolves the CLI path from the package/source layout instead of `~/.lazybrain`.
 
