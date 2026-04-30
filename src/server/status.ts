@@ -32,9 +32,45 @@ function getSettingsPath(scope: HookInstallScope): string {
     : join(getClaudeConfigDir(), 'settings.json');
 }
 
+function getHooksPath(scope: HookInstallScope): string {
+  return scope === 'project'
+    ? join(resolve(process.cwd(), '.claude'), 'hooks', 'hooks.json')
+    : join(getClaudeConfigDir(), 'hooks', 'hooks.json');
+}
+
 function readSettings(path: string): Record<string, unknown> {
   const json = readJson(path);
   return json ?? {};
+}
+
+function readHooks(path: string): Record<string, unknown> {
+  const json = readJson(path);
+  return ((json?.hooks as Record<string, unknown> | undefined) ?? json) ?? {};
+}
+
+function mergeHookMaps(...hookMaps: Array<Record<string, unknown> | undefined>): Record<string, unknown> {
+  const merged: Record<string, unknown> = {};
+  for (const hookMap of hookMaps) {
+    if (!hookMap) continue;
+    for (const [eventName, eventHooks] of Object.entries(hookMap)) {
+      if (Array.isArray(eventHooks)) {
+        const existing = merged[eventName];
+        merged[eventName] = Array.isArray(existing)
+          ? [...existing, ...eventHooks]
+          : [...eventHooks];
+      } else if (eventHooks !== undefined) {
+        merged[eventName] = eventHooks;
+      }
+    }
+  }
+  return merged;
+}
+
+function settingsWithMergedHooks(settings: Record<string, unknown>, hooks: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...settings,
+    hooks: mergeHookMaps(settings.hooks as Record<string, unknown> | undefined, hooks),
+  };
 }
 
 function apiConfigured(config: UserConfig): { compile: boolean; secretary: boolean; embedding: boolean } {
@@ -62,14 +98,16 @@ export function buildStatusReport(graph: Graph, config: UserConfig): Record<stri
   const runtime = getHookRuntimeSnapshot({ config });
   const scopes = (['project', 'global'] as const).map((scope) => {
     const settingsPath = getSettingsPath(scope);
-    const settings = readSettings(settingsPath);
+    const hooksPath = getHooksPath(scope);
+    const settings = settingsWithMergedHooks(readSettings(settingsPath), readHooks(hooksPath));
     const installState = readHookInstallStateForScope(scope, scope === 'project' ? process.cwd() : undefined);
     const lifecycle = getHookLifecycleStatus(settings, { runtime, installState });
-    return { scope, settingsPath, settings, installState, lifecycle };
+    return { scope, settingsPath, hooksPath, settings, installState, lifecycle };
   });
-  const readyScopes = scopes.map(({ scope, settingsPath, settings, installState }) => ({
+  const readyScopes = scopes.map(({ scope, settingsPath, hooksPath, settings, installState }) => ({
     scope,
     settingsPath,
+    hooksPath,
     settings,
     installState,
   }));
@@ -113,12 +151,15 @@ export function buildStatusReport(graph: Graph, config: UserConfig): Record<stri
     },
     embedding,
     hook: {
-      scopes: scopes.map(({ scope, settingsPath, installState, lifecycle }) => ({
+      scopes: scopes.map(({ scope, settingsPath, hooksPath, installState, lifecycle }) => ({
         scope,
         settingsPath,
+        hooksPath,
         installed: lifecycle.lazybrainUserPromptSubmit,
         stopClean: !lifecycle.lazybrainStop,
         sessionStart: lifecycle.lazybrainSessionStart,
+        userPromptSubmitCount: lifecycle.lazybrainUserPromptSubmitCount,
+        duplicateUserPromptSubmit: lifecycle.duplicateLazyBrainUserPromptSubmit,
         installState: installState ? {
           scope: installState.scope,
           workspaceRoot: installState.workspaceRoot,

@@ -27,8 +27,35 @@ describe('hook lifecycle status', () => {
 
     expect(status.lazybrainUserPromptSubmit).toBe(true);
     expect(status.lazybrainStop).toBe(false);
+    expect(status.lazybrainUserPromptSubmitCount).toBe(1);
+    expect(status.duplicateLazyBrainUserPromptSubmit).toBe(false);
     expect(status.stopCommands).toHaveLength(2);
     expect(status.avgDurationMs).toBe(150);
+  });
+
+  it('counts duplicate LazyBrain UserPromptSubmit registrations', () => {
+    const aliasProject = ['lazy', 'user'].join('_');
+    const status = getHookLifecycleStatus({
+      hooks: {
+        UserPromptSubmit: [
+          { hooks: [{ type: 'command', command: 'node /tmp/lazybrain/dist/bin/hook.js' }] },
+          { hooks: [{ type: 'command', command: `node /tmp/${aliasProject}/dist/bin/hook.js` }] },
+        ],
+      },
+    }, {
+      installState: null,
+      runtime: {
+        activeRuns: [],
+        hungRuns: [],
+        staleRuns: [],
+        health: { recentDurationsMs: [], updatedAt: 1000 },
+      },
+      now: 1000,
+    });
+
+    expect(status.lazybrainUserPromptSubmit).toBe(true);
+    expect(status.lazybrainUserPromptSubmitCount).toBe(2);
+    expect(status.duplicateLazyBrainUserPromptSubmit).toBe(true);
   });
 
   it('detects stale LazyBrain Stop registration', () => {

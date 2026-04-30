@@ -58,6 +58,32 @@ describe('evaluateReady', () => {
     expect(report.blockers.join('\n')).toContain('project settings still contains LazyBrain Stop hook');
   });
 
+  it('reports NOT_READY when LazyBrain UserPromptSubmit is duplicated', () => {
+    const aliasProject = ['lazy', 'user'].join('_');
+    const report = evaluateReady({
+      ...base,
+      scopes: [
+        {
+          ...base.scopes[0],
+          settings: {
+            hooks: {
+              UserPromptSubmit: [
+                { hooks: [{ type: 'command', command: 'node /repo/lazybrain/dist/bin/hook.js' }] },
+                { hooks: [{ type: 'command', command: `node /repo/${aliasProject}/dist/bin/hook.js` }] },
+              ],
+            },
+          },
+        },
+        base.scopes[1],
+      ],
+    });
+    expect(report.state).toBe('NOT_READY');
+    expect(report.scopes[0].lazybrainUserPromptSubmitCount).toBe(2);
+    expect(report.scopes[0].duplicateLazyBrainUserPromptSubmit).toBe(true);
+    expect(report.blockers.join('\n')).toContain('duplicate LazyBrain UserPromptSubmit hooks (2)');
+  });
+
+
   it('warns when project LazyBrain statusline would hide global HUD', () => {
     const report = evaluateReady({
       ...base,

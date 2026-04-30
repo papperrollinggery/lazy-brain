@@ -190,6 +190,31 @@ function readSettingsFile(path: string): Record<string, unknown> {
   return JSON.parse(readFileSync(path, 'utf-8')) as Record<string, unknown>;
 }
 
+function mergeHookMaps(...hookMaps: Array<Record<string, unknown> | undefined>): Record<string, unknown> {
+  const merged: Record<string, unknown> = {};
+  for (const hookMap of hookMaps) {
+    if (!hookMap) continue;
+    for (const [eventName, eventHooks] of Object.entries(hookMap)) {
+      if (Array.isArray(eventHooks)) {
+        const existing = merged[eventName];
+        merged[eventName] = Array.isArray(existing)
+          ? [...existing, ...eventHooks]
+          : [...eventHooks];
+      } else if (eventHooks !== undefined) {
+        merged[eventName] = eventHooks;
+      }
+    }
+  }
+  return merged;
+}
+
+function settingsWithMergedHooks(settings: Record<string, unknown>, hooks: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...settings,
+    hooks: mergeHookMaps(settings.hooks as Record<string, unknown> | undefined, hooks),
+  };
+}
+
 function getStatusLineCommand(statusLine: unknown): string {
   if (typeof statusLine === 'string') return statusLine;
   if (statusLine && typeof statusLine === 'object' && typeof (statusLine as { command?: unknown }).command === 'string') {
@@ -1626,6 +1651,7 @@ function cmdHook() {
   const sub = args[1];
   const commandScope: HookInstallScope = args.includes('--global') ? 'global' : 'project';
   const settingsPath = getClaudeSettingsPath(commandScope);
+  const hooksPath = getClaudeHooksPath(commandScope);
 
   // Resolve the hook script path from this binary's location
   const binDir = dirname(fileURLToPath(import.meta.url));
@@ -1659,7 +1685,14 @@ function cmdHook() {
         process.exit(1);
       }
       try {
+        settings = settingsWithMergedHooks(settings, readHooksFile(hooksPath));
+      } catch {
+        console.error(`Failed to parse ${hooksPath}`);
+        process.exit(1);
+      }
+      try {
         globalSettings = readSettingsFile(getClaudeSettingsPath('global'));
+        globalSettings = settingsWithMergedHooks(globalSettings, readHooksFile(getClaudeHooksPath('global')));
       } catch {}
 
       const plan = buildHookPlan({
@@ -1709,7 +1742,6 @@ function cmdHook() {
       const installScope: HookInstallScope = commandScope;
       const workspaceRoot = installScope === 'project' ? resolve(process.cwd()) : undefined;
 
-      const hooksPath = getClaudeHooksPath(installScope);
       let settings: Record<string, unknown> = {};
       if (existsSync(settingsPath)) {
         try {
@@ -1719,6 +1751,7 @@ function cmdHook() {
           process.exit(1);
         }
       }
+      settings = removeLazyBrainHookRegistrations(settings);
 
       const backup = createHookBackup({
         scope: installScope,
@@ -1930,45 +1963,25 @@ function cmdHook() {
       break;
     }
     case 'status': {
-      if (!existsSync(settingsPath)) {
-        if (args.includes('--json')) {
-          const config = loadConfig();
-          const runtime = getHookRuntimeSnapshot({ config });
-          const stats = getHookRuntimeStats(runtime);
-          console.log(JSON.stringify({
-            scope: commandScope,
-            settingsPath,
-            lazybrainUserPromptSubmit: false,
-            lazybrainStop: false,
-            lazybrainSessionStart: false,
-            runtime: {
-              activeRuns: runtime.activeRuns.length,
-              hungRuns: runtime.hungRuns.length,
-              staleRuns: runtime.staleRuns.length,
-              lastSkipReason: runtime.health.lastSkipReason,
-              lastDurationMs: runtime.health.lastDurationMs,
-              breakerUntil: runtime.health.breakerUntil,
-              avgDurationMs: stats.avgDurationMs,
-              p95DurationMs: stats.p95DurationMs,
-              breakerOpen: stats.breakerOpen,
-            },
-          }, null, 2));
-          return;
-        }
-        console.log('No settings file found.');
-        return;
-      }
       let settings: Record<string, unknown> = {};
       try {
-        settings = JSON.parse(readFileSync(settingsPath, 'utf-8')) as Record<string, unknown>;
+        settings = readSettingsFile(settingsPath);
       } catch {
         console.error(`Failed to parse ${settingsPath}`);
         process.exit(1);
       }
+      let hookFileHooks: Record<string, unknown> = {};
+      try {
+        hookFileHooks = readHooksFile(hooksPath);
+      } catch {
+        console.error(`Failed to parse ${hooksPath}`);
+        process.exit(1);
+      }
+      const lifecycleSettings = settingsWithMergedHooks(settings, hookFileHooks);
 
       const config = loadConfig();
       const runtime = getHookRuntimeSnapshot({ config });
-      const status = getHookLifecycleStatus(settings, {
+      const status = getHookLifecycleStatus(lifecycleSettings, {
         runtime,
         installState: readHookInstallStateForScope(commandScope, commandScope === 'project' ? process.cwd() : undefined),
       });
@@ -1979,9 +1992,14 @@ function cmdHook() {
         console.log(JSON.stringify({
           scope: commandScope,
           settingsPath,
+          hooksPath,
           lazybrainUserPromptSubmit: status.lazybrainUserPromptSubmit,
           lazybrainStop: status.lazybrainStop,
           lazybrainSessionStart: status.lazybrainSessionStart,
+          lazybrainUserPromptSubmitCount: status.lazybrainUserPromptSubmitCount,
+          lazybrainStopCount: status.lazybrainStopCount,
+          lazybrainSessionStartCount: status.lazybrainSessionStartCount,
+          duplicateLazyBrainUserPromptSubmit: status.duplicateLazyBrainUserPromptSubmit,
           userPromptSubmitCommands: status.userPromptSubmitCommands,
           stopCommands: status.stopCommands,
           sessionStartCommands: status.sessionStartCommands,
@@ -2004,8 +2022,12 @@ function cmdHook() {
 
       console.log('LazyBrain hook 状态：');
       console.log(`  UserPromptSubmit: ${status.lazybrainUserPromptSubmit ? '✅ 已安装' : '❌ 未安装'}`);
+      if (status.duplicateLazyBrainUserPromptSubmit) {
+        console.log(`  UserPromptSubmit 重复: ⚠️ ${status.lazybrainUserPromptSubmitCount} 条`);
+      }
       console.log(`  Stop: ${status.lazybrainStop ? '⚠️ 仍存在 LazyBrain 残留' : '✅ 无 LazyBrain 注册'}`);
       console.log(`  SessionStart: ${status.lazybrainSessionStart ? 'ℹ️ 含 LazyBrain' : 'ℹ️ 无 LazyBrain 注册'}`);
+      console.log(`  Hooks file: ${hooksPath}`);
       console.log(`  Scope: ${installState ? installState.scope : 'unknown'}`);
       if (installState?.workspaceRoot) {
         console.log(`  Workspace root: ${installState.workspaceRoot}`);
@@ -2105,6 +2127,7 @@ function getBudgetCheckerState(): string {
 function printDoctorForScope(doctorScope: HookInstallScope, shouldFix: boolean): void {
   const config = loadConfig();
   const settingsPath = getClaudeSettingsPath(doctorScope);
+  const hooksPath = getClaudeHooksPath(doctorScope);
   const budgetCheckerState = getBudgetCheckerState();
 
   let settings: Record<string, unknown> = {};
@@ -2113,6 +2136,10 @@ function printDoctorForScope(doctorScope: HookInstallScope, shouldFix: boolean):
       settings = JSON.parse(readFileSync(settingsPath, 'utf-8')) as Record<string, unknown>;
     } catch {}
   }
+  let hooks: Record<string, unknown> = {};
+  try {
+    hooks = readHooksFile(hooksPath);
+  } catch {}
   const binDir = dirname(fileURLToPath(import.meta.url));
   const hookScript = resolve(binDir, 'hook.js');
   const hookCommand = `node ${hookScript}`;
@@ -2122,9 +2149,15 @@ function printDoctorForScope(doctorScope: HookInstallScope, shouldFix: boolean):
     const existingState = readHookInstallStateForScope(doctorScope, doctorScope === 'project' ? process.cwd() : undefined);
     if (existingState) {
       settings = removeLazyBrainHookRegistrations(settings);
-      settings = upsertLazyBrainUserPromptSubmit(settings, hookCommand);
       mkdirSync(dirname(settingsPath), { recursive: true });
       writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+
+      const hooksSettings = upsertLazyBrainUserPromptSubmit(
+        removeLazyBrainHookRegistrations({ hooks } as Record<string, unknown>),
+        hookCommand,
+      );
+      hooks = (hooksSettings.hooks ?? hooksSettings) as Record<string, unknown>;
+      writeHooksFile(hooksPath, hooks);
 
       const repairedScope: HookInstallScope = existingState.scope;
       const repairedRoot = repairedScope === 'project'
@@ -2137,8 +2170,8 @@ function printDoctorForScope(doctorScope: HookInstallScope, shouldFix: boolean):
         installedAt: existingState.installedAt,
         statuslineMode: existingState.statuslineMode,
       });
-      repairs.push('normalized_hook_registration');
-    } else if (hasLazyBrainHookRegistration(settings)) {
+      repairs.push('normalized_hooks_json_registration');
+    } else if (hasLazyBrainHookRegistration(settingsWithMergedHooks(settings, hooks))) {
       repairs.push('metadata_missing_manual_reinstall_required');
     }
 
@@ -2157,17 +2190,19 @@ function printDoctorForScope(doctorScope: HookInstallScope, shouldFix: boolean):
   const installState = readHookInstallStateForScope(doctorScope, doctorScope === 'project' ? process.cwd() : undefined);
   const runtime = getHookRuntimeSnapshot({ config });
   const runtimeStats = getHookRuntimeStats(runtime);
-  const lifecycle = getHookLifecycleStatus(settings, { runtime, installState });
+  const lifecycle = getHookLifecycleStatus(settingsWithMergedHooks(settings, hooks), { runtime, installState });
 
   console.log(`LazyBrain doctor (${doctorScope})`);
   console.log(`  Mode: ${shouldFix ? 'diagnose+fix' : 'diagnose'}`);
   console.log(`  Settings: ${settingsPath}`);
+  console.log(`  Hooks file: ${hooksPath}`);
   console.log(`  Install state: ${installState ? 'present' : 'missing'}`);
   console.log(`  Scope: ${installState?.scope ?? 'unknown'}`);
   if (installState?.workspaceRoot) {
     console.log(`  Workspace root: ${installState.workspaceRoot}`);
   }
   console.log(`  UserPromptSubmit installed: ${lifecycle.lazybrainUserPromptSubmit ? 'yes' : 'no'}`);
+  console.log(`  UserPromptSubmit count: ${lifecycle.lazybrainUserPromptSubmitCount}`);
   console.log(`  Stop clean: ${lifecycle.lazybrainStop ? 'no' : 'yes'}`);
   console.log(`  Active hooks: ${runtime.activeRuns.length}`);
   console.log(`  Hung hooks: ${runtime.hungRuns.length}`);
@@ -2218,15 +2253,21 @@ function cmdReady() {
   const initialBlockers: string[] = [];
   const scopes = (['project', 'global'] as const).map((scope) => {
     const settingsPath = getClaudeSettingsPath(scope);
+    const hooksPath = getClaudeHooksPath(scope);
     let settings: Record<string, unknown> = {};
     try {
       settings = readSettingsFile(settingsPath);
     } catch {
       initialBlockers.push(`${scope} settings is invalid JSON: ${settingsPath}`);
     }
+    try {
+      settings = settingsWithMergedHooks(settings, readHooksFile(hooksPath));
+    } catch {
+      initialBlockers.push(`${scope} hooks file is invalid JSON: ${hooksPath}`);
+    }
 
     const installState = readHookInstallStateForScope(scope, scope === 'project' ? process.cwd() : undefined);
-    return { scope, settingsPath, settings, installState };
+    return { scope, settingsPath, hooksPath, settings, installState };
   });
 
   const report = evaluateReady({

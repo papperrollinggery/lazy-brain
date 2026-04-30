@@ -25,6 +25,10 @@ export interface HookLifecycleStatus {
   lazybrainUserPromptSubmit: boolean;
   lazybrainStop: boolean;
   lazybrainSessionStart: boolean;
+  lazybrainUserPromptSubmitCount: number;
+  lazybrainStopCount: number;
+  lazybrainSessionStartCount: number;
+  duplicateLazyBrainUserPromptSubmit: boolean;
   userPromptSubmitCommands: string[];
   stopCommands: string[];
   sessionStartCommands: string[];
@@ -69,6 +73,10 @@ function normalizeEntries(value: unknown): HookEntry[] {
   return Array.isArray(value) ? value as HookEntry[] : [];
 }
 
+function countLazyBrainCommands(commands: string[]): number {
+  return commands.filter(isLazyBrainHookCommand).length;
+}
+
 export function getHookLifecycleStatus(settings: SettingsObject, options: HookLifecycleOptions = {}): HookLifecycleStatus {
   const hooks = (settings.hooks ?? {}) as Record<string, unknown>;
   const userPromptSubmit = normalizeEntries(hooks.UserPromptSubmit);
@@ -78,13 +86,20 @@ export function getHookLifecycleStatus(settings: SettingsObject, options: HookLi
   const userPromptSubmitCommands = flattenCommands(userPromptSubmit);
   const stopCommands = flattenCommands(stop);
   const sessionStartCommands = flattenCommands(sessionStart);
+  const lazybrainUserPromptSubmitCount = countLazyBrainCommands(userPromptSubmitCommands);
+  const lazybrainStopCount = countLazyBrainCommands(stopCommands);
+  const lazybrainSessionStartCount = countLazyBrainCommands(sessionStartCommands);
   const runtime = options.runtime ?? getHookRuntimeSnapshot();
   const runtimeStats = getHookRuntimeStats(runtime, options.now);
 
   return {
-    lazybrainUserPromptSubmit: userPromptSubmitCommands.some(isLazyBrainHookCommand),
-    lazybrainStop: stopCommands.some(isLazyBrainHookCommand),
-    lazybrainSessionStart: sessionStartCommands.some(isLazyBrainHookCommand),
+    lazybrainUserPromptSubmit: lazybrainUserPromptSubmitCount > 0,
+    lazybrainStop: lazybrainStopCount > 0,
+    lazybrainSessionStart: lazybrainSessionStartCount > 0,
+    lazybrainUserPromptSubmitCount,
+    lazybrainStopCount,
+    lazybrainSessionStartCount,
+    duplicateLazyBrainUserPromptSubmit: lazybrainUserPromptSubmitCount > 1,
     userPromptSubmitCommands,
     stopCommands,
     sessionStartCommands,

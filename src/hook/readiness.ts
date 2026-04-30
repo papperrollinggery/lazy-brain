@@ -10,6 +10,7 @@ type SettingsObject = Record<string, unknown>;
 export interface ReadyScopeInput {
   scope: HookInstallScope;
   settingsPath: string;
+  hooksPath?: string;
   settings: SettingsObject;
   installState: HookInstallState | null;
 }
@@ -17,9 +18,12 @@ export interface ReadyScopeInput {
 export interface ReadyScopeReport {
   scope: HookInstallScope;
   settingsPath: string;
+  hooksPath?: string;
   lazybrainUserPromptSubmit: boolean;
   lazybrainStop: boolean;
   lazybrainSessionStart: boolean;
+  lazybrainUserPromptSubmitCount: number;
+  duplicateLazyBrainUserPromptSubmit: boolean;
   installStateScope: HookInstallScope | 'missing';
 }
 
@@ -94,12 +98,18 @@ export function evaluateReady(options: EvaluateReadyOptions): ReadyReport {
     scopes.push({
       scope: scopeInput.scope,
       settingsPath: scopeInput.settingsPath,
+      hooksPath: scopeInput.hooksPath,
       lazybrainUserPromptSubmit: lifecycle.lazybrainUserPromptSubmit,
       lazybrainStop: lifecycle.lazybrainStop,
       lazybrainSessionStart: lifecycle.lazybrainSessionStart,
+      lazybrainUserPromptSubmitCount: lifecycle.lazybrainUserPromptSubmitCount,
+      duplicateLazyBrainUserPromptSubmit: lifecycle.duplicateLazyBrainUserPromptSubmit,
       installStateScope: scopeInput.installState?.scope ?? 'missing',
     });
 
+    if (lifecycle.duplicateLazyBrainUserPromptSubmit) {
+      blockers.push(`${scopeInput.scope} hook config contains duplicate LazyBrain UserPromptSubmit hooks (${lifecycle.lazybrainUserPromptSubmitCount}). Run \`lazybrain doctor --fix\`.`);
+    }
     if (lifecycle.lazybrainStop) {
       blockers.push(`${scopeInput.scope} settings still contains LazyBrain Stop hook.`);
     }

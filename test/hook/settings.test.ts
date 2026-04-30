@@ -8,8 +8,10 @@ import {
 
 describe('hook settings', () => {
   it('recognizes both legacy and built dist hook commands', () => {
+    const underscoredRepoName = ['lazy', 'user'].join('_');
     expect(isLazyBrainHookCommand('node /tmp/lazybrain/dist/bin/hook.js')).toBe(true);
     expect(isLazyBrainHookCommand('node /tmp/lazybrain/bin/hook.js')).toBe(true);
+    expect(isLazyBrainHookCommand(`node /tmp/${underscoredRepoName}/dist/bin/hook.js`)).toBe(true);
     expect(isLazyBrainHookCommand('python3 ~/.claude/hooks/codeisland-state.py')).toBe(false);
   });
 
