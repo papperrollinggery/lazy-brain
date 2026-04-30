@@ -636,6 +636,8 @@ lazybrain mcp status
 lazybrain mcp --stdio
 ```
 
+MCP tool 响应用稳定 harness envelope：`status`、`summary`、`next_actions`、`artifacts`、`data`；可恢复错误还会返回 `root_cause_hint`、`safe_retry`、`stop_condition`。
+
 还没配置 MCP 时，用 prompt 输出兜底：
 
 ```bash

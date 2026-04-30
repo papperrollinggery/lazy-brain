@@ -434,7 +434,7 @@ Route modes:
 - `needs_clarification`: ask clarifying questions before loading skills.
 - `no_route_needed`: handle the task directly; do not spend routing context.
 
-`lazybrain prompt` renders the same plan as a copyable target prompt. `lazybrain mcp --stdio` exposes read-only tools: `lazybrain.route`, `lazybrain.search`, `lazybrain.skill_card`, and `lazybrain.combos`. These surfaces do not execute skills, install hooks, read transcripts, return agent bodies, or write Claude/Codex/Cursor configuration.
+`lazybrain prompt` renders the same plan as a copyable target prompt. `lazybrain mcp --stdio` exposes read-only tools: `lazybrain.route`, `lazybrain.search`, `lazybrain.skill_card`, and `lazybrain.combos`. MCP tool responses use a stable harness envelope: `status`, `summary`, `next_actions`, `artifacts`, and `data`; recoverable tool errors also include `root_cause_hint`, `safe_retry`, and `stop_condition`. These surfaces do not execute skills, install hooks, read transcripts, return agent bodies, or write Claude/Codex/Cursor configuration.
 
 ### Management / 管理
 

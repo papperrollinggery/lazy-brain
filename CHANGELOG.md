@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - GUI Cytoscape loading now uses only packaged local assets.
 - CLI and GUI config writes now share the same whitelist, enum checks, string checks, secret blank-value no-op behavior, and `autoThreshold` bounds.
 - `lazybrain ready --release` now checks release/package readiness without failing on transient host load.
+- MCP tool responses now use a stable harness envelope with `status`, `summary`, `next_actions`, `artifacts`, and recoverable error hints.
 
 ### Fixed
 - Hook install backups now include `.claude/hooks/hooks.json`; rollback restores or removes that file according to the captured manifest.

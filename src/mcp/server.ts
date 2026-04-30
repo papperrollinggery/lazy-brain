@@ -1,4 +1,4 @@
-import type { Capability, RouteTarget, UserConfig } from '../types.js';
+import type { Capability, RouteSpec, RouteTarget, UserConfig } from '../types.js';
 import type { Graph } from '../graph/graph.js';
 import { buildRouteSpec, isRouteTarget } from '../orchestrator/route.js';
 import { listCombos } from '../combos/registry.js';
@@ -23,6 +23,21 @@ const TOOL_DESCRIPTION_ROUTE =
 
 const MAX_QUERY_LENGTH = 2000;
 const MAX_LIMIT = 20;
+type ToolStatus = 'success' | 'warning' | 'error';
+
+interface ToolObservation<T = unknown> {
+  status: ToolStatus;
+  summary: string;
+  next_actions: string[];
+  artifacts: string[];
+  data?: T;
+  error?: {
+    message: string;
+    root_cause_hint: string;
+    safe_retry: string;
+    stop_condition: string;
+  };
+}
 
 function errorResponse(id: JsonRpcRequest['id'], code: number, message: string) {
   return { jsonrpc: '2.0', id: id ?? null, error: { code, message } };
@@ -36,11 +51,48 @@ function paramsObject(params: unknown): Record<string, unknown> {
   return params && typeof params === 'object' ? params as Record<string, unknown> : {};
 }
 
-function toolText(data: unknown) {
+function toolText(data: unknown, isError = false) {
   return {
+    ...(isError ? { isError: true } : {}),
     content: [
       { type: 'text', text: typeof data === 'string' ? data : JSON.stringify(data, null, 2) },
     ],
+  };
+}
+
+function successObservation<T>(
+  summary: string,
+  data: T,
+  nextActions: string[],
+  artifacts: string[] = [],
+): ToolObservation<T> {
+  return {
+    status: 'success',
+    summary,
+    next_actions: nextActions,
+    artifacts,
+    data,
+  };
+}
+
+function errorObservation(
+  summary: string,
+  message: string,
+  rootCauseHint: string,
+  safeRetry: string,
+  stopCondition: string,
+): ToolObservation {
+  return {
+    status: 'error',
+    summary,
+    next_actions: [safeRetry, stopCondition],
+    artifacts: [],
+    error: {
+      message,
+      root_cause_hint: rootCauseHint,
+      safe_retry: safeRetry,
+      stop_condition: stopCondition,
+    },
   };
 }
 
@@ -77,6 +129,50 @@ function searchCapabilities(graph: Graph, query: string, limit: number): Record<
       cap.category.toLowerCase().includes(lower))
     .slice(0, limit)
     .map(sanitizeCapability);
+}
+
+function routeNextActions(spec: RouteSpec): string[] {
+  if (spec.mode === 'no_route_needed') {
+    return ['Handle directly; do not load skill bodies unless the task grows.'];
+  }
+  if (spec.mode === 'needs_clarification') {
+    return ['Ask the clarification questions before selecting tools.', 'Call lazybrain.route again after the user clarifies.'];
+  }
+  return [
+    spec.entryCommand ? `Use entry command: ${spec.entryCommand}` : `Use adapters.${spec.target}.prompt as the execution prompt.`,
+    'Run the listed verification before marking the task done.',
+  ];
+}
+
+function routeArtifacts(spec: RouteSpec): string[] {
+  return [
+    `route:${spec.mode}`,
+    `target:${spec.target}`,
+    ...(spec.combo ? [`combo:${spec.combo}`] : []),
+    ...spec.skills.slice(0, 5).map((skill) => `capability:${skill.id}`),
+  ];
+}
+
+function invalidQueryObservation(toolName: string, value: unknown): ReturnType<typeof toolText> | null {
+  if (typeof value !== 'string' || !value.trim()) {
+    return toolText(errorObservation(
+      `${toolName} could not run: missing query`,
+      'Missing required argument: query',
+      'The tool requires a non-empty query string.',
+      'Retry with {"query":"<the user task>"} and keep it under the documented length limit.',
+      'Stop retrying if there is no concrete user task to route or search.',
+    ), true);
+  }
+  if (value.length > MAX_QUERY_LENGTH) {
+    return toolText(errorObservation(
+      `${toolName} could not run: query too long`,
+      `Query is too long. Limit: ${MAX_QUERY_LENGTH} characters.`,
+      'The request exceeds the MCP tool input budget.',
+      'Retry with a shorter task summary and put large context in file references.',
+      'Stop retrying if reducing the query would remove the task objective.',
+    ), true);
+  }
+  return null;
 }
 
 function toolsList() {
@@ -132,37 +228,85 @@ async function callTool(name: string, args: Record<string, unknown>, ctx: McpCon
     case 'lazybrain.route': {
       const query = args.query;
       const target = typeof args.target === 'string' && isRouteTarget(args.target) ? args.target as RouteTarget : 'generic';
-      if (typeof query !== 'string' || !query.trim()) throw new Error('Missing required argument: query');
-      if (query.length > MAX_QUERY_LENGTH) throw new Error(`Query is too long. Limit: ${MAX_QUERY_LENGTH} characters.`);
-      const spec = await buildRouteSpec(query, {
+      const invalid = invalidQueryObservation('lazybrain.route', query);
+      if (invalid) return invalid;
+      const queryText = (query as string).trim();
+      const spec = await buildRouteSpec(queryText, {
         graph: ctx.graph,
         config: ctx.config,
         history: loadRecentHistory(50),
         profile: loadProfile() ?? undefined,
         target,
       });
-      return toolText(spec);
+      return toolText(successObservation(
+        `RouteSpec ${spec.mode} for target ${spec.target}`,
+        spec,
+        routeNextActions(spec),
+        routeArtifacts(spec),
+      ));
     }
     case 'lazybrain.search': {
       const query = args.query;
       const limit = Math.min(MAX_LIMIT, Math.max(1, Number(args.limit ?? 8)));
-      if (typeof query !== 'string' || !query.trim()) throw new Error('Missing required argument: query');
-      if (query.length > MAX_QUERY_LENGTH) throw new Error(`Query is too long. Limit: ${MAX_QUERY_LENGTH} characters.`);
-      return toolText({ results: searchCapabilities(ctx.graph, query, Number.isFinite(limit) ? limit : 8) });
+      const invalid = invalidQueryObservation('lazybrain.search', query);
+      if (invalid) return invalid;
+      const queryText = (query as string).trim();
+      const results = searchCapabilities(ctx.graph, queryText, Number.isFinite(limit) ? limit : 8);
+      return toolText(successObservation(
+        `Found ${results.length} capabilities for "${queryText}"`,
+        { results },
+        results.length > 0
+          ? ['Call lazybrain.skill_card for compact metadata on a selected capability.', 'Call lazybrain.route with the full task before execution.']
+          : ['Retry with broader task words or a different category.', 'Stop retrying if the capability graph is empty and run lazybrain scan first.'],
+        results.map((result) => `capability:${String(result.id)}`),
+      ));
     }
     case 'lazybrain.skill_card': {
       const nameArg = args.name;
-      if (typeof nameArg !== 'string' || !nameArg.trim()) throw new Error('Missing required argument: name');
+      if (typeof nameArg !== 'string' || !nameArg.trim()) {
+        return toolText(errorObservation(
+          'lazybrain.skill_card could not run: missing name',
+          'Missing required argument: name',
+          'The tool requires a skill or capability name.',
+          'Retry with {"name":"<capability name>"} from lazybrain.search or lazybrain.route.',
+          'Stop retrying if no candidate capability is available.',
+        ), true);
+      }
       const cap = findCapability(ctx.graph, nameArg.trim());
-      if (!cap) throw new Error(`Capability not found: ${nameArg}`);
-      return toolText({ capability: sanitizeCapability(cap) });
+      if (!cap) {
+        return toolText(errorObservation(
+          'lazybrain.skill_card could not find that capability',
+          `Capability not found: ${nameArg}`,
+          'The requested name does not match a capability id, exact name, or name substring.',
+          'Retry with lazybrain.search to discover the canonical capability name.',
+          'Stop retrying if search returns no relevant capability.',
+        ), true);
+      }
+      return toolText(successObservation(
+        `Capability card for ${cap.name}`,
+        { capability: sanitizeCapability(cap) },
+        ['Use this metadata to decide whether the capability fits.', 'Call lazybrain.route for workflow, guardrails, and verification before execution.'],
+        [`capability:${cap.id}`],
+      ));
     }
     case 'lazybrain.combos': {
       const category = typeof args.category === 'string' ? args.category : undefined;
-      return toolText({ combos: listCombos(category) });
+      const combos = listCombos(category);
+      return toolText(successObservation(
+        `Found ${combos.length} route combos${category ? ` in ${category}` : ''}`,
+        { combos },
+        ['Call lazybrain.route with a real task to select and adapt a combo.', 'Use combo entryCommand only after confirming the target agent.'],
+        combos.map((combo) => `combo:${combo.id}`),
+      ));
     }
     default:
-      throw new Error(`Unknown tool: ${name}`);
+      return toolText(errorObservation(
+        'Unknown LazyBrain MCP tool',
+        `Unknown tool: ${name}`,
+        'The MCP client requested a tool name that is not in tools/list.',
+        'Retry with one of lazybrain.route, lazybrain.search, lazybrain.skill_card, or lazybrain.combos.',
+        'Stop retrying if tools/list does not include the desired tool.',
+      ), true);
   }
 }
 

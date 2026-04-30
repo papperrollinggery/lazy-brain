@@ -44,6 +44,10 @@ function toolContentText(response: Record<string, unknown>): string {
   return result.content?.[0]?.text ?? '';
 }
 
+function toolPayload(response: Record<string, unknown>): Record<string, unknown> {
+  return JSON.parse(toolContentText(response)) as Record<string, unknown>;
+}
+
 describe('MCP server', () => {
   it('initializes and lists LazyBrain tools', async () => {
     const init = resultOf(await handleMcpRequest({ jsonrpc: '2.0', id: 1, method: 'initialize' }, ctx()));
@@ -65,6 +69,12 @@ describe('MCP server', () => {
     expect(text).toContain('"schemaVersion": "1.4.6"');
     expect(text).toContain('"target": "codex"');
     expect(text).not.toContain('/tmp/example-agent');
+    const payload = toolPayload(response);
+    expect(payload.status).toBe('success');
+    expect(payload).toHaveProperty('summary');
+    expect(payload).toHaveProperty('next_actions');
+    expect(payload).toHaveProperty('artifacts');
+    expect((payload.data as Record<string, unknown>).schemaVersion).toBe('1.4.6');
   });
 
   it('returns combo entry metadata through lazybrain.route', async () => {
@@ -92,6 +102,9 @@ describe('MCP server', () => {
     expect(text).toContain('code-review');
     expect(text).not.toContain('/tmp/example-agent');
     expect(text).not.toContain('filePath');
+    const payload = toolPayload(response);
+    expect(payload.status).toBe('success');
+    expect(payload.artifacts).toEqual(['capability:review']);
   });
 
   it('rejects oversized route queries', async () => {
@@ -101,6 +114,12 @@ describe('MCP server', () => {
       method: 'tools/call',
       params: { name: 'lazybrain.route', arguments: { query: 'x'.repeat(2001) } },
     }, ctx()));
+    expect((response.result as { isError?: boolean }).isError).toBe(true);
     expect(JSON.stringify(response)).toContain('Query is too long');
+    const payload = toolPayload(response);
+    expect(payload.status).toBe('error');
+    expect(payload).toHaveProperty('next_actions');
+    expect(payload).toHaveProperty('error');
+    expect(JSON.stringify(payload)).toContain('safe_retry');
   });
 });
