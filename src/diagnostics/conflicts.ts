@@ -50,6 +50,63 @@ function winnerFor(items: Capability[]): Capability {
   })[0];
 }
 
+function normalizedText(value: string | undefined): string {
+  return (value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function significantWords(value: string | undefined): Set<string> {
+  return new Set(
+    normalizedText(value)
+      .split(/[^a-z0-9\u4e00-\u9fff]+/)
+      .filter(word => word.length >= 4)
+  );
+}
+
+function descriptionsEquivalent(items: Capability[]): boolean {
+  const descriptions = items.map(item => normalizedText(item.description));
+  const unique = new Set(descriptions);
+  if (unique.size <= 1) return true;
+
+  for (let i = 0; i < items.length; i++) {
+    for (let j = i + 1; j < items.length; j++) {
+      const left = significantWords(items[i].description);
+      const right = significantWords(items[j].description);
+      if (left.size === 0 || right.size === 0) return false;
+      const intersection = [...left].filter(word => right.has(word)).length;
+      const overlap = intersection / Math.min(left.size, right.size);
+      if (overlap < 0.65) return false;
+    }
+  }
+  return true;
+}
+
+function normalizedName(capability: Capability): string {
+  return normalize(capability.name);
+}
+
+function sideEffectKey(capability: Capability): string {
+  return [...new Set(capability.sideEffects ?? [])].sort().join(',');
+}
+
+function hasRiskyRoutingSurface(capability: Capability): boolean {
+  if (capability.requiresConfirmation || capability.riskLevel === 'destructive') return true;
+  return (capability.sideEffects ?? []).some(effect =>
+    effect === 'destructive' ||
+    effect === 'publishes' ||
+    effect === 'installs_hooks' ||
+    effect === 'changes_config'
+  );
+}
+
+function areEquivalentProviderDuplicates(items: Capability[]): boolean {
+  const names = new Set(items.map(normalizedName));
+  const sideEffects = new Set(items.map(sideEffectKey));
+  return names.size === 1 &&
+    descriptionsEquivalent(items) &&
+    sideEffects.size === 1 &&
+    !items.some(hasRiskyRoutingSurface);
+}
+
 export function detectCapabilityConflicts(capabilities: Capability[]): CapabilityConflictDiagnostic[] {
   const groups = new Map<string, Capability[]>();
 
@@ -66,12 +123,15 @@ export function detectCapabilityConflicts(capabilities: Capability[]): Capabilit
     const providers = new Set(items.map(item => inferCapabilityProvider(item)));
     if (providers.size < 2) continue;
     const winner = winnerFor(items);
+    const equivalent = areEquivalentProviderDuplicates(items);
     conflicts.push({
       group,
       winner: winner.id,
       suppressed: items.filter(item => item.id !== winner.id).map(item => item.id),
-      severity: 'warn',
-      reason: `Multiple providers expose ${group}; route should rank one winner and keep the rest as alternatives.`,
+      severity: equivalent ? 'info' : 'warn',
+      reason: equivalent
+        ? `Multiple providers expose equivalent ${group}; route will use the winner and keep duplicate providers as alternatives.`
+        : `Multiple providers expose ${group}; route should rank one winner and keep the rest as alternatives.`,
     });
   }
 

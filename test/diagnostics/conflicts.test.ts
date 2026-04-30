@@ -45,6 +45,7 @@ describe('capability conflict diagnostics', () => {
         name: 'review',
         origin: 'core',
         provider: 'core',
+        description: 'Review source code.',
         conflictGroup: 'skill:review',
         sourcePriority: 0,
       }),
@@ -54,7 +55,9 @@ describe('capability conflict diagnostics', () => {
         name: 'review',
         origin: 'plugin',
         provider: 'plugin',
+        description: 'Review and rewrite source code.',
         conflictGroup: 'skill:review',
+        sideEffects: ['writes_files'],
         sourcePriority: 10,
       }),
     ]);
@@ -65,6 +68,68 @@ describe('capability conflict diagnostics', () => {
       winner: 'a',
       suppressed: ['b'],
       severity: 'warn',
+    });
+  });
+
+  it('downgrades equivalent duplicate providers to info', () => {
+    const conflicts = detectCapabilityConflicts([
+      cap({
+        id: 'a',
+        kind: 'skill',
+        name: 'setup',
+        origin: 'local',
+        provider: 'local',
+        description: 'Route setup requests.',
+        conflictGroup: 'skill:setup',
+        sourcePriority: 0,
+      }),
+      cap({
+        id: 'b',
+        kind: 'skill',
+        name: 'setup',
+        origin: 'plugin',
+        provider: 'plugin',
+        description: 'Route setup requests.',
+        conflictGroup: 'skill:setup',
+        sourcePriority: 10,
+      }),
+    ]);
+
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]).toMatchObject({
+      group: 'skill:setup',
+      winner: 'a',
+      suppressed: ['b'],
+      severity: 'info',
+    });
+  });
+
+  it('treats same-name providers with highly similar descriptions as equivalent', () => {
+    const conflicts = detectCapabilityConflicts([
+      cap({
+        id: 'a',
+        kind: 'skill',
+        name: 'frontend-design',
+        origin: 'core',
+        provider: 'core',
+        description: 'Create distinctive production-grade frontend interfaces with high design quality for web components and pages.',
+        sourcePriority: 0,
+      }),
+      cap({
+        id: 'b',
+        kind: 'skill',
+        name: 'frontend-design',
+        origin: 'plugin',
+        provider: 'plugin',
+        description: 'Create distinctive production-grade frontend interfaces with high design quality for web components and applications.',
+        sourcePriority: 10,
+      }),
+    ]);
+
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]).toMatchObject({
+      group: 'skill:frontend-design',
+      severity: 'info',
     });
   });
 });

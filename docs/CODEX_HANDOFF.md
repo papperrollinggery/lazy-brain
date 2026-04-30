@@ -175,6 +175,9 @@ Completed commit boundary:
 - Follow-up benchmark pass: tuned Python/Rust/frontend/database specialization
   and refreshed the onboarding golden label for the installed Codebase
   Onboarding Engineer capability.
+- Provider duplicate diagnostics now distinguish risky provider conflicts from
+  equivalent duplicate installs. Equivalent same-name duplicate providers are
+  reported as `info`; divergent or risky providers remain `warn`.
 
 Final validation evidence:
 
@@ -187,6 +190,9 @@ Final validation evidence:
 - `node dist/bin/lazybrain.js ready --release` returned `READY`.
 - Reviewer re-verification returned `APPROVED`.
 - Bounded ai-slop-cleaner pass found no required cleanup edits.
+- `doctor --all --json` has no hook conflicts. Current duplicate
+  `frontend-design` and `setup` provider entries are classified as informational
+  equivalent duplicates rather than warnings.
 
 ### Routing / Matching
 
