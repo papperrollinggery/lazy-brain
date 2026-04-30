@@ -42,7 +42,7 @@ import type { HookRunRecord } from '../src/hook/types.js';
 import { classifyRouteNeed } from '../src/orchestrator/route-gate.js';
 import { recordRouteEvent } from '../src/orchestrator/route-events.js';
 import { tagMatch } from '../src/matcher/tag-layer.js';
-import { findCombo, type ComboTemplate } from '../src/combos/registry.js';
+import { findCombo, formatComboEntryCommand, type ComboTemplate } from '../src/combos/registry.js';
 import type { Capability } from '../src/types.js';
 
 // ─── Server HTTP Client (optional fast path) ─────────────────────────────────
@@ -413,14 +413,7 @@ function formatMatchInjection(matches: Array<{ name: string; score: number; reas
     if (routeMode === 'needs_clarification') {
       lines.push(`\n🤔 你的需求有点模糊，要不要用 /${top.name} 试试？`);
     } else if (top.score >= 0.75) {
-      const roasts = [
-        '我帮你找好了，别自己硬写啊',
-        '放着现成的工具不用，手写不累吗',
-        '这个匹配度很高，信我一次',
-        '你每次都不选，我很难办啊',
-      ];
-      const roast = roasts[Math.floor(Math.random() * roasts.length)];
-      lines.push(`\n→ 建议用 /${top.name}，${roast}`);
+      lines.push(`\n→ 建议用 /${top.name}，匹配度高。`);
     } else {
       lines.push(`\n→ 建议调用 /${top.name}，或者看看上面哪个合适`);
     }
@@ -429,13 +422,7 @@ function formatMatchInjection(matches: Array<{ name: string; score: number; reas
     if (routeMode === 'needs_clarification') {
       lines.push(`\n🤔 Your request is a bit vague — try /${top.name}?`);
     } else if (top.score >= 0.75) {
-      const roasts = [
-        'I already checked — save yourself the typing',
-        'Trust me on this one, the match is solid',
-        'Why do I even bother if you never pick these',
-      ];
-      const roast = roasts[Math.floor(Math.random() * roasts.length)];
-      lines.push(`\n→ Try /${top.name} — ${roast}`);
+      lines.push(`\n→ Try /${top.name}; match confidence is high.`);
     } else {
       lines.push(`\n→ Consider /${top.name}, or pick from above`);
     }
@@ -445,10 +432,11 @@ function formatMatchInjection(matches: Array<{ name: string; score: number; reas
 
 function formatComboInjection(combo: ComboTemplate, lang: 'zh' | 'en', routeMode: string): string {
   const lines: string[] = [];
+  const entryCommand = formatComboEntryCommand(combo, 'claude');
   if (lang === 'zh') {
     lines.push('🧭 LazyBrain 路由建议：');
     lines.push(`  Combo: ${combo.title} (${combo.id})`);
-    lines.push(`  入口: ${combo.entryCommand}`);
+    lines.push(`  入口: ${entryCommand}`);
     lines.push(`  模式: ${combo.executionMode}`);
     lines.push(`  模型策略: ${combo.modelStrategy}`);
     lines.push(`  Skill 链: ${combo.skillNames.slice(0, 3).map(name => `/${name}`).join(' + ')}`);
@@ -456,11 +444,11 @@ function formatComboInjection(combo: ComboTemplate, lang: 'zh' | 'en', routeMode
     if (checks.length > 0) lines.push(`  验收: ${checks.join(' | ')}`);
     lines.push(routeMode === 'needs_clarification'
       ? '\n→ 先补齐目标页面/验收口径，再执行这条 route。'
-      : '\n→ 先按这条 combo route 执行，避免只做 tag 层猜测。');
+      : '\n→ 优先参考这条 combo route；上下文不匹配时回退到普通匹配。');
   } else {
     lines.push('🧭 LazyBrain route suggestion:');
     lines.push(`  Combo: ${combo.title} (${combo.id})`);
-    lines.push(`  Entry: ${combo.entryCommand}`);
+    lines.push(`  Entry: ${entryCommand}`);
     lines.push(`  Mode: ${combo.executionMode}`);
     lines.push(`  Model strategy: ${combo.modelStrategy}`);
     lines.push(`  Skill chain: ${combo.skillNames.slice(0, 3).map(name => `/${name}`).join(' + ')}`);
@@ -468,7 +456,7 @@ function formatComboInjection(combo: ComboTemplate, lang: 'zh' | 'en', routeMode
     if (checks.length > 0) lines.push(`  Verify: ${checks.join(' | ')}`);
     lines.push(routeMode === 'needs_clarification'
       ? '\n→ Clarify the target surface and acceptance check before executing this route.'
-      : '\n→ Use this combo route first; fall back to tag matches only when no combo fits.');
+      : '\n→ Prefer this combo route when it fits; otherwise use the matched skills.');
   }
   return lines.join('\n');
 }

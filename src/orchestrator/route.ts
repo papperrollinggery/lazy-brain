@@ -23,7 +23,7 @@ import type {
 } from '../types.js';
 import { Graph } from '../graph/graph.js';
 import { match } from '../matcher/matcher.js';
-import { findCombo, type ComboTemplate } from '../combos/registry.js';
+import { findCombo, formatComboEntryCommand, type ComboTemplate } from '../combos/registry.js';
 import { getVerificationBundle } from '../verification/catalog.js';
 import { classifyRouteNeed } from './route-gate.js';
 
@@ -400,7 +400,7 @@ export async function buildRouteSpec(query: string, options: BuildRouteSpecOptio
       : gate.reason,
     mustCallLazyBrainReason: 'Use LazyBrain when routing skills, agents, verification, or context reduction can materially help.',
     combo: combo?.id,
-    entryCommand: combo?.entryCommand,
+    entryCommand: combo ? formatComboEntryCommand(combo, target) : undefined,
     executionMode: combo?.executionMode,
     modelStrategy: combo?.modelStrategy,
     skills,

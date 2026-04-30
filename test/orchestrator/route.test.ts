@@ -213,7 +213,19 @@ describe('buildRouteSpec', () => {
     });
 
     expect(spec.target).toBe('codex');
+    expect(spec.entryCommand).toContain('--target codex');
     expect(spec.adapters.generic.prompt).toContain('Generic AI agent');
     expect(spec.adapters.codex?.prompt).toContain('Codex advisory route plan');
+  });
+
+  it('renders combo entry commands for the requested target', async () => {
+    const spec = await buildRouteSpec('review code for regressions', {
+      graph: makeGraph(),
+      config: { ...DEFAULT_CONFIG },
+      target: 'cursor',
+    });
+
+    expect(spec.entryCommand).toBe('lazybrain route "<query>" --target cursor');
+    expect(spec.entryCommand).not.toContain('codex');
   });
 });

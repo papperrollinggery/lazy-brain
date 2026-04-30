@@ -5,7 +5,7 @@
  * every named skill to be installed.
  */
 
-import type { GuardrailRule, VerificationRequirement, WorkflowStep } from '../types.js';
+import type { GuardrailRule, RouteTarget, VerificationRequirement, WorkflowStep } from '../types.js';
 
 export interface ComboTemplate {
   id: string;
@@ -43,7 +43,7 @@ export const COMBOS: ComboTemplate[] = [
     title: 'Frontend new page',
     category: 'frontend',
     description: 'Create a new usable product screen with responsive UI verification.',
-    entryCommand: 'lazybrain route "<query>" --target codex',
+    entryCommand: 'lazybrain route "<query>"',
     executionMode: 'guided',
     modelStrategy: 'Use a frontend-capable model and keep verification in the same turn.',
     keywords: ['new page', 'frontend', 'ui', 'screen', '页面', '前端', '新页面', '界面'],
@@ -64,7 +64,7 @@ export const COMBOS: ComboTemplate[] = [
     title: 'Existing frontend redesign',
     category: 'frontend',
     description: 'Improve an existing interface while preserving product behavior.',
-    entryCommand: 'lazybrain route "<query>" --target codex',
+    entryCommand: 'lazybrain route "<query>"',
     executionMode: 'guided',
     modelStrategy: 'Use a frontend-capable model, inspect the current route, then verify before/after behavior.',
     keywords: ['redesign', 'existing', 'refactor ui', '改版', '重设计', '重新设计', '重构', '网页', '页面', '界面', '优化界面', '优化网页', '现有页面', '现有网页'],
@@ -85,7 +85,7 @@ export const COMBOS: ComboTemplate[] = [
     title: 'CEO dashboard',
     category: 'dashboard',
     description: 'Turn operational data into a decision-oriented dashboard.',
-    entryCommand: 'lazybrain route "<query>" --target codex',
+    entryCommand: 'lazybrain route "<query>"',
     executionMode: 'guided',
     modelStrategy: 'Use a product-logic-first model pass before visual implementation.',
     keywords: ['ceo dashboard', 'dashboard', 'metrics', 'ops', '后台', '看板', 'CEO', '运营', '指标'],
@@ -106,7 +106,7 @@ export const COMBOS: ComboTemplate[] = [
     title: 'Public install docs',
     category: 'docs',
     description: 'Write public-facing installation and recovery documentation.',
-    entryCommand: 'lazybrain route "<query>" --target codex',
+    entryCommand: 'lazybrain route "<query>"',
     executionMode: 'advisory',
     modelStrategy: 'Use a concise documentation pass plus public-audit verification.',
     keywords: ['readme', 'docs', 'install', 'public docs', 'README', '文档', '安装流程', '普通用户'],
@@ -126,7 +126,7 @@ export const COMBOS: ComboTemplate[] = [
     title: 'Regression code review',
     category: 'code-quality',
     description: 'Review changed code for behavioral regressions and missing tests.',
-    entryCommand: 'lazybrain route "<query>" --target codex',
+    entryCommand: 'lazybrain route "<query>"',
     executionMode: 'advisory',
     modelStrategy: 'Use review mode: inspect behavior first, then tests and risk.',
     keywords: ['review', 'regression', 'risk', '审查', '回归', '风险', '代码审核'],
@@ -146,7 +146,7 @@ export const COMBOS: ComboTemplate[] = [
     title: 'Stuck runtime debug',
     category: 'debugging',
     description: 'Diagnose a long-running or hung local runtime without destructive resets.',
-    entryCommand: 'lazybrain route "<query>" --target codex',
+    entryCommand: 'lazybrain route "<query>"',
     executionMode: 'guided',
     modelStrategy: 'Use an evidence-first debugging pass with non-destructive probes.',
     keywords: ['stuck', 'hung', 'no output', 'debug', '卡住', '长时间无输出', '排查', '无响应'],
@@ -166,7 +166,7 @@ export const COMBOS: ComboTemplate[] = [
     title: 'Crash or bug debug',
     category: 'debugging',
     description: 'Investigate a bug, crash, failing command, or broken workflow with evidence-first debugging.',
-    entryCommand: 'lazybrain route "<query>" --target codex',
+    entryCommand: 'lazybrain route "<query>"',
     executionMode: 'guided',
     modelStrategy: 'Use a debugging-capable model; collect reproduction evidence before editing.',
     keywords: ['bug', 'crash', 'error', 'failed', 'failing', 'broken', '报错', '崩溃', '失败', '不工作', '修不好', '异常'],
@@ -187,7 +187,7 @@ export const COMBOS: ComboTemplate[] = [
     title: 'Refactor and clean code',
     category: 'code-quality',
     description: 'Clean messy, duplicated, or AI-generated code while preserving behavior.',
-    entryCommand: 'lazybrain route "<query>" --target codex',
+    entryCommand: 'lazybrain route "<query>"',
     executionMode: 'guided',
     modelStrategy: 'Use a conservative implementation pass, then verify behavior and tests.',
     keywords: ['refactor', 'cleanup', 'clean up', 'simplify', '重构', '清理', '整理', '函数', '代码太乱', '垃圾代码', '臃肿', '重复代码'],
@@ -209,7 +209,7 @@ export const COMBOS: ComboTemplate[] = [
     title: 'Security audit',
     category: 'security',
     description: 'Audit authentication, authorization, secrets, and vulnerability-sensitive code paths.',
-    entryCommand: 'lazybrain route "<query>" --target codex',
+    entryCommand: 'lazybrain route "<query>"',
     executionMode: 'guided',
     modelStrategy: 'Use a high-precision review pass; require evidence for every finding.',
     keywords: ['security', 'vulnerability', 'secret', 'auth', 'permission', '安全', '漏洞', '密钥', '认证', '鉴权', '权限', '合规'],
@@ -230,7 +230,7 @@ export const COMBOS: ComboTemplate[] = [
     title: 'Public release audit',
     category: 'release',
     description: 'Prepare a public release with package and privacy checks.',
-    entryCommand: 'lazybrain route "<query>" --target codex',
+    entryCommand: 'lazybrain route "<query>"',
     executionMode: 'guided',
     modelStrategy: 'Use a release-gate pass and require package/privacy verification before publish.',
     keywords: ['release', 'publish', 'npm', 'audit', 'privacy', 'hook', '发布', '公开', '隐私', '回滚'],
@@ -291,4 +291,10 @@ export function formatComboList(combos: ComboTemplate[]): string {
     lines.push('');
   }
   return lines.join('\n').trimEnd();
+}
+
+export function formatComboEntryCommand(combo: ComboTemplate, target: RouteTarget = 'generic'): string {
+  return target === 'generic'
+    ? combo.entryCommand
+    : `${combo.entryCommand} --target ${target}`;
 }
