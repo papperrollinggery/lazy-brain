@@ -11,8 +11,17 @@ describe('hook settings', () => {
     const underscoredRepoName = ['lazy', 'user'].join('_');
     expect(isLazyBrainHookCommand('node /tmp/lazybrain/dist/bin/hook.js')).toBe(true);
     expect(isLazyBrainHookCommand('node /tmp/lazybrain/bin/hook.js')).toBe(true);
+    expect(isLazyBrainHookCommand('node "/tmp/lazy-brain/dist/bin/hook.js"')).toBe(true);
+    expect(isLazyBrainHookCommand("node '/tmp/lazy_brain/dist/bin/hook.js'")).toBe(true);
     expect(isLazyBrainHookCommand(`node /tmp/${underscoredRepoName}/dist/bin/hook.js`)).toBe(true);
     expect(isLazyBrainHookCommand('python3 ~/.claude/hooks/codeisland-state.py')).toBe(false);
+  });
+
+  it('does not match similarly named hook paths', () => {
+    expect(isLazyBrainHookCommand('node /tmp/lazy_userland/dist/bin/hook.js')).toBe(false);
+    expect(isLazyBrainHookCommand('node /tmp/lazybrain-tools/dist/bin/hook.js')).toBe(false);
+    expect(isLazyBrainHookCommand('node /tmp/notlazybrain/dist/bin/hook.js')).toBe(false);
+    expect(isLazyBrainHookCommand('node /tmp/lazybrain/dist/bin/not-hook.js')).toBe(false);
   });
 
   it('installs only UserPromptSubmit and removes stale Stop entries', () => {
