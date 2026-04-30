@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .lazybrain/
+.claude/
 *.tsbuildinfo
 .env
 *.env
@@ -45,3 +46,4 @@ scripts/check-budget.sh
 
 # Local workflow doc (user-facing, but not for public repo — keep local)
 HOW_TO_WORK_WITH_TRAE.md
+.gstack/

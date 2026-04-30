@@ -22,6 +22,10 @@ jobs:
   npm-release:
     name: npm release
     runs-on: ubuntu-latest
+    env:
+      npm_config_fetch_retries: 5
+      npm_config_fetch_retry_mintimeout: 20000
+      npm_config_fetch_retry_maxtimeout: 120000
 
     steps:
       - uses: actions/checkout@v4

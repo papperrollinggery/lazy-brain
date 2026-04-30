@@ -5,7 +5,7 @@
 **AI 编程助手的语义技能路由器 / 附属性智能体**
 
 [![CI](https://github.com/papperrollinggery/lazy-brain/actions/workflows/ci.yml/badge.svg)](https://github.com/papperrollinggery/lazy-brain/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](./LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A518-brightgreen.svg)](https://nodejs.org)
 
 > 一个贴在主模型旁边的附属性智能体，把零散工具库变成可理解、可路由、可表达的能力层。  
@@ -19,9 +19,11 @@
 
 ## 当前版本
 
-当前版本：**v1.4.5**
+当前版本：**v1.5.0**
 
-发布定位：**低侵入路由 beta 版**。这一版加固了 `RouteSpec`，新增只读 MCP server、可复制的目标 CLI prompt，并把 Claude hook 改成 tiny gate。hook 只提醒主模型在复杂任务前调用 LazyBrain；完整推荐保留在 `lazybrain route`、`/api/route`、MCP、GUI 或显式 prompt 输出里。
+发布定位：**低侵入路由 beta 版**。这一版加固了 `RouteSpec`，新增只读 MCP server、可复制的目标 CLI prompt，并把 Claude hook 改成 tiny gate。hook 只注入紧凑 combo/tag 建议；完整 RouteSpec 保留在 `lazybrain route`、`/api/route`、MCP、GUI 或显式 prompt 输出里。
+
+许可证定位：**AGPL-3.0**。LazyBrain 是本地路由和 agent 集成层；AGPL 要求托管版或修改后的网络服务保持开放，便于审计路由行为、hook 安全和 capability 处理逻辑。
 
 ## 项目概览
 
@@ -83,7 +85,7 @@ lazybrain hook install
 
 安全默认值：
 
-- Lab 不安装 hook，不写 `.claude/settings.json`
+- Lab 不安装 hook，不写 `.claude/hooks/hooks.json` 或 `.claude/settings.json`
 - `hook plan` 只预演
 - `hook install` 默认 project scope，并且先备份
 - 全局安装必须显式使用 `lazybrain hook install --global --yes`
@@ -92,7 +94,7 @@ lazybrain hook install
 - GUI v1 不直接安装 hook，只显示状态、预演和 CLI 回退命令
 - `lazybrain route` 只给建议，不执行 skill，也不写 Claude/Codex/Cursor 配置
 - `lazybrain mcp` 只读，不返回 agent 正文或私人 transcript
-- 安装 hook 后只注入短提醒：`Consider calling lazybrain.route for skill routing, context reduction, and verification planning.`
+- 安装 hook 后只注入紧凑 combo/tag 建议；完整 RouteSpec 仍由 CLI/API/MCP 拉取
 
 ## 什么会被当成技能 / Agent / Capability
 
@@ -149,7 +151,7 @@ Use this skill when the user asks for a focused engineering review.
 |------|----------|------|
 | 离线路由 | 已实现 | 手工别名 + tag/CJK bridge，无 API key 也可用 |
 | semantic / hybrid | 条件可用 | 需要 embedding 配置和 `graph.embeddings.*` 缓存；缺失时降级并提示 |
-| Route plan | 已实现 | `lazybrain route` 输出 v1.4.5 `RouteSpec`，包含 `route_plan`、`needs_clarification`、`no_route_needed` |
+| Route plan | 已实现 | `lazybrain route` 输出 v1.4.6 `RouteSpec`，包含 `route_plan`、`needs_clarification`、`no_route_needed` 和 combo 入口元数据 |
 | MCP | 已实现 | `lazybrain mcp --stdio` 暴露只读 route/search/card/combo 工具 |
 | 手动 prompt | 已实现 | `lazybrain prompt` 输出目标 CLI 风格的可复制建议 |
 | Combo 模板 | 已实现 | `lazybrain combos [category]` 只读展示高频编排模板 |
@@ -201,7 +203,7 @@ npm run build
 npm link                # 注册 lazybrain / lb 到全局
 
 # 验证：确认命令可用
-lazybrain --version     # 应输出 v1.4.5 或更高
+lazybrain --version     # 应输出 v1.5.0 或更高
 which lazybrain         # 应指向全局 node bin 目录
 
 # ─── 第 2 步：扫描本机能力 + 离线编译图谱 ─────────────────────────
@@ -226,7 +228,7 @@ lazybrain hook plan     # 预览会改什么，不写任何文件
 # 验证：plan 输出应显示 Settings (project)、Hook、Statusline 三项计划
 
 # ─── 第 5 步：安装 hook ───────────────────────────────────────────
-lazybrain hook install  # 默认 project scope，只写当前项目的 .claude/settings.json
+lazybrain hook install  # 默认 project scope，把生命周期 hook 写入 .claude/hooks/hooks.json
 
 # 如果已经有第三方 HUD（如 claude-hud），需要组合模式：
 # lazybrain hook install --statusline
@@ -254,7 +256,7 @@ lazybrain doctor        # 检查各项是否正常
 lazybrain hook rollback
 ```
 
-安装后，你在**当前记录的项目工作区里**使用 Claude Code/CLI 时，LazyBrain 只做 tiny gate。复杂、模糊、高风险任务会得到一条短提醒，让主模型去调用 RouteSpec；完整推荐仍用 CLI/API/MCP 拉取。
+安装后，你在**当前记录的项目工作区里**使用 Claude Code/CLI 时，LazyBrain 只做 tiny gate。复杂、模糊、高风险任务会得到紧凑 combo/tag 建议；完整推荐仍用 CLI/API/MCP 拉取。
 
 ```
 你说: "帮我审查代码"
@@ -500,7 +502,7 @@ GUI 入口：
 - `POST /api/test`：用户点击后才显式测试外部 API
 - `POST /api/embeddings/rebuild`：必须带 `{ "confirm": "rebuild" }`
 
-GUI v1 是状态型界面：不读取 Claude transcript，不返回 agent 正文，不安装 hook，不写 `.claude/settings.json`。
+GUI v1 是状态型界面：不读取 Claude transcript，不返回 agent 正文，不安装 hook，不写 `.claude/hooks/hooks.json` 或 `.claude/settings.json`。
 
 ## Lab：非安装式可视化测试
 
@@ -509,7 +511,7 @@ lazybrain server --daemon
 open http://127.0.0.1:18450/lab
 ```
 
-Lab 用内置样例检查匹配质量、team gate、token 策略、hook 安全状态和 Claude/Agent Agency 子智能体映射；不会安装 hook，也不会写 `.claude/settings.json`。
+Lab 用内置样例检查匹配质量、team gate、token 策略、hook 安全状态和 Claude/Agent Agency 子智能体映射；不会安装 hook，也不会写 `.claude/hooks/hooks.json` 或 `.claude/settings.json`。
 
 Lab API：
 
@@ -523,7 +525,7 @@ agent inventory 不返回 agent 正文，也不读取 Claude 私人 transcript�
 ## Hook 安全模型
 
 - `lazybrain hook install` 默认是 **project scope**
-- `lazybrain hook plan` 只预演，不写 `.claude/settings.json` 或 `~/.lazybrain/*`
+- `lazybrain hook plan` 只预演，不写 `.claude/hooks/hooks.json`、`.claude/settings.json` 或 `~/.lazybrain/*`
 - `lazybrain hook install` 会先创建 LazyBrain 备份，再写入配置
 - `lazybrain hook rollback` 只恢复 LazyBrain 自动备份过的文件
 - `lazybrain hook install --global` 必须加 `--yes`
@@ -570,7 +572,7 @@ rollback 只恢复 LazyBrain 自动备份过的文件，不删除第三方 hook 
 | Lab 没有 agent | 没找到可读 agent metadata | 在 `.claude/agents/` 或 `~/.claude/agents/` 放 agent，再刷新 Lab |
 | `hook plan` 因 LazyBrain 残留在 `Stop` 显示 `needs_attention` | 老版本 Hook 注册残留 | 先看 plan；`lazybrain hook install` 会清理 LazyBrain 自己的 `Stop` 残留 |
 | `hook install --global` 失败 | 全局安装需要显式确认 | 只有确认影响所有 Claude 项目时，才用 `lazybrain hook install --global --yes` |
-| hook 已安装但没有推荐 | v1.4.5 hook 是 tiny gate，不是完整推荐器 | 运行 `lazybrain hook status --json`；完整计划用 `lazybrain route "<同一句话>"` |
+| hook 已安装但没有推荐 | v1.5.0 hook 是 tiny gate，不是完整推荐器 | 运行 `lazybrain hook status --json`；完整计划用 `lazybrain route "<同一句话>"` |
 | 主模型没主动用 LazyBrain | MCP 未配置，或任务被判定为简单任务 | 用 `lazybrain prompt "<同一句话>" --target claude` 手动兜底，或配置 `lazybrain mcp --stdio` |
 | 长时间无输出后 hook 像是卡住 | breaker 或 stale runtime record 可能存在 | 运行 `lazybrain hook ps`、`lazybrain hook clean`、`lazybrain ready` |
 | 已有第三方 HUD/statusline | LazyBrain 默认跳过 | 需要组合时用 `lazybrain hook install --statusline`；确认替换时才用 `--replace-statusline` |
@@ -710,4 +712,4 @@ lazybrain config set mode auto        # 静默推荐模式
 
 ## 许可证
 
-MIT
+AGPL-3.0

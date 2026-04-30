@@ -6,7 +6,7 @@
 **面向 AI 编码助手的语义路由器 / 附属性智能体**
 
 [![CI](https://github.com/papperrollinggery/lazy-brain/actions/workflows/ci.yml/badge.svg)](https://github.com/papperrollinggery/lazy-brain/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](./LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A518-brightgreen.svg)](https://nodejs.org)
 
 > A sidecar agent that turns a fragmented toolbelt into an intent-aware execution layer.  
@@ -20,9 +20,11 @@
 
 ## Current Release
 
-Current version: **v1.4.5**
+Current version: **v1.5.0**
 
-Release position: **low-intrusion routing beta**. This version hardens `RouteSpec`, adds a read-only MCP server, adds copyable target prompts, and changes the Claude hook into a tiny gate. The hook only reminds the main model to call LazyBrain for non-trivial work; full recommendations stay in `lazybrain route`, `/api/route`, MCP, GUI, or explicit prompt output.
+Release position: **low-intrusion routing beta**. This version hardens `RouteSpec`, adds a read-only MCP server, adds copyable target prompts, and changes the Claude hook into a tiny gate. The hook injects compact combo/tag suggestions for non-trivial work; full RouteSpec plans stay in `lazybrain route`, `/api/route`, MCP, GUI, or explicit prompt output.
+
+License position: **AGPL-3.0**. LazyBrain is a local routing and agent-integration layer; AGPL keeps hosted or modified network-facing versions open, so routing behavior, hook safety, and capability handling remain auditable.
 
 ## Overview
 
@@ -110,7 +112,7 @@ lazybrain hook install
 
 Safety defaults:
 
-- Lab does not install hooks and does not write `.claude/settings.json`
+- Lab does not install hooks and does not write `.claude/hooks/hooks.json` or `.claude/settings.json`
 - `hook plan` is dry-run only
 - `hook install` defaults to project scope and creates a backup first
 - global install requires `lazybrain hook install --global --yes`
@@ -119,7 +121,7 @@ Safety defaults:
 - GUI v1 does not install hooks directly; it shows status, previews, and CLI fallback commands
 - `lazybrain route` is advisory only; it does not execute skills or write target CLI config
 - `lazybrain mcp` is read-only and does not return agent bodies or private transcripts
-- installed hook only injects a short reminder: `Consider calling lazybrain.route for skill routing, context reduction, and verification planning.`
+- installed hook injects only compact combo/tag suggestions; full RouteSpec plans stay in CLI/API/MCP
 
 ## What Counts as a Skill / Agent / Capability
 
@@ -220,11 +222,11 @@ The default hook does not run Secretary or inject full recommendations. Secretar
 |------|------------------|-------|
 | Offline routing | Manual alias + tag/CJK bridge | Works without API keys |
 | Semantic / hybrid | Uses embedding cache when configured | Falls back with warnings when cache is missing |
-| Route plan | `lazybrain route` returns v1.4.5 `RouteSpec` | Includes `route_plan`, `needs_clarification`, and `no_route_needed` |
+| Route plan | `lazybrain route` returns v1.4.6 `RouteSpec` | Includes `route_plan`, `needs_clarification`, `no_route_needed`, and combo entry metadata |
 | MCP | `lazybrain mcp --stdio` exposes read-only route/search/card/combo tools | Does not write target CLI config or return agent bodies |
 | Manual prompt | `lazybrain prompt` renders target-specific copyable guidance | Useful when MCP is not configured |
 | Combo templates | Built-in high-frequency orchestration templates | `lazybrain combos [category]` is read-only |
-| Hook install | Project scope tiny gate, dry-run plan, backup, rollback | Global install requires `--global --yes`; hook injects only a short reminder |
+| Hook install | Project scope tiny gate, dry-run plan, backup, rollback | Global install requires `--global --yes`; hook injects compact combo/tag suggestions only |
 | Lab | Built-in fixtures, local agent metadata, team gate, token strategy, hook readiness | Does not read Claude transcripts or install hooks |
 | Team guidance | Advisory model split, runtime adapters, subagent prompts | Main model or user keeps final decision |
 | Auto-alias | Suggest/read-only path today | Fully automatic promotion is still planned |
@@ -333,11 +335,11 @@ lazybrain hook install                # Install project-scoped Claude Code hook
 # lazybrain hook rollback
 ```
 
-After hook install, prompts inside the recorded project workspace pass through the tiny gate. Complex, vague, or high-risk prompts get a short reminder to call LazyBrain; full plans are pulled through CLI/API/MCP.
+After hook install, prompts inside the recorded project workspace pass through the tiny gate. Complex, vague, or high-risk prompts get a compact combo/tag suggestion; full plans are pulled through CLI/API/MCP.
 
-安装 hook 后，当前记录的项目工作区只经过 tiny gate。复杂、模糊或高风险任务会收到短提醒；完整计划由 CLI/API/MCP 拉取。
+安装 hook 后，当前记录的项目工作区只经过 tiny gate。复杂、模糊或高风险任务会收到紧凑 combo/tag 建议；完整计划由 CLI/API/MCP 拉取。
 
-`lazybrain hook install` writes project `.claude/settings.json` by default and creates a LazyBrain backup first. Global install is refused unless `--global --yes` is present.
+`lazybrain hook install` writes the lifecycle hook to project `.claude/hooks/hooks.json` by default, uses `.claude/settings.json` only for statusline or legacy cleanup, and creates a LazyBrain backup first. Global install is refused unless `--global --yes` is present.
 
 ## Daily Usage
 
@@ -511,7 +513,7 @@ lazybrain doctor --all               # Report project and global scopes, no fix
 ### Hook Safety / Hook 安全模型
 
 - `lazybrain hook install` now defaults to **project scope**
-- `lazybrain hook plan` previews the target settings path, lifecycle hooks, third-party hooks, statusline handling, install-state path, and risk conclusion without writing `.claude/settings.json` or `~/.lazybrain/*`
+- `lazybrain hook plan` previews the target hooks/settings paths, lifecycle hooks, third-party hooks, statusline handling, install-state path, and risk conclusion without writing `.claude/hooks/hooks.json`, `.claude/settings.json`, or `~/.lazybrain/*`
 - `lazybrain hook install` creates a LazyBrain backup before writing settings
 - `lazybrain hook rollback` restores only files that LazyBrain backed up
 - `lazybrain hook install --global` is refused unless `--yes` is also present
@@ -559,7 +561,7 @@ Rollback restores only files that were captured by LazyBrain backups. It does no
 | Lab shows no agents | No readable agent metadata found | Add project agents under `.claude/agents/` or user agents under `~/.claude/agents/`, then refresh Lab |
 | `hook plan` reports `needs_attention` because of LazyBrain in `Stop` | Older LazyBrain hook registration remains | Review the plan; `lazybrain hook install` will clean LazyBrain-owned `Stop` entries |
 | `hook install --global` fails | Global install requires explicit confirmation | Use `lazybrain hook install --global --yes` only if you want every Claude project affected |
-| Hook is installed but no recommendation appears | v1.4.5 hook is a tiny gate, not a full recommender | Run `lazybrain hook status --json`; test the full plan with `lazybrain route "<same query>"` |
+| Hook is installed but no recommendation appears | v1.5.0 hook is a tiny gate, not a full recommender | Run `lazybrain hook status --json`; test the full plan with `lazybrain route "<same query>"` |
 | Main model ignores LazyBrain | MCP is not configured or the task looked trivial | Use `lazybrain prompt "<same query>" --target claude`, or configure `lazybrain mcp --stdio` in the client |
 | Hook seems stuck or returns no output after a long run | Runtime breaker or stale record may be active | Run `lazybrain hook ps`, then `lazybrain hook clean`, then `lazybrain ready` |
 | Third-party HUD/statusline is present | LazyBrain skips it by default | Use `lazybrain hook install --statusline` to combine, or `--replace-statusline` only when you intentionally want replacement |
@@ -597,7 +599,7 @@ The smoke test verifies / 这个测试会验证：
 - `npm ci && npm run build` succeeds
 - `lazybrain ready` reports the current readiness state
 - `lazybrain hook plan` previews install changes without writing settings
-- `lazybrain hook install` correctly modifies project `.claude/settings.json`
+- `lazybrain hook install` writes project `.claude/hooks/hooks.json` and keeps legacy LazyBrain hook entries out of `.claude/settings.json`
 - `lazybrain scan && lazybrain compile` produces `~/.lazybrain/graph.json`
 - Hook returns the tiny route reminder for a complex test prompt
 - `lazybrain hook rollback` restores the latest LazyBrain backup
@@ -701,4 +703,4 @@ Benchmark results depend on:
 
 ## License
 
-MIT
+AGPL-3.0
