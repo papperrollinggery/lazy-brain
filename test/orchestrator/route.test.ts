@@ -76,7 +76,7 @@ describe('buildRouteSpec', () => {
     });
 
     expect(spec.mode).toBe('route_plan');
-    expect(spec.schemaVersion).toBe('1.4.5');
+    expect(spec.schemaVersion).toBe('1.4.6');
     expect(spec.combo).toBe('dashboard_ceo');
     expect(spec.whyRoute).toContain('dashboard_ceo');
     expect(spec.tokenStrategy.includeFullSkillBody).toBe(false);
@@ -94,8 +94,68 @@ describe('buildRouteSpec', () => {
     });
 
     expect(spec.combo).toBe('frontend_existing_redesign');
+    expect(spec.entryCommand).toContain('lazybrain route');
+    expect(spec.executionMode).toBe('guided');
     expect(spec.verification.some(check => check.id === 'ui-desktop-screenshot')).toBe(true);
     expect(spec.verification.some(check => check.id === 'ui-console-clean')).toBe(true);
+  });
+
+  it('routes Chinese webpage redesign phrasing to the existing redesign combo', async () => {
+    const spec = await buildRouteSpec('帮我重新设计这个网页', {
+      graph: makeGraph(),
+      config: { ...DEFAULT_CONFIG },
+    });
+
+    expect(spec.combo).toBe('frontend_existing_redesign');
+    expect(spec.intent).toBe('Existing frontend redesign');
+  });
+
+  it('does not route function refactors to the frontend redesign combo', async () => {
+    const spec = await buildRouteSpec('帮我重构这个函数', {
+      graph: makeGraph(),
+      config: { ...DEFAULT_CONFIG },
+    });
+
+    expect(spec.combo).not.toBe('frontend_existing_redesign');
+  });
+
+  it('does not route API publishing to the public npm release combo', async () => {
+    const spec = await buildRouteSpec('准备发布这个API', {
+      graph: makeGraph(),
+      config: { ...DEFAULT_CONFIG },
+    });
+
+    expect(spec.combo).not.toBe('release_public_audit');
+  });
+
+  it('routes crash and bug phrasing to the debug crash combo', async () => {
+    const spec = await buildRouteSpec('这个 bug 崩溃了，帮我排查报错', {
+      graph: makeGraph(),
+      config: { ...DEFAULT_CONFIG },
+    });
+
+    expect(spec.combo).toBe('debug_crash');
+    expect(spec.executionPlan.some(step => step.id === 'reproduce-failure')).toBe(true);
+  });
+
+  it('routes messy code cleanup to the refactor combo', async () => {
+    const spec = await buildRouteSpec('清理这段臃肿的垃圾代码', {
+      graph: makeGraph(),
+      config: { ...DEFAULT_CONFIG },
+    });
+
+    expect(spec.combo).toBe('refactor_clean');
+    expect(spec.guardrails.some(rule => rule.title.includes('Preserve external behavior'))).toBe(true);
+  });
+
+  it('routes auth and permission risk to the security audit combo', async () => {
+    const spec = await buildRouteSpec('检查认证权限和密钥泄漏安全风险', {
+      graph: makeGraph(),
+      config: { ...DEFAULT_CONFIG },
+    });
+
+    expect(spec.combo).toBe('audit_security');
+    expect(spec.executionPlan.some(step => step.id === 'map-trust-boundary')).toBe(true);
   });
 
   it('returns docs workflow without execution controls', async () => {

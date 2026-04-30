@@ -214,7 +214,7 @@ describe('POST /api/route', () => {
     const { status, body } = await req('POST', '/api/route', { query: 'review code for regressions', target: 'codex' });
     expect(status).toBe(200);
     expect(body).toHaveProperty('query');
-    expect(body).toHaveProperty('schemaVersion', '1.4.5');
+    expect(body).toHaveProperty('schemaVersion', '1.4.6');
     expect(body).toHaveProperty('mode');
     expect(body).toHaveProperty('intent');
     expect(body).toHaveProperty('whyRoute');

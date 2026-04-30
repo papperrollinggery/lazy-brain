@@ -12,7 +12,11 @@ export interface ComboTemplate {
   title: string;
   category: string;
   description: string;
+  entryCommand: string;
+  executionMode: 'advisory' | 'guided';
+  modelStrategy: string;
   keywords: string[];
+  negativeKeywords?: string[];
   skillNames: string[];
   workflow: WorkflowStep[];
   contextNeeded: string[];
@@ -39,7 +43,11 @@ export const COMBOS: ComboTemplate[] = [
     title: 'Frontend new page',
     category: 'frontend',
     description: 'Create a new usable product screen with responsive UI verification.',
+    entryCommand: 'lazybrain route "<query>" --target codex',
+    executionMode: 'guided',
+    modelStrategy: 'Use a frontend-capable model and keep verification in the same turn.',
     keywords: ['new page', 'frontend', 'ui', 'screen', '页面', '前端', '新页面', '界面'],
+    negativeKeywords: ['函数', '方法', '模块', 'class', 'api', '接口', '后端', 'backend', 'server'],
     skillNames: ['frontend-design', 'frontend-patterns', 'e2e-testing'],
     workflow: [
       step('understand-user-flow', 'Identify the primary user workflow'),
@@ -56,7 +64,11 @@ export const COMBOS: ComboTemplate[] = [
     title: 'Existing frontend redesign',
     category: 'frontend',
     description: 'Improve an existing interface while preserving product behavior.',
-    keywords: ['redesign', 'existing', 'refactor ui', '改版', '重设计', '优化界面', '现有页面'],
+    entryCommand: 'lazybrain route "<query>" --target codex',
+    executionMode: 'guided',
+    modelStrategy: 'Use a frontend-capable model, inspect the current route, then verify before/after behavior.',
+    keywords: ['redesign', 'existing', 'refactor ui', '改版', '重设计', '重新设计', '重构', '网页', '页面', '界面', '优化界面', '优化网页', '现有页面', '现有网页'],
+    negativeKeywords: ['函数', '方法', '模块', 'class', 'api', '接口', '后端', 'backend', 'server', '数据库', '代码'],
     skillNames: ['frontend-design', 'design-review', 'e2e-testing'],
     workflow: [
       step('inspect-existing-ui', 'Inspect the existing UI and design conventions'),
@@ -73,6 +85,9 @@ export const COMBOS: ComboTemplate[] = [
     title: 'CEO dashboard',
     category: 'dashboard',
     description: 'Turn operational data into a decision-oriented dashboard.',
+    entryCommand: 'lazybrain route "<query>" --target codex',
+    executionMode: 'guided',
+    modelStrategy: 'Use a product-logic-first model pass before visual implementation.',
     keywords: ['ceo dashboard', 'dashboard', 'metrics', 'ops', '后台', '看板', 'CEO', '运营', '指标'],
     skillNames: ['dashboard-builder', 'product-capability', 'frontend-design'],
     workflow: [
@@ -91,6 +106,9 @@ export const COMBOS: ComboTemplate[] = [
     title: 'Public install docs',
     category: 'docs',
     description: 'Write public-facing installation and recovery documentation.',
+    entryCommand: 'lazybrain route "<query>" --target codex',
+    executionMode: 'advisory',
+    modelStrategy: 'Use a concise documentation pass plus public-audit verification.',
     keywords: ['readme', 'docs', 'install', 'public docs', 'README', '文档', '安装流程', '普通用户'],
     skillNames: ['document-release', 'document-review', 'devex-review'],
     workflow: [
@@ -108,6 +126,9 @@ export const COMBOS: ComboTemplate[] = [
     title: 'Regression code review',
     category: 'code-quality',
     description: 'Review changed code for behavioral regressions and missing tests.',
+    entryCommand: 'lazybrain route "<query>" --target codex',
+    executionMode: 'advisory',
+    modelStrategy: 'Use review mode: inspect behavior first, then tests and risk.',
     keywords: ['review', 'regression', 'risk', '审查', '回归', '风险', '代码审核'],
     skillNames: ['ce:review', 'ai-regression-testing', 'coding-standards'],
     workflow: [
@@ -125,6 +146,9 @@ export const COMBOS: ComboTemplate[] = [
     title: 'Stuck runtime debug',
     category: 'debugging',
     description: 'Diagnose a long-running or hung local runtime without destructive resets.',
+    entryCommand: 'lazybrain route "<query>" --target codex',
+    executionMode: 'guided',
+    modelStrategy: 'Use an evidence-first debugging pass with non-destructive probes.',
     keywords: ['stuck', 'hung', 'no output', 'debug', '卡住', '长时间无输出', '排查', '无响应'],
     skillNames: ['agent-introspection-debugging', 'omc-doctor', 'debugging'],
     workflow: [
@@ -138,11 +162,79 @@ export const COMBOS: ComboTemplate[] = [
     doneWhen: ['The active/stale state is clear and the runtime can be verified with a smoke test.'],
   },
   {
+    id: 'debug_crash',
+    title: 'Crash or bug debug',
+    category: 'debugging',
+    description: 'Investigate a bug, crash, failing command, or broken workflow with evidence-first debugging.',
+    entryCommand: 'lazybrain route "<query>" --target codex',
+    executionMode: 'guided',
+    modelStrategy: 'Use a debugging-capable model; collect reproduction evidence before editing.',
+    keywords: ['bug', 'crash', 'error', 'failed', 'failing', 'broken', '报错', '崩溃', '失败', '不工作', '修不好', '异常'],
+    skillNames: ['agent-introspection-debugging', 'debugging', 'ai-regression-testing'],
+    workflow: [
+      step('reproduce-failure', 'Reproduce the failure and capture the exact error'),
+      step('trace-cause', 'Trace the failing path to the smallest responsible change'),
+      step('apply-fix', 'Apply a scoped fix without unrelated refactors'),
+      step('verify-regression', 'Run the failing case plus the nearest regression check'),
+    ],
+    contextNeeded: ['Error output', 'Command or workflow that fails', 'Expected behavior', 'Recent related changes'],
+    guardrails: [guard('Do not guess a fix before reproducing or locating evidence', undefined, 'strict')],
+    verification: [check('repro-case', 'Original failing case passes'), check('tests', 'Focused tests pass')],
+    doneWhen: ['The original failure is reproduced, fixed, and verified with a focused check.'],
+  },
+  {
+    id: 'refactor_clean',
+    title: 'Refactor and clean code',
+    category: 'code-quality',
+    description: 'Clean messy, duplicated, or AI-generated code while preserving behavior.',
+    entryCommand: 'lazybrain route "<query>" --target codex',
+    executionMode: 'guided',
+    modelStrategy: 'Use a conservative implementation pass, then verify behavior and tests.',
+    keywords: ['refactor', 'cleanup', 'clean up', 'simplify', '重构', '清理', '整理', '函数', '代码太乱', '垃圾代码', '臃肿', '重复代码'],
+    negativeKeywords: ['网页', '页面', '界面', 'ui', 'redesign', '视觉'],
+    skillNames: ['ai-slop-cleaner', 'coding-standards', 'ai-regression-testing'],
+    workflow: [
+      step('identify-behavior-boundary', 'Identify behavior that must stay unchanged'),
+      step('remove-noise', 'Remove duplication, dead branches, and unclear generated code'),
+      step('tighten-types', 'Tighten names, types, and boundaries without broad rewrites'),
+      step('verify-behavior', 'Run focused checks for the touched surface'),
+    ],
+    contextNeeded: ['Target files or module', 'Behavior that must not change', 'Relevant tests or manual check'],
+    guardrails: [guard('Preserve external behavior; do not combine refactor with feature work', undefined, 'strict')],
+    verification: [check('tests', 'Focused tests pass'), check('lint', 'Lint/typecheck passes', 'npm run lint')],
+    doneWhen: ['The code is simpler and behavior is verified unchanged.'],
+  },
+  {
+    id: 'audit_security',
+    title: 'Security audit',
+    category: 'security',
+    description: 'Audit authentication, authorization, secrets, and vulnerability-sensitive code paths.',
+    entryCommand: 'lazybrain route "<query>" --target codex',
+    executionMode: 'guided',
+    modelStrategy: 'Use a high-precision review pass; require evidence for every finding.',
+    keywords: ['security', 'vulnerability', 'secret', 'auth', 'permission', '安全', '漏洞', '密钥', '认证', '鉴权', '权限', '合规'],
+    skillNames: ['security-reviewer', 'django-security', 'laravel-security'],
+    workflow: [
+      step('map-trust-boundary', 'Map the trust boundary and protected assets'),
+      step('inspect-sensitive-paths', 'Inspect auth, permissions, input handling, and secret exposure'),
+      step('prioritize-findings', 'Prioritize exploitable findings over generic hardening'),
+      step('verify-fixes', 'Verify fixes with targeted tests or manual abuse cases'),
+    ],
+    contextNeeded: ['Threat surface', 'Auth model', 'Sensitive files or endpoints', 'Expected access rules'],
+    guardrails: [guard('Do not report speculative vulnerabilities without an exploitable path', undefined, 'strict')],
+    verification: [check('security-case', 'Abuse case is blocked'), check('tests', 'Relevant tests pass')],
+    doneWhen: ['Security findings are evidence-backed, prioritized, and verified after fixes.'],
+  },
+  {
     id: 'release_public_audit',
     title: 'Public release audit',
     category: 'release',
     description: 'Prepare a public release with package and privacy checks.',
+    entryCommand: 'lazybrain route "<query>" --target codex',
+    executionMode: 'guided',
+    modelStrategy: 'Use a release-gate pass and require package/privacy verification before publish.',
     keywords: ['release', 'publish', 'npm', 'audit', 'privacy', 'hook', '发布', '公开', '隐私', '回滚'],
+    negativeKeywords: ['api', '接口', '后端', 'backend', 'server', 'k8s', 'docker', '普通部署'],
     skillNames: ['document-release', 'github-ops', 'ci-cd-best-practices'],
     workflow: [
       step('version-consistency', 'Verify package, CLI, health, changelog, and tag version consistency'),
@@ -171,14 +263,21 @@ export function findCombo(query: string, categories: string[] = []): ComboTempla
   let best: { combo: ComboTemplate; score: number } | undefined;
 
   for (const combo of COMBOS) {
-    let score = categorySet.has(combo.category.toLowerCase()) ? 1 : 0;
+    let keywordScore = 0;
     for (const keyword of combo.keywords) {
-      if (q.includes(keyword.toLowerCase())) score += keyword.length > 5 ? 3 : 2;
+      if (q.includes(keyword.toLowerCase())) keywordScore += keyword.length > 5 ? 3 : 2;
     }
+
+    if (keywordScore === 0) continue;
+
+    const categoryScore = categorySet.has(combo.category.toLowerCase()) ? 1 : 0;
+    const normalizedKeywordScore = Math.min(1, keywordScore / 6);
+    const hasNegativeSignal = combo.negativeKeywords?.some(keyword => q.includes(keyword.toLowerCase())) ?? false;
+    const score = (categoryScore * 0.6) + (normalizedKeywordScore * 0.4) - (hasNegativeSignal ? 0.5 : 0);
     if (!best || score > best.score) best = { combo, score };
   }
 
-  return best && best.score > 0 ? best.combo : undefined;
+  return best && best.score >= 0.25 ? best.combo : undefined;
 }
 
 export function formatComboList(combos: ComboTemplate[]): string {
@@ -187,6 +286,7 @@ export function formatComboList(combos: ComboTemplate[]): string {
   for (const combo of combos) {
     lines.push(`  ${combo.id} [${combo.category}]`);
     lines.push(`    ${combo.description}`);
+    lines.push(`    Entry: ${combo.entryCommand} (${combo.executionMode})`);
     lines.push(`    Skills: ${combo.skillNames.join(', ')}`);
     lines.push('');
   }

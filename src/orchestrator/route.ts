@@ -36,7 +36,7 @@ export interface BuildRouteSpecOptions {
 }
 
 const TARGETS: RouteTarget[] = ['generic', 'claude', 'codex', 'cursor'];
-export const ROUTE_SPEC_SCHEMA_VERSION = '1.4.5';
+export const ROUTE_SPEC_SCHEMA_VERSION = '1.4.6';
 
 export function isRouteTarget(value: string): value is RouteTarget {
   return TARGETS.includes(value as RouteTarget);
@@ -194,6 +194,9 @@ function adapterPrompt(spec: Omit<RouteSpec, 'adapters'>, target: RouteTarget): 
     `Mode: ${spec.mode}`,
     `Why route: ${spec.whyRoute}`,
   ];
+  if (spec.entryCommand) lines.push(`Entry command: ${spec.entryCommand}`);
+  if (spec.executionMode) lines.push(`Execution mode: ${spec.executionMode}`);
+  if (spec.modelStrategy) lines.push(`Model strategy: ${spec.modelStrategy}`);
 
   lines.push('', 'Token strategy:');
   lines.push(`- Top-K skills: ${spec.tokenStrategy.topKSkills}`);
@@ -397,6 +400,9 @@ export async function buildRouteSpec(query: string, options: BuildRouteSpecOptio
       : gate.reason,
     mustCallLazyBrainReason: 'Use LazyBrain when routing skills, agents, verification, or context reduction can materially help.',
     combo: combo?.id,
+    entryCommand: combo?.entryCommand,
+    executionMode: combo?.executionMode,
+    modelStrategy: combo?.modelStrategy,
     skills,
     executionPlan: workflow,
     contextNeeded,
@@ -419,6 +425,9 @@ export function formatRouteSpec(spec: RouteSpec): string {
     `Why: ${spec.whyRoute}`,
   ];
   if (spec.combo) lines.push(`Combo: ${spec.combo}`);
+  if (spec.entryCommand) lines.push(`Entry command: ${spec.entryCommand}`);
+  if (spec.executionMode) lines.push(`Execution mode: ${spec.executionMode}`);
+  if (spec.modelStrategy) lines.push(`Model strategy: ${spec.modelStrategy}`);
 
   lines.push('', 'Token strategy:');
   lines.push(`  - Top-K skills: ${spec.tokenStrategy.topKSkills}`);

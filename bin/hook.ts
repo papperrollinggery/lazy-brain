@@ -42,6 +42,7 @@ import type { HookRunRecord } from '../src/hook/types.js';
 import { classifyRouteNeed } from '../src/orchestrator/route-gate.js';
 import { recordRouteEvent } from '../src/orchestrator/route-events.js';
 import { tagMatch } from '../src/matcher/tag-layer.js';
+import { findCombo, type ComboTemplate } from '../src/combos/registry.js';
 import type { Capability } from '../src/types.js';
 
 // ─── Server HTTP Client (optional fast path) ─────────────────────────────────
@@ -442,17 +443,56 @@ function formatMatchInjection(matches: Array<{ name: string; score: number; reas
   return lines.join('\n');
 }
 
+function formatComboInjection(combo: ComboTemplate, lang: 'zh' | 'en', routeMode: string): string {
+  const lines: string[] = [];
+  if (lang === 'zh') {
+    lines.push('🧭 LazyBrain 路由建议：');
+    lines.push(`  Combo: ${combo.title} (${combo.id})`);
+    lines.push(`  入口: ${combo.entryCommand}`);
+    lines.push(`  模式: ${combo.executionMode}`);
+    lines.push(`  模型策略: ${combo.modelStrategy}`);
+    lines.push(`  Skill 链: ${combo.skillNames.slice(0, 3).map(name => `/${name}`).join(' + ')}`);
+    const checks = combo.verification.slice(0, 2).map(item => item.command ?? item.title);
+    if (checks.length > 0) lines.push(`  验收: ${checks.join(' | ')}`);
+    lines.push(routeMode === 'needs_clarification'
+      ? '\n→ 先补齐目标页面/验收口径，再执行这条 route。'
+      : '\n→ 先按这条 combo route 执行，避免只做 tag 层猜测。');
+  } else {
+    lines.push('🧭 LazyBrain route suggestion:');
+    lines.push(`  Combo: ${combo.title} (${combo.id})`);
+    lines.push(`  Entry: ${combo.entryCommand}`);
+    lines.push(`  Mode: ${combo.executionMode}`);
+    lines.push(`  Model strategy: ${combo.modelStrategy}`);
+    lines.push(`  Skill chain: ${combo.skillNames.slice(0, 3).map(name => `/${name}`).join(' + ')}`);
+    const checks = combo.verification.slice(0, 2).map(item => item.command ?? item.title);
+    if (checks.length > 0) lines.push(`  Verify: ${checks.join(' | ')}`);
+    lines.push(routeMode === 'needs_clarification'
+      ? '\n→ Clarify the target surface and acceptance check before executing this route.'
+      : '\n→ Use this combo route first; fall back to tag matches only when no combo fits.');
+  }
+  return lines.join('\n');
+}
+
 function runTinyGate(prompt: string): void {
   const decision = classifyRouteNeed(prompt);
+  const combo = decision.shouldCallLazyBrain ? findCombo(prompt) : undefined;
   recordRouteEvent({
     query: prompt,
     source: 'hook-gate',
     mode: decision.mode,
+    combo: combo?.id,
     warnings: decision.mode === 'needs_clarification' ? ['needs_clarification'] : [],
   });
 
   if (!decision.shouldCallLazyBrain) {
     output({ continue: true });
+    return;
+  }
+
+  if (combo) {
+    const lang = detectLang(prompt);
+    writeLastMatch(combo.id, 1, 0, 'matched');
+    output({ continue: true, additionalSystemPrompt: formatComboInjection(combo, lang, decision.mode) });
     return;
   }
 

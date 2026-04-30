@@ -62,9 +62,23 @@ describe('MCP server', () => {
       params: { name: 'lazybrain.route', arguments: { query: 'review code for regressions', target: 'codex' } },
     }, ctx()));
     const text = toolContentText(response);
-    expect(text).toContain('"schemaVersion": "1.4.5"');
+    expect(text).toContain('"schemaVersion": "1.4.6"');
     expect(text).toContain('"target": "codex"');
     expect(text).not.toContain('/tmp/example-agent');
+  });
+
+  it('returns combo entry metadata through lazybrain.route', async () => {
+    const response = resultOf(await handleMcpRequest({
+      jsonrpc: '2.0',
+      id: 31,
+      method: 'tools/call',
+      params: { name: 'lazybrain.route', arguments: { query: '检查认证权限和密钥泄漏安全风险', target: 'codex' } },
+    }, ctx()));
+    const text = toolContentText(response);
+    expect(text).toContain('"combo": "audit_security"');
+    expect(text).toContain('"entryCommand"');
+    expect(text).toContain('"executionMode"');
+    expect(text).toContain('"modelStrategy"');
   });
 
   it('returns compact skill cards without local file paths', async () => {

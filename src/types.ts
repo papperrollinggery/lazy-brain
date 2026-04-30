@@ -302,6 +302,9 @@ export interface RouteSpec {
   whyRoute: string;
   mustCallLazyBrainReason?: string;
   combo?: string;
+  entryCommand?: string;
+  executionMode?: 'advisory' | 'guided';
+  modelStrategy?: string;
   skills: RouteSkillRef[];
   executionPlan: WorkflowStep[];
   contextNeeded: string[];
