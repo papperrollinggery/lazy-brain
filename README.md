@@ -118,7 +118,8 @@ Safety defaults:
 - global install requires `lazybrain hook install --global --yes`
 - LazyBrain does not use `Stop` as a product lifecycle
 - third-party hooks and HUD/statusline entries are preserved by default
-- GUI v1 does not install hooks directly; it shows status, previews, and CLI fallback commands
+- GUI v1 does not install hooks directly; it can save whitelisted `~/.lazybrain/config.json` keys and start graph compile, but it does not write Claude hook files
+- blank API key edits in the GUI are ignored instead of clearing existing keys
 - `lazybrain route` is advisory only; it does not execute skills or write target CLI config
 - `lazybrain mcp` is read-only and does not return agent bodies or private transcripts
 - installed hook injects only compact combo/tag suggestions; full RouteSpec plans stay in CLI/API/MCP
@@ -461,10 +462,12 @@ GUI entrypoints:
 - `GET /lab` — non-install recommendation Lab
 - `GET /api/status` — readiness, graph, routing, hook, API, embedding, agent, and server status
 - `POST /api/route` — advisory route plan; no execution and no target CLI config writes
+- `POST /api/config` — whitelisted local config updates; blank API key fields are no-ops
+- `POST /api/compile` and `GET /api/compile/status` — start graph compile and poll final exit status
 - `POST /api/test` — explicit API test only after user action
 - `POST /api/embeddings/rebuild` — requires `{ "confirm": "rebuild" }`
 
-GUI v1 is status-first: it does not read Claude transcripts, return agent body text, install hooks, or write `.claude/settings.json`.
+GUI v1 is local and status-first: it does not read Claude transcripts, return agent body text, install hooks, or write `.claude/hooks/hooks.json` / `.claude/settings.json`.
 
 ### Lab / Non-install visual testing
 
@@ -514,8 +517,9 @@ lazybrain doctor --all               # Report project and global scopes, no fix
 
 - `lazybrain hook install` now defaults to **project scope**
 - `lazybrain hook plan` previews the target hooks/settings paths, lifecycle hooks, third-party hooks, statusline handling, install-state path, and risk conclusion without writing `.claude/hooks/hooks.json`, `.claude/settings.json`, or `~/.lazybrain/*`
-- `lazybrain hook install` creates a LazyBrain backup before writing settings
-- `lazybrain hook rollback` restores only files that LazyBrain backed up
+- `lazybrain hook install` creates a LazyBrain backup before writing hook/settings/install-state files
+- `lazybrain hook rollback` restores backed-up LazyBrain files, including `.claude/hooks/hooks.json` when it existed at backup time
+- `lazybrain ready` blocks when the graph contains persisted compile errors
 - `lazybrain hook install --global` is refused unless `--yes` is also present
 - runtime tiny gate only applies inside the recorded workspace root
 - if a prompt comes from another cwd, LazyBrain returns no-op immediately
@@ -540,7 +544,7 @@ lazybrain hook rollback               # Restore latest LazyBrain backup
 lazybrain hook rollback --to <id>     # Restore a specific backup timestamp
 ```
 
-Rollback restores only files that were captured by LazyBrain backups. It does not delete third-party hook files.
+Rollback restores only files that were captured by LazyBrain backups, including the LazyBrain-owned hook file state. It does not delete third-party hook files.
 
 ### What It Will Not Do / 默认不会做什么
 

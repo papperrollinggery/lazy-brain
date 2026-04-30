@@ -91,7 +91,8 @@ lazybrain hook install
 - 全局安装必须显式使用 `lazybrain hook install --global --yes`
 - LazyBrain 不把 `Stop` 当作产品生命周期
 - 默认保留第三方 hook 和 HUD/statusline
-- GUI v1 不直接安装 hook，只显示状态、预演和 CLI 回退命令
+- GUI v1 不直接安装 hook；它可以保存白名单内的 `~/.lazybrain/config.json` 配置并启动图谱编译，但不写 Claude hook 文件
+- GUI 里 API Key 留空保存会被视为不修改，不会清空已有 key
 - `lazybrain route` 只给建议，不执行 skill，也不写 Claude/Codex/Cursor 配置
 - `lazybrain mcp` 只读，不返回 agent 正文或私人 transcript
 - 安装 hook 后只注入紧凑 combo/tag 建议；完整 RouteSpec 仍由 CLI/API/MCP 拉取
@@ -499,10 +500,13 @@ GUI 入口：
 - `GET /` 和 `GET /ui`：本地状态首页
 - `GET /lab`：非安装式推荐 Lab
 - `GET /api/status`：readiness、图谱、路由、hook、API、embedding、agent、server 状态
+- `POST /api/route`：advisory route plan，不执行、不写目标 CLI 配置
+- `POST /api/config`：白名单内本地配置写入；空 API Key 字段不生效
+- `POST /api/compile` 和 `GET /api/compile/status`：启动图谱编译并轮询最终退出码
 - `POST /api/test`：用户点击后才显式测试外部 API
 - `POST /api/embeddings/rebuild`：必须带 `{ "confirm": "rebuild" }`
 
-GUI v1 是状态型界面：不读取 Claude transcript，不返回 agent 正文，不安装 hook，不写 `.claude/hooks/hooks.json` 或 `.claude/settings.json`。
+GUI v1 是本地状态型界面：不读取 Claude transcript，不返回 agent 正文，不安装 hook，不写 `.claude/hooks/hooks.json` 或 `.claude/settings.json`。
 
 ## Lab：非安装式可视化测试
 
@@ -526,8 +530,9 @@ agent inventory 不返回 agent 正文，也不读取 Claude 私人 transcript�
 
 - `lazybrain hook install` 默认是 **project scope**
 - `lazybrain hook plan` 只预演，不写 `.claude/hooks/hooks.json`、`.claude/settings.json` 或 `~/.lazybrain/*`
-- `lazybrain hook install` 会先创建 LazyBrain 备份，再写入配置
-- `lazybrain hook rollback` 只恢复 LazyBrain 自动备份过的文件
+- `lazybrain hook install` 会先创建 LazyBrain 备份，再写入 hook/settings/install-state 文件
+- `lazybrain hook rollback` 恢复 LazyBrain 自动备份过的文件；备份时存在的 `.claude/hooks/hooks.json` 也会恢复
+- `lazybrain ready` 会在图谱存在持久化 compile errors 时阻断
 - `lazybrain hook install --global` 必须加 `--yes`
 - LazyBrain 只会在记录的项目根目录下工作
 - 其他 cwd 的调用会直接 no-op 跳过
@@ -551,7 +556,7 @@ lazybrain hook rollback
 lazybrain hook rollback --to <timestamp>
 ```
 
-rollback 只恢复 LazyBrain 自动备份过的文件，不删除第三方 hook 文件。
+rollback 只恢复 LazyBrain 自动备份过的文件，包括 LazyBrain 自己的 hook 文件状态；不删除第三方 hook 文件。
 
 ## 默认不会做什么
 
