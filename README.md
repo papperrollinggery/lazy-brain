@@ -251,6 +251,10 @@ LazyBrain can learn from usage patterns without treating every planned capabilit
   │  wiki was rejected for "审查代码" queries      │
   │  → auto-deprioritize wiki for similar queries │
   ├───────────────────────────────────────────────┤
+  │  Choice Preferences                           │
+  │  lazybrain choices feedback model:strong...   │
+  │  → safer preferred alternatives can rank up   │
+  ├───────────────────────────────────────────────┤
   │  Auto-Alias Generation (planned)              │
   │  repeated choices can become shortcuts        │
   │  this is not treated as mature yet            │
@@ -419,6 +423,8 @@ lazybrain route "把后台改成 CEO dashboard"
 lazybrain route "review this PR" --target codex
 lazybrain route "review this PR" --json
 lazybrain route stats
+lazybrain choices prefs --json
+lazybrain choices feedback model:strong-reasoning --accepted --kind model
 lazybrain prompt "review this PR" --target claude
 lazybrain prompt "review this PR" --target codex --copy
 lazybrain mcp status
@@ -426,7 +432,9 @@ lazybrain mcp --stdio
 lazybrain combos frontend
 ```
 
-`lazybrain route` upgrades raw matches into an advisory `RouteSpec`: `schemaVersion`, `mode`, scenario, skills, token strategy, context needed, workflow, guardrails, verification, done conditions, and a target-specific prompt style for `generic`, `claude`, `codex`, or `cursor`.
+`lazybrain route` upgrades raw matches into an advisory `RouteSpec`: `schemaVersion`, `mode`, scenario, skills, adaptive `choices`, token strategy, context needed, workflow, guardrails, verification, done conditions, and a target-specific prompt style for `generic`, `claude`, `codex`, or `cursor`.
+
+`lazybrain choices feedback <choice-id> --accepted|--rejected` records local preference evidence without storing raw prompts. Preferences can raise safer alternatives in later route choices, but they do not bypass high-risk confirmation policy.
 
 Route modes:
 

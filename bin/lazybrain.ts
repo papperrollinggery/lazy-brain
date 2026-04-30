@@ -76,6 +76,7 @@ import { getEmbeddingCacheStatus } from '../src/embeddings/cache.js';
 import { rebuildEmbeddingCache } from '../src/embeddings/rebuild.js';
 import { buildStatusReport } from '../src/server/status.js';
 import { buildRouteSpec, formatRouteSpec, isRouteTarget } from '../src/orchestrator/route.js';
+import { loadChoicePreferences, recordChoiceFeedback } from '../src/orchestrator/choice-preferences.js';
 import { readRouteStats, recordRouteSpec } from '../src/orchestrator/route-events.js';
 import { formatComboList, listCombos } from '../src/combos/registry.js';
 import { getMcpToolNames, runMcpStdioServer } from '../src/mcp/server.js';
@@ -244,6 +245,9 @@ async function main() {
       break;
     case 'route':
       await cmdRoute();
+      break;
+    case 'choices':
+      cmdChoices();
       break;
     case 'prompt':
       await cmdPrompt();
@@ -1083,7 +1087,14 @@ async function cmdRoute() {
   const config = loadConfig();
   const history = loadRecentHistory(50);
   const profile = loadProfile() ?? undefined;
-  const spec = await buildRouteSpec(query, { graph, config, history, profile, target });
+  const spec = await buildRouteSpec(query, {
+    graph,
+    config,
+    history,
+    profile,
+    choicePreferences: loadChoicePreferences(),
+    target,
+  });
   recordRouteSpec(spec, 'cli');
 
   if (asJson) {
@@ -1109,7 +1120,14 @@ async function cmdPrompt() {
   const config = loadConfig();
   const history = loadRecentHistory(50);
   const profile = loadProfile() ?? undefined;
-  const spec = await buildRouteSpec(query, { graph, config, history, profile, target });
+  const spec = await buildRouteSpec(query, {
+    graph,
+    config,
+    history,
+    profile,
+    choicePreferences: loadChoicePreferences(),
+    target,
+  });
   recordRouteSpec(spec, 'prompt');
   const prompt = spec.adapters[target]?.prompt ?? spec.adapters.generic.prompt;
 
@@ -1128,6 +1146,63 @@ async function cmdPrompt() {
   }
   console.log(prompt);
   if (copy) console.log('\nCopied to clipboard.');
+}
+
+function cmdChoices() {
+  const sub = args[1];
+  const asJson = args.includes('--json');
+  if (!sub || sub === 'prefs') {
+    const preferences = loadChoicePreferences();
+    if (asJson) {
+      console.log(JSON.stringify(preferences, null, 2));
+      return;
+    }
+    const entries = Object.entries(preferences.choices)
+      .sort(([, a], [, b]) => (b.accepted + b.rejected) - (a.accepted + a.rejected))
+      .slice(0, 10);
+    console.log('Choice preferences');
+    console.log(`Updated: ${preferences.updatedAt}`);
+    if (entries.length === 0) {
+      console.log('  (none)');
+      return;
+    }
+    for (const [id, stats] of entries) {
+      console.log(`  - ${id}: accepted ${stats.accepted}, rejected ${stats.rejected}${stats.kind ? `, kind ${stats.kind}` : ''}`);
+    }
+    return;
+  }
+
+  if (sub === 'feedback') {
+    const choiceId = args[2];
+    const accepted = args.includes('--accepted');
+    const rejected = args.includes('--rejected');
+    const kindIndex = args.indexOf('--kind');
+    const kind = kindIndex >= 0 ? args[kindIndex + 1] : undefined;
+    if (!choiceId || accepted === rejected) {
+      console.error('Usage: lazybrain choices feedback <choice-id> --accepted|--rejected [--kind mode|model|skill|plugin|workflow]');
+      process.exit(1);
+    }
+    const validKinds = ['mode', 'model', 'skill', 'plugin', 'workflow'];
+    if (kind !== undefined && !validKinds.includes(kind)) {
+      console.error('Invalid kind. Use mode, model, skill, plugin, or workflow.');
+      process.exit(1);
+    }
+    const preferences = recordChoiceFeedback({
+      choiceId,
+      outcome: accepted ? 'accepted' : 'rejected',
+      kind: kind as undefined | 'mode' | 'model' | 'skill' | 'plugin' | 'workflow',
+    });
+    const stats = preferences.choices[choiceId];
+    if (asJson) {
+      console.log(JSON.stringify({ choiceId, stats, preferences }, null, 2));
+      return;
+    }
+    console.log(`${choiceId}: accepted ${stats.accepted}, rejected ${stats.rejected}`);
+    return;
+  }
+
+  console.error('Usage: lazybrain choices [prefs --json] | lazybrain choices feedback <choice-id> --accepted|--rejected [--kind <kind>]');
+  process.exit(1);
 }
 
 async function cmdMcp() {
@@ -2823,6 +2898,9 @@ Usage:
   lazybrain route "<query>" --target generic|claude|codex|cursor
                                      Render target-specific advisory prompt
   lazybrain route stats              Show privacy-preserving routing counters
+  lazybrain choices prefs [--json]   Show adaptive choice preferences
+  lazybrain choices feedback <id> --accepted|--rejected
+                                     Record local feedback for a route choice
   lazybrain prompt "<query>" --target claude|codex|cursor
                                      Print a copyable target-specific route prompt
   lazybrain prompt "<query>" --copy  Copy the target prompt to clipboard

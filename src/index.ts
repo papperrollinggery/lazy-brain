@@ -49,6 +49,13 @@ export type { ApiTestReport, ApiTestResult, ApiTestTarget } from './health/api-t
 export type { EmbeddingCacheState, EmbeddingCacheStatus } from './embeddings/cache.js';
 export type { EmbeddingRebuildResult } from './embeddings/rebuild.js';
 export { buildRouteSpec, formatRouteSpec } from './orchestrator/route.js';
+export {
+  applyChoicePreferences,
+  loadChoicePreferences,
+  recordChoiceFeedback,
+  saveChoicePreferences,
+} from './orchestrator/choice-preferences.js';
+export type { ChoiceFeedbackOutcome, ChoicePreferenceProfile, ChoicePreferenceStats } from './orchestrator/choice-preferences.js';
 export { COMBOS, findCombo, listCombos } from './combos/registry.js';
 export type {
   AgentMapping,

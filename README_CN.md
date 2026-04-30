@@ -453,6 +453,8 @@ LazyBrain: "通常审查完会重构，要不要用 /refactor-clean？"
 | `lazybrain route "你的任务" --target codex` | 按目标 CLI 风格渲染建议提示词 |
 | `lazybrain route "你的任务" --json` | 输出稳定 JSON schema |
 | `lazybrain route stats` | 查看只保存 hash 的路由统计 |
+| `lazybrain choices prefs --json` | 查看本地选择偏好，不包含原始 prompt |
+| `lazybrain choices feedback <id> --accepted --kind model` | 记录某个模型/模式/技能选择被接受 |
 | `lazybrain prompt "你的任务" --target claude` | 输出可复制的目标 CLI prompt |
 | `lazybrain prompt "你的任务" --copy` | 显式复制 prompt 到剪贴板 |
 | `lazybrain mcp --stdio` | 启动只读 MCP server |

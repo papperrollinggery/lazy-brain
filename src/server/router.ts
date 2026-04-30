@@ -33,6 +33,7 @@ import { getEmbeddingCacheStatus } from '../embeddings/cache.js';
 import { rebuildEmbeddingCache } from '../embeddings/rebuild.js';
 import { EMBEDDINGS_INDEX_PATH, GRAPH_PATH, LAZYBRAIN_DIR, ROUTE_EVENTS_PATH } from '../constants.js';
 import { buildRouteSpec, isRouteTarget } from '../orchestrator/route.js';
+import { loadChoicePreferences } from '../orchestrator/choice-preferences.js';
 import { loadRecentHistory } from '../history/history.js';
 import { loadProfile } from '../history/profile.js';
 import { recordRouteSpec } from '../orchestrator/route-events.js';
@@ -169,6 +170,7 @@ async function handleRoute(
     config,
     history: loadRecentHistory(50),
     profile: loadProfile() ?? undefined,
+    choicePreferences: loadChoicePreferences(),
     target: body.target ?? 'generic',
   });
   recordRouteSpec(result, 'api');

@@ -23,6 +23,7 @@ export const WIKI_DIR = join(LAZYBRAIN_DIR, 'wiki');
 export const EXTERNAL_CATALOG_PATH = join(LAZYBRAIN_DIR, 'external-catalog.json');
 export const PROFILE_PATH = join(LAZYBRAIN_DIR, 'profile.json');
 export const ROUTE_EVENTS_PATH = join(LAZYBRAIN_DIR, 'route-events.jsonl');
+export const CHOICE_PREFERENCES_PATH = process.env.LAZYBRAIN_CHOICE_PREFERENCES_PATH?.trim() || join(LAZYBRAIN_DIR, 'choice-preferences.json');
 
 /** OMC state directory — read to detect active execution mode */
 export const OMC_STATE_DIR = join(homedir(), '.omc', 'state');

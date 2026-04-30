@@ -30,12 +30,14 @@ import { match } from '../matcher/matcher.js';
 import { findCombo, formatComboEntryCommand, type ComboTemplate } from '../combos/registry.js';
 import { getVerificationBundle } from '../verification/catalog.js';
 import { classifyRouteNeed, type RouteGateDecision } from './route-gate.js';
+import { applyChoicePreferences, type ChoicePreferenceProfile } from './choice-preferences.js';
 
 export interface BuildRouteSpecOptions {
   graph: Graph;
   config: UserConfig;
   history?: HistoryEntry[];
   profile?: UserProfile;
+  choicePreferences?: ChoicePreferenceProfile;
   target?: RouteTarget;
 }
 
@@ -45,6 +47,7 @@ export const ROUTE_SPEC_SCHEMA_VERSION = '1.5.0';
 type RouteSpecDraft = Omit<RouteSpec, 'adapters' | 'choices'>;
 type ChoiceContext = {
   gate: RouteGateDecision;
+  preferences?: ChoicePreferenceProfile;
 };
 
 export function isRouteTarget(value: string): value is RouteTarget {
@@ -717,7 +720,7 @@ function buildChoiceSet(draft: RouteSpecDraft, graph: Graph, context: ChoiceCont
 function finalizeRouteSpec(draft: RouteSpecDraft, graph: Graph, context: ChoiceContext): RouteSpec {
   const withChoices: Omit<RouteSpec, 'adapters'> = {
     ...draft,
-    choices: buildChoiceSet(draft, graph, context),
+    choices: applyChoicePreferences(buildChoiceSet(draft, graph, context), context.preferences),
   };
   return { ...withChoices, adapters: buildAdapters(withChoices) };
 }
@@ -745,7 +748,7 @@ export async function buildRouteSpec(query: string, options: BuildRouteSpecOptio
       tokenStrategy: tokenStrategyFor({ mode: 'no_route_needed', skills: [], query }),
       warnings: [],
     };
-    return finalizeRouteSpec(draft, options.graph, { gate });
+    return finalizeRouteSpec(draft, options.graph, { gate, preferences: options.choicePreferences });
   }
 
   const rec = await match(query, {
@@ -784,7 +787,7 @@ export async function buildRouteSpec(query: string, options: BuildRouteSpecOptio
       warnings,
       clarificationQuestions: clarificationQuestions(query),
     };
-    return finalizeRouteSpec(draft, options.graph, { gate });
+    return finalizeRouteSpec(draft, options.graph, { gate, preferences: options.choicePreferences });
   }
 
   const top = rec.matches[0]?.capability;
@@ -836,7 +839,7 @@ export async function buildRouteSpec(query: string, options: BuildRouteSpecOptio
     warnings,
   };
 
-  return finalizeRouteSpec(draft, options.graph, { gate });
+  return finalizeRouteSpec(draft, options.graph, { gate, preferences: options.choicePreferences });
 }
 
 export function formatRouteSpec(spec: RouteSpec): string {
