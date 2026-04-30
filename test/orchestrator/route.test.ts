@@ -272,4 +272,39 @@ describe('buildRouteSpec', () => {
     expect(autopilot?.confidence).toBeGreaterThanOrEqual(0.7);
     expect(autopilot?.risk).toBe('high');
   });
+
+  it('reports registry conflict groups in route choices', async () => {
+    const graph = new Graph();
+    graph.addNode(cap({
+      id: 'core-review',
+      name: 'core-review',
+      description: 'Review code for regressions.',
+      tags: ['review', 'regression'],
+      exampleQueries: ['review code'],
+      category: 'code-quality',
+      origin: 'core',
+      provider: 'core',
+      conflictGroup: 'skill:review',
+      sourcePriority: 0,
+    }));
+    graph.addNode(cap({
+      id: 'plugin-review',
+      name: 'plugin-review',
+      description: 'Review code for regressions.',
+      tags: ['review', 'regression'],
+      exampleQueries: ['review code'],
+      category: 'code-quality',
+      origin: 'plugin',
+      provider: 'plugin',
+      conflictGroup: 'skill:review',
+      sourcePriority: 10,
+    }));
+
+    const spec = await buildRouteSpec('review code for regressions', {
+      graph,
+      config: { ...DEFAULT_CONFIG },
+    });
+
+    expect(spec.choices.conflicts.some(conflict => conflict.group === 'skill:review')).toBe(true);
+  });
 });

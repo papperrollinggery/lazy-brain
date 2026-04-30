@@ -47,6 +47,28 @@ trigger: "when writing new functions"
     expect(result!.triggers).toEqual(['when writing new functions']);
   });
 
+  it('parses conflict governance metadata', () => {
+    const content = `---
+name: hook-manager
+description: Install and repair hook configuration
+provider: lazybrain-core
+conflictGroup: hook:user-prompt-submit
+sideEffects: changes_config, installs_hooks
+---
+
+# Hook Manager`;
+
+    const result = parseSkill(
+      '/home/user/.claude/skills/hook-manager/SKILL.md',
+      content
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.provider).toBe('lazybrain-core');
+    expect(result!.conflictGroup).toBe('hook:user-prompt-submit');
+    expect(result!.sideEffects).toEqual(['changes_config', 'installs_hooks']);
+  });
+
   it('infers origin from path when not in frontmatter', () => {
     const content = `---
 name: graphify

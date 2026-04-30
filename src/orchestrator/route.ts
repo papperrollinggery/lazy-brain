@@ -106,6 +106,9 @@ function toSkillRef(cap: Capability, result?: Recommendation['matches'][number],
     kind: cap.kind,
     category: cap.category,
     origin: cap.origin,
+    provider: cap.provider,
+    conflictGroup: cap.conflictGroup,
+    sideEffects: cap.sideEffects,
     available: true,
     score: result?.score,
     layer: result?.layer,
@@ -120,6 +123,8 @@ function missingSkillRef(name: string, category: string, reason: string): RouteS
     kind: 'skill',
     category,
     origin: 'combo',
+    provider: 'combo',
+    conflictGroup: `skill:${name.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/g, '-')}`,
     available: false,
     reason,
   };
@@ -348,7 +353,7 @@ function latencyFromCost(cost: ChoiceOption['cost']): ChoiceOption['latency'] {
 
 function choiceKindForSkill(skill: RouteSkillRef): ChoiceOption['kind'] {
   if (skill.kind === 'mode') return 'mode';
-  return skill.origin.toLowerCase().includes('plugin') ? 'plugin' : 'skill';
+  return (skill.provider ?? skill.origin).toLowerCase().includes('plugin') ? 'plugin' : 'skill';
 }
 
 function skillChoice(skill: RouteSkillRef, graph: Graph, fallbackConfidence: number): ChoiceOption {
@@ -601,6 +606,26 @@ function uniqueChoices(items: ChoiceOption[]): ChoiceOption[] {
 function choiceConflicts(skills: RouteSkillRef[], skillChoices: ChoiceOption[]): ConflictNotice[] {
   const conflicts: ConflictNotice[] = [];
   const available = skillChoices.filter(choice => !choice.id.startsWith('skill:missing:'));
+  const choiceBySkillId = new Map(skillChoices.map(choice => [choice.id.split(':').slice(1).join(':'), choice]));
+  const byConflictGroup = new Map<string, RouteSkillRef[]>();
+  for (const skill of skills) {
+    if (!skill.available || !skill.conflictGroup) continue;
+    const items = byConflictGroup.get(skill.conflictGroup) ?? [];
+    items.push(skill);
+    byConflictGroup.set(skill.conflictGroup, items);
+  }
+  for (const [group, items] of byConflictGroup) {
+    if (items.length < 2) continue;
+    const winner = choiceBySkillId.get(items[0].id);
+    if (!winner) continue;
+    conflicts.push({
+      group,
+      winner: winner.id,
+      suppressed: items.slice(1).map(skill => choiceBySkillId.get(skill.id)?.id).filter((id): id is string => Boolean(id)),
+      reason: 'Multiple matched capabilities share a registry conflict group; route should use the winner first and keep others as alternatives.',
+      severity: 'warn',
+    });
+  }
   if (available.length > 1) {
     conflicts.push({
       group: 'skill:same-intent',

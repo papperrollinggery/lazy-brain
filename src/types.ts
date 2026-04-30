@@ -297,6 +297,9 @@ export interface RouteSkillRef {
   kind: CapabilityKind;
   category: string;
   origin: string;
+  provider?: string;
+  conflictGroup?: string;
+  sideEffects?: CapabilitySideEffect[];
   available: boolean;
   score?: number;
   layer?: MatchLayer;
