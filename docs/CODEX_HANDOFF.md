@@ -26,6 +26,21 @@ The v1 product should stay CLI/hook-first, but must visibly communicate value:
 - What decision it made and what work it avoided
 - Which runtime/model layer is being used
 
+The next product layer is adaptive routing. The project roadmap now lives at
+`docs/adaptive-routing-roadmap.md` and defines how LazyBrain should expose
+model choices, mode choices, skill/plugin alternatives, and conflict notices
+through a stable `ChoiceSet`.
+
+Execution order:
+
+1. Freeze the current route and release-readiness baseline.
+2. Add `ChoiceSet` schema to route, CLI, HTTP, and MCP outputs.
+3. Add model and mode recommendation policy.
+4. Add skill/plugin/hook conflict resolution.
+5. Add workspace preference learning.
+6. Expose choices in customer-facing surfaces.
+7. Add benchmark and release gates for adaptive routing.
+
 Future UI direction is a desktop companion / virtual pet, but it should be the
 visible companion shell around a reliable routing engine, not a separate product
 that hides weak routing.
