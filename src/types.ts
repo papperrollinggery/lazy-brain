@@ -173,12 +173,19 @@ export interface GovernanceDecision {
 
 // ─── Link (Graph Edge) ──────────────────────────────────────────────────────
 
-export type LinkType =
-  | 'similar_to'      // Functionally similar, needs comparison
-  | 'composes_with'   // Can be used together
-  | 'supersedes'      // Replaces an older version
-  | 'depends_on'      // Requires another capability
-  | 'belongs_to';     // Ecosystem membership
+export const LINK_TYPES = [
+  'similar_to',
+  'composes_with',
+  'supersedes',
+  'depends_on',
+  'belongs_to',
+] as const;
+
+export type LinkType = typeof LINK_TYPES[number];
+
+export function isLinkType(value: unknown): value is LinkType {
+  return typeof value === 'string' && (LINK_TYPES as readonly string[]).includes(value);
+}
 
 /**
  * A bidirectional edge between two capabilities.
@@ -204,6 +211,7 @@ export interface CapabilityGraph {
   version: string;
   compiledAt: string;
   compileModel?: string;
+  compileErrors?: string[];
   nodes: Capability[];
   links: Link[];
   categories: string[];

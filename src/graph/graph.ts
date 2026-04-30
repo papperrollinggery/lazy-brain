@@ -60,6 +60,7 @@ import type {
   LinkType,
   WikiCard,
 } from '../types.js';
+import { isLinkType } from '../types.js';
 import { GRAPH_PATH, GRAPH_VERSION } from '../constants.js';
 
 export class Graph {
@@ -67,6 +68,7 @@ export class Graph {
   private adjacency: Map<string, Link[]> = new Map();
   private compileModel?: string;
   private compiledAt?: string;
+  private compileErrors: string[] = [];
 
   // ─── Load / Save ────────────────────────────────────────────────────────
 
@@ -100,10 +102,11 @@ export class Graph {
         g.nodes.set(validNode.id, validNode);
       }
       for (const link of raw.links ?? []) {
-        g.addLinkInternal(link);
+        if (isLinkType(link.type)) g.addLinkInternal(link);
       }
       g.compileModel = raw.compileModel;
       g.compiledAt = raw.compiledAt;
+      g.compileErrors = Array.isArray(raw.compileErrors) ? raw.compileErrors.filter((error): error is string => typeof error === 'string') : [];
       return g;
     });
   }
@@ -118,6 +121,7 @@ export class Graph {
         version: GRAPH_VERSION,
         compiledAt: this.compiledAt ?? new Date().toISOString(),
         compileModel: this.compileModel,
+        compileErrors: this.compileErrors,
         nodes,
         links: this.getAllLinks(),
         categories: [...new Set(nodes.map(n => n.category))].sort(),
@@ -171,6 +175,7 @@ export class Graph {
 
   addLink(link: Link): void {
     if (!this.nodes.has(link.source) || !this.nodes.has(link.target)) return;
+    if (!isLinkType(link.type)) return;
     this.addLinkInternal(link);
   }
 
@@ -346,8 +351,13 @@ export class Graph {
 
   // ─── Metadata ─────────────────────────────────────────────────────────
 
-  setCompileInfo(model: string): void {
+  setCompileInfo(model: string, errors: string[] = []): void {
     this.compileModel = model;
     this.compiledAt = new Date().toISOString();
+    this.compileErrors = [...errors];
+  }
+
+  getCompileErrors(): string[] {
+    return [...this.compileErrors];
   }
 }

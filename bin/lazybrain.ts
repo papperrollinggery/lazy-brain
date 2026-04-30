@@ -582,7 +582,7 @@ async function cmdCompile() {
     console.log(`  By kind: ${JSON.stringify(s.byKind)}`);
     console.log(`\n  Saved to ${GRAPH_PATH}`);
     console.log(`  Run 'lazybrain match "<query>"' to test matching.`);
-    writeFileSync(STATUS_PATH, JSON.stringify({ state: 'idle', updatedAt: Date.now() }));
+    writeFileSync(STATUS_PATH, JSON.stringify({ state: 'idle', updatedAt: Date.now(), lastCompileErrorCount: 0, lastCompileErrors: [] }));
   } else {
     // LLM mode
     console.log(`  Mode: LLM (${config.compileModel})`);
@@ -663,7 +663,12 @@ async function cmdCompile() {
     const s = result.graph.stats();
     console.log(`  Nodes: ${s.nodes}, Links: ${s.links}`);
     console.log(`\n  Saved to ${GRAPH_PATH}`);
-    writeFileSync(STATUS_PATH, JSON.stringify({ state: 'idle', updatedAt: Date.now() }));
+    writeFileSync(STATUS_PATH, JSON.stringify({
+      state: 'idle',
+      updatedAt: Date.now(),
+      lastCompileErrorCount: errors,
+      lastCompileErrors: result.errors.slice(0, 20),
+    }));
   }
 }
 
@@ -2261,6 +2266,14 @@ function cmdReady() {
   const status = readJsonStatus(STATUS_PATH);
   const runtime = getHookRuntimeSnapshot({ config });
   const initialBlockers: string[] = [];
+  let compileErrors: string[] = [];
+  if (existsSync(GRAPH_PATH)) {
+    try {
+      compileErrors = Graph.load(GRAPH_PATH).getCompileErrors();
+    } catch {
+      initialBlockers.push(`Graph is invalid JSON: ${GRAPH_PATH}`);
+    }
+  }
   const scopes = (['project', 'global'] as const).map((scope) => {
     const settingsPath = getClaudeSettingsPath(scope);
     const hooksPath = getClaudeHooksPath(scope);
@@ -2282,6 +2295,7 @@ function cmdReady() {
 
   const report = evaluateReady({
     graphExists: existsSync(GRAPH_PATH),
+    compileErrors,
     status,
     runtime,
     scopes,

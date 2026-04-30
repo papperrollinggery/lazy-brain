@@ -10,11 +10,9 @@
 import { createHash } from 'node:crypto';
 import type {
   RawCapability,
-  Capability,
-  Link,
   LLMProvider,
-  LLMResponse,
 } from '../types.js';
+import { isLinkType } from '../types.js';
 import { CATEGORIES, GRAPH_VERSION } from '../constants.js';
 import { Graph } from '../graph/graph.js';
 
@@ -311,6 +309,7 @@ export async function compile(
   // Only process tier 0+1 nodes for relations; tier 2 is skipped for speed
   // If forceRelations is false, only process newly compiled nodes (incremental mode)
   if (skipRelations) {
+    graph.setCompileInfo(modelName, errors);
     return { graph, compiled, skipped, errors, totalTokens };
   }
 
@@ -321,6 +320,7 @@ export async function compile(
 
   // Skip Phase 2 if no new nodes to process
   if (relationNodes.length === 0) {
+    graph.setCompileInfo(modelName, errors);
     return {
       graph,
       compiled,
@@ -354,15 +354,15 @@ export async function compile(
         totalTokens.output += response.outputTokens;
 
         const relations = parseJsonResponse<Array<{
-          target: string;
-          type: string;
-          description?: string;
-          diff?: string;
-          confidence: number;
+          target?: unknown;
+          type?: unknown;
+          description?: unknown;
+          diff?: unknown;
+          confidence?: unknown;
         }>>(response.content);
 
         if (!relations) {
-          errors.push(`relation:${node.id}: failed to parse LLM response`);
+          errors.push(`relation_parse_failed:${node.name}:${node.id}: failed to parse LLM response`);
           return { nodeId: node.id, relations: [] };
         }
 
@@ -370,31 +370,39 @@ export async function compile(
       }),
     );
 
-    for (const result of results) {
+    for (let resultIndex = 0; resultIndex < results.length; resultIndex++) {
+      const result = results[resultIndex];
       if (result.status === 'rejected') {
-        const batchIndex = results.indexOf(result);
-        const failedNode = batch[batchIndex];
+        const failedNode = batch[resultIndex];
         const errMsg = result.reason instanceof Error ? result.reason.message : String(result.reason);
-        errors.push(`relation:${failedNode?.name ?? '?'}: ${errMsg}`);
+        errors.push(`relation_call_failed:${failedNode?.name ?? '?'}:${failedNode?.id ?? '?'}: ${errMsg}`);
         continue;
       }
       if (result.status !== 'fulfilled') continue;
       const val = result.value;
       if (!val || Array.isArray(val)) continue;
-      const { nodeId, relations } = val as { nodeId: string; relations: Array<{ target: string; type: string; description?: string; diff?: string; confidence: number }> };
-      for (const rel of relations.filter(r => r.target && r.type && typeof r.confidence === 'number')) {
-        const targetNode = graph.findByName(rel.target);
-        if (!targetNode) {
-          process.stderr.write(`[DEBUG] relation:${nodeId}->${rel.target}: target not found\n`);
+      const { nodeId, relations } = val as { nodeId: string; relations: Array<{ target?: unknown; type?: unknown; description?: unknown; diff?: unknown; confidence?: unknown }> };
+      for (const rel of relations) {
+        if (typeof rel.target !== 'string' || typeof rel.type !== 'string' || typeof rel.confidence !== 'number') {
+          errors.push(`relation_invalid_shape:${nodeId}: missing target/type/confidence`);
           continue;
         }
         if (rel.confidence < 0.6) continue;
+        if (!isLinkType(rel.type)) {
+          errors.push(`relation_invalid_type:${nodeId}->${rel.target}: ${rel.type}`);
+          continue;
+        }
+        const targetNode = graph.findByName(rel.target);
+        if (!targetNode) {
+          errors.push(`relation_target_missing:${nodeId}->${rel.target}`);
+          continue;
+        }
         graph.addLink({
           source: nodeId,
           target: targetNode.id,
-          type: rel.type as Link['type'],
-          description: rel.description,
-          diff: rel.diff,
+          type: rel.type,
+          description: typeof rel.description === 'string' ? rel.description : undefined,
+          diff: typeof rel.diff === 'string' ? rel.diff : undefined,
           confidence: rel.confidence,
         });
       }
@@ -404,7 +412,7 @@ export async function compile(
     onRelationProgress?.(relationCount, relationNodes.length);
   }
 
-  graph.setCompileInfo(modelName);
+  graph.setCompileInfo(modelName, errors);
   return { graph, totalTokens, compiled, skipped, errors };
 }
 

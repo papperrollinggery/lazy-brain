@@ -39,6 +39,15 @@ describe('evaluateReady', () => {
     expect(report.blockers.join('\n')).toContain('Graph missing');
   });
 
+  it('reports NOT_READY when the graph persisted compile errors', () => {
+    const report = evaluateReady({
+      ...base,
+      compileErrors: ['relation_invalid_type:source->target: blocks'],
+    });
+    expect(report.state).toBe('NOT_READY');
+    expect(report.blockers.join('\n')).toContain('Graph has 1 compile errors');
+  });
+
   it('reports NOT_READY when LazyBrain remains in Stop', () => {
     const report = evaluateReady({
       ...base,

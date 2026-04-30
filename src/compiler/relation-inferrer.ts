@@ -5,6 +5,7 @@
  */
 
 import type { LLMProvider, RawCapability, LinkType } from '../types.js';
+import { isLinkType } from '../types.js';
 
 export interface InferredRelation {
   targetName: string;
@@ -61,14 +62,6 @@ function parseJsonResponse<T>(content: string): T | null {
   }
 }
 
-const VALID_TYPES: LinkType[] = [
-  'similar_to',
-  'composes_with',
-  'supersedes',
-  'depends_on',
-  'belongs_to',
-];
-
 export async function inferRelations(
   cap: RawCapability,
   candidates: Array<{ name: string; description: string }>,
@@ -104,12 +97,11 @@ export async function inferRelations(
 
       if (item.confidence < 0.6) continue;
 
-      const type = item.type as string;
-      if (!VALID_TYPES.includes(type as LinkType)) continue;
+      if (!isLinkType(item.type)) continue;
 
       relations.push({
         targetName: item.target,
-        type: type as LinkType,
+        type: item.type,
         description: item.description,
         diff: typeof item.diff === 'string' ? item.diff : undefined,
         confidence: item.confidence,

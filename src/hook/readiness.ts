@@ -36,6 +36,7 @@ export interface ReadyReport {
 
 export interface EvaluateReadyOptions {
   graphExists: boolean;
+  compileErrors?: string[];
   status?: Record<string, unknown> | null;
   runtime: HookRuntimeSnapshot;
   scopes: ReadyScopeInput[];
@@ -71,6 +72,9 @@ export function evaluateReady(options: EvaluateReadyOptions): ReadyReport {
 
   if (!options.graphExists) {
     blockers.push('Graph missing. Run `lazybrain scan && lazybrain compile --offline` first.');
+  }
+  if ((options.compileErrors?.length ?? 0) > 0) {
+    blockers.push(`Graph has ${options.compileErrors?.length} compile errors. Run \`lazybrain compile --with-relations --force-relations\` after fixing the reported errors.`);
   }
 
   if (isRecentActiveStatus(options.status, now)) {
