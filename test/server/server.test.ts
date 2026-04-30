@@ -5,7 +5,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as http from 'node:http';
 import { homedir } from 'node:os';
-import { createRouter } from '../../src/server/router.js';
+import { createRouter, sanitizeConfigUpdate } from '../../src/server/router.js';
 import { Graph } from '../../src/graph/graph.js';
 import type { UserConfig } from '../../src/types.js';
 import { DEFAULT_CONFIG } from '../../src/constants.js';
@@ -110,6 +110,7 @@ describe('GUI routes', () => {
       expect(text).toContain('LazyBrain');
       expect(text).toContain('Try Router');
       expect(text).toContain('/cytoscape.min.js');
+      expect(text).not.toContain('unpkg.com/cytoscape');
     }
   });
 
@@ -153,6 +154,15 @@ describe('GUI routes', () => {
     expect(status).toBe(200);
     expect(body).toHaveProperty('results');
     expect(body.results[0].target).toBe('compile');
+  });
+
+  it('keeps blank secret config fields as no-ops', () => {
+    const result = sanitizeConfigUpdate({
+      compileApiKey: '',
+      compileApiBase: 'https://api.example.test/v1',
+    });
+    expect(result.patch).toEqual({ compileApiBase: 'https://api.example.test/v1' });
+    expect(result.ignoredKeys).toEqual(['compileApiKey']);
   });
 });
 

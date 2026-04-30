@@ -42,9 +42,14 @@ const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT = 100; // per second per IP
 const ROUTER_DIR = dirname(fileURLToPath(import.meta.url));
 const CYTOSCAPE_ASSET_CANDIDATES = [
-  join(process.cwd(), 'src', 'ui', 'cytoscape.min.js'),
   join(ROUTER_DIR, '..', 'ui', 'cytoscape.min.js'),
+  join(ROUTER_DIR, '..', 'src', 'ui', 'cytoscape.min.js'),
   join(ROUTER_DIR, '..', '..', 'src', 'ui', 'cytoscape.min.js'),
+];
+const LAZYBRAIN_CLI_CANDIDATES = [
+  join(ROUTER_DIR, 'bin', 'lazybrain.js'),
+  join(ROUTER_DIR, '..', 'dist', 'bin', 'lazybrain.js'),
+  join(ROUTER_DIR, '..', '..', 'dist', 'bin', 'lazybrain.js'),
 ];
 
 function isRateLimited(ip: string): boolean {
@@ -87,6 +92,13 @@ function readCytoscapeAsset(): Buffer | null {
     try {
       return readFileSync(path);
     } catch {}
+  }
+  return null;
+}
+
+function resolveLazyBrainCliPath(): string | null {
+  for (const path of LAZYBRAIN_CLI_CANDIDATES) {
+    if (existsSync(path)) return path;
   }
   return null;
 }
@@ -499,6 +511,20 @@ const VALID_ENGINES = new Set(['tag', 'semantic', 'hybrid', 'llm']);
 const VALID_STRATEGIES = new Set(['always-main', 'optimal', 'ask']);
 const VALID_MODES = new Set(['auto', 'select', 'ask']);
 const VALID_LANGUAGES = new Set(['auto', 'en', 'zh']);
+const SECRET_CONFIG_KEYS = new Set(['compileApiKey', 'embeddingApiKey', 'secretaryApiKey']);
+
+export function sanitizeConfigUpdate(body: Record<string, unknown>): { patch: Record<string, unknown>; ignoredKeys: string[] } {
+  const patch: Record<string, unknown> = {};
+  const ignoredKeys: string[] = [];
+  for (const [key, value] of Object.entries(body)) {
+    if (SECRET_CONFIG_KEYS.has(key) && typeof value === 'string' && value.trim() === '') {
+      ignoredKeys.push(key);
+      continue;
+    }
+    patch[key] = value;
+  }
+  return { patch, ignoredKeys };
+}
 
 async function handleUpdateConfig(
   req: http.IncomingMessage,
@@ -557,12 +583,13 @@ async function handleUpdateConfig(
   }
 
   try {
+    const { patch, ignoredKeys } = sanitizeConfigUpdate(body);
     const config = loadConfig();
-    Object.assign(config, body);
+    Object.assign(config, patch);
     saveConfig(config);
     // Also update the live config so /api/status reflects changes immediately
-    Object.assign(liveConfig, body);
-    json(res, 200, { ok: true });
+    Object.assign(liveConfig, patch);
+    json(res, 200, { ok: true, ignoredKeys });
   } catch (error) {
     json(res, 500, {
       ok: false,
@@ -576,6 +603,8 @@ async function handleUpdateConfig(
 let _compileProcess: ReturnType<typeof spawn> | null = null;
 let _compileLog: string[] = [];
 let _compilePhase = '';
+let _compileExitCode: number | null = null;
+let _compileTimedOut = false;
 
 function handleCompileStart(
   _req: http.IncomingMessage,
@@ -587,6 +616,8 @@ function handleCompileStart(
   }
   _compileLog = [];
   _compilePhase = 'starting';
+  _compileExitCode = null;
+  _compileTimedOut = false;
 
   // Use the CLI's compile command - it already handles progress display
   const args = ['compile'];
@@ -596,7 +627,11 @@ function handleCompileStart(
   
   try {
     const COMPILE_TIMEOUT_MS = parseInt(process.env.LAZYBRAIN_COMPILE_TIMEOUT || '1200000', 10); // default 20 min
-    const child = spawn(process.execPath, [join(LAZYBRAIN_DIR, '..', '..', 'dist', 'bin', 'lazybrain.js'), ...args], {
+    const cliPath = resolveLazyBrainCliPath();
+    if (!cliPath) {
+      return json(res, 500, { ok: false, error: 'LazyBrain CLI build not found. Run `npm run build` first.' });
+    }
+    const child = spawn(process.execPath, [cliPath, ...args], {
       cwd: process.cwd(),
       env: { ...process.env, FORCE_COLOR: '0' },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -618,9 +653,16 @@ function handleCompileStart(
       _compileLog.push('[err] ' + data.toString().trim());
     });
     
-    const _compileTimer = setTimeout(() => { if (child.exitCode === null) { child.kill(); _compilePhase = 'timeout'; _compileProcess = null; } }, COMPILE_TIMEOUT_MS);
-    child.on('close', (code) => { clearTimeout(_compileTimer);
-      _compilePhase = code === 0 ? 'completed' : 'failed';
+    const _compileTimer = setTimeout(() => {
+      if (child.exitCode === null) {
+        _compileTimedOut = true;
+        _compilePhase = 'timeout';
+        child.kill();
+      }
+    }, COMPILE_TIMEOUT_MS);
+    child.on('close', (code, signal) => { clearTimeout(_compileTimer);
+      _compileExitCode = code ?? (_compileTimedOut ? 124 : signal ? 1 : null);
+      _compilePhase = _compileTimedOut ? 'timeout' : _compileExitCode === 0 ? 'completed' : 'failed';
       _compileProcess = null;
     });
     
@@ -640,7 +682,7 @@ function handleCompileStatus(
     running,
     phase: _compilePhase || (running ? 'running' : 'idle'),
     recentLog: _compileLog.slice(-20),
-    exitCode: _compileProcess?.exitCode ?? null,
+    exitCode: running ? null : _compileExitCode,
   });
 }
 

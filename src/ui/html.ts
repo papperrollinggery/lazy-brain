@@ -415,11 +415,6 @@ export const UI_HTML = `<!doctype html>
     .graph-legend .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
   </style>
   <script src="/cytoscape.min.js"></script>
-  <script>
-    if (typeof cytoscape === 'undefined') {
-      document.write('<script src="https://unpkg.com/cytoscape@3.30.4/dist/cytoscape.min.js"><\\/script>');
-    }
-  </script>
 </head>
 <body>
   <div class="topbar">
@@ -519,7 +514,7 @@ export const UI_HTML = `<!doctype html>
         <div style="display:flex;gap:8px;margin-left:auto" onclick="event.stopPropagation()">
           <span id="compileStatus" class="text-3" style="font-size:12px;align-self:center"></span>
           <button class="btn btn-sm" id="compileBtn" style="font-size:12px">编译图谱</button>
-          <button class="btn btn-sm" id="scanBtn" style="font-size:12px">重新扫描</button>
+          <button class="btn btn-sm" id="scanBtn" style="font-size:12px">扫描并编译</button>
         </div>
         <span class="collapse-arrow">&#9660;</span>
       </div>
@@ -770,11 +765,21 @@ export const UI_HTML = `<!doctype html>
       renderConfig();
     }
 
+    function isSecretConfigKey(key) {
+      return key === 'compileApiKey' || key === 'embeddingApiKey' || key === 'secretaryApiKey';
+    }
+
     function saveConfig(key) {
       var inputId = 'cfg-' + key.replace(/\./g, '-');
       var input = $(inputId);
       if (!input) return;
       var value = input.value.trim();
+      if (isSecretConfigKey(key) && value === '') {
+        state.configEditing[key] = false;
+        renderConfig();
+        showToast('API Key 未修改', 'success');
+        return;
+      }
       var payload = {};
       payload[key] = value;
       api('/api/config', {
@@ -837,8 +842,8 @@ export const UI_HTML = `<!doctype html>
         {
           title: '路由设置 (Routing)',
           fields: [
-            { name: 'engine', label: '路由引擎', type: 'select', pw: false, options: ['tag', 'semantic', 'hybrid'] },
-            { name: 'strategy', label: '路由策略', type: 'select', pw: false, options: ['auto', 'ask', 'recommend'] },
+            { name: 'engine', label: '路由引擎', type: 'select', pw: false, options: ['tag', 'semantic', 'hybrid', 'llm'] },
+            { name: 'strategy', label: '路由策略', type: 'select', pw: false, options: ['always-main', 'optimal', 'ask'] },
           ],
         },
         {
@@ -992,13 +997,12 @@ export const UI_HTML = `<!doctype html>
           hookBreaker = diag.hook.breakerOpen;
           hookP95 = diag.hook.p95DurationMs;
         }
-        if (diag.graph) {
-          graphNodes = diag.graph.nodes;
-          graphCompiled = diag.graph.lastCompiled;
+        if (diag.graphStatus) {
+          graphNodes = diag.graphStatus.nodes;
+          graphCompiled = diag.graphStatus.lastCompiled;
         }
-        if (diag.embedding) {
-          embState = diag.embedding.state;
-          embCache = diag.embedding.cacheSize;
+        if (diag.embeddingStatus) {
+          embState = diag.embeddingStatus;
         }
       }
 
@@ -1205,15 +1209,19 @@ export const UI_HTML = `<!doctype html>
 
     // ─── Compile / Scan buttons ─────────────────────────────────
     var _compilePollTimer = null;
+    function setCompileButtonsDisabled(disabled) {
+      $('compileBtn').disabled = disabled;
+      $('scanBtn').disabled = disabled;
+    }
     function startCompile() {
-      $('compileBtn').disabled = true;
+      setCompileButtonsDisabled(true);
       $('compileStatus').textContent = '启动中...';
       api('/api/compile', { method: 'POST' }).then(function(res) {
         if (res.ok) pollCompile();
-        else { showToast('编译失败: ' + esc(res.error), 'error'); $('compileBtn').disabled = false; }
+        else { showToast('编译失败: ' + esc(res.error), 'error'); setCompileButtonsDisabled(false); }
       }).catch(function(e) {
         showToast('编译失败: ' + esc(e.message), 'error');
-        $('compileBtn').disabled = false;
+        setCompileButtonsDisabled(false);
       });
     }
     function pollCompile() {
@@ -1222,20 +1230,23 @@ export const UI_HTML = `<!doctype html>
         if (s.running) {
           _compilePollTimer = setTimeout(pollCompile, 2000);
         } else {
-          $('compileBtn').disabled = false;
-          $('compileStatus').textContent = s.exitCode === 0 ? '✓ 编译完成' : '✗ 编译失败';
+          setCompileButtonsDisabled(false);
+          $('compileStatus').textContent = s.exitCode === 0 ? '✓ 编译完成' : s.exitCode == null ? '' : '✗ 编译失败';
           setTimeout(function() { $('compileStatus').textContent = ''; }, 8000);
           load(); // Refresh all data
         }
+      }).catch(function(e) {
+        showToast('状态刷新失败: ' + esc(e.message), 'error');
+        setCompileButtonsDisabled(false);
       });
     }
     function startScan() {
-      $('scanBtn').disabled = true;
-      $('compileStatus').textContent = '扫描+编译中...';
+      setCompileButtonsDisabled(true);
+      $('compileStatus').textContent = '编译中...';
       api('/api/compile', { method: 'POST' }).then(function(res) {
         if (res.ok) { pollCompile(); }
-        else { showToast('启动失败: ' + esc(res.error), 'error'); $('scanBtn').disabled = false; }
-      }).catch(function(e) { showToast('失败: ' + esc(e.message), 'error'); $('scanBtn').disabled = false; });
+        else { showToast('启动失败: ' + esc(res.error), 'error'); setCompileButtonsDisabled(false); }
+      }).catch(function(e) { showToast('失败: ' + esc(e.message), 'error'); setCompileButtonsDisabled(false); });
     }
     $('compileBtn').onclick = startCompile;
     $('scanBtn').onclick = startScan;
