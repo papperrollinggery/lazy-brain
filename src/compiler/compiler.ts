@@ -37,7 +37,27 @@ function getSystemPrompt(config?: { compileSystemPrompt?: string }): string {
   return config?.compileSystemPrompt || DEFAULT_SYSTEM_PROMPT;
 }
 
-function makeTagPrompt(cap: RawCapability): string {
+function renderPromptTemplate(template: string, values: Record<string, string>): string {
+  return template.replace(/\$\{([A-Za-z0-9_.]+)\}|\{([A-Za-z0-9_.]+)\}/g, (match, dollarKey: string | undefined, braceKey: string | undefined) => {
+    const key = dollarKey ?? braceKey;
+    return key && values[key] !== undefined ? values[key] : match;
+  });
+}
+
+function makeTagPrompt(cap: RawCapability, config?: { compileTagPrompt?: string }): string {
+  if (config?.compileTagPrompt?.trim()) {
+    return renderPromptTemplate(config.compileTagPrompt, {
+      name: cap.name,
+      kind: cap.kind,
+      description: cap.description,
+      origin: cap.origin,
+      filePath: cap.filePath,
+      compatibility: cap.compatibility.join(', '),
+      triggers: (cap.triggers ?? []).join(', '),
+      categories: CATEGORIES.join(', '),
+    });
+  }
+
   return `Analyze this AI coding agent capability and generate metadata.
 
 Name: ${cap.name}
@@ -47,12 +67,14 @@ ${cap.triggers?.length ? `Triggers: ${cap.triggers.join(', ')}` : ''}
 
 Respond with JSON:
 {
-  "tags": ["keyword1", "keyword2", ...],       // 8-15 semantic tags (include Chinese if description has CJK)
-  "exampleQueries": ["query1", "query2", ...], // 5-8 example user queries that should match this (mix languages)
+  "tags": ["keyword1", "keyword2"],
+  "exampleQueries": ["query1", "query2"],
   "category": "one-of: ${CATEGORIES.join(', ')}",
   "scenario": "one sentence: when a user should use this",
   "explanation_template": "Chinese template explaining why this tool matches: {query_tags} {history_hint} {tool_name}"
-}`;
+}
+
+Return only valid JSON. Do not include comments, markdown fences, or extra text.`;
 }
 
 function makeBatchTagPrompt(caps: RawCapability[]): string {
@@ -84,10 +106,29 @@ Respond with a JSON array (one object per capability, in order):
 function makeRelationPrompt(
   cap: RawCapability,
   neighbors: Array<{ name: string; description: string }>,
+  config?: { compileRelationPrompt?: string },
 ): string {
   const neighborList = neighbors
     .map(n => `  - ${n.name}: ${n.description}`)
     .join('\n');
+
+  if (config?.compileRelationPrompt?.trim()) {
+    return renderPromptTemplate(config.compileRelationPrompt, {
+      name: cap.name,
+      kind: cap.kind,
+      description: cap.description,
+      origin: cap.origin,
+      filePath: cap.filePath,
+      compatibility: cap.compatibility.join(', '),
+      triggers: (cap.triggers ?? []).join(', '),
+      'cap.name': cap.name,
+      'cap.kind': cap.kind,
+      'cap.description': cap.description,
+      neighbors: neighborList,
+      neighborList,
+      categories: CATEGORIES.join(', '),
+    });
+  }
 
   return `Given this capability and a list of other capabilities, identify relationships.
 
@@ -109,7 +150,8 @@ For each relationship found, respond with JSON array:
   }
 ]
 
-Only include relationships with confidence >= 0.6. Return [] if none found.`;
+Only include relationships with confidence >= 0.6. Return [] if none found.
+Return only valid JSON. Do not include comments, markdown fences, or extra text.`;
 }
 
 // ─── Compiler ─────────────────────────────────────────────────────────────
@@ -195,7 +237,7 @@ export async function compile(
       const isFirst = i === 0 && chunk[0].raw === raw;
 
       try {
-        const prompt = makeTagPrompt(raw);
+        const prompt = makeTagPrompt(raw, options.config);
         const response = await llm.complete(prompt, getSystemPrompt(options.config));
         totalTokens.input += response.inputTokens;
         totalTokens.output += response.outputTokens;
@@ -305,6 +347,7 @@ export async function compile(
         const prompt = makeRelationPrompt(
           { kind: node.kind, name: node.name, description: node.description, origin: node.origin, filePath: node.filePath ?? '', compatibility: node.compatibility, triggers: node.triggers },
           candidates.map(c => ({ name: c.name, description: c.description })),
+          options.config,
         );
         const response = await llm.complete(prompt, getSystemPrompt(options.config));
         totalTokens.input += response.inputTokens;
@@ -368,17 +411,125 @@ export async function compile(
 // ─── Helpers ──────────────────────────────────────────────────────────────
 
 function parseJsonResponse<T>(content: string): T | null {
-  try {
-    // Strip <think>...</think> blocks (closed or truncated/unclosed)
-    const cleaned = content
-      .replace(/<think>[\s\S]*?<\/think>/g, '')
-      .replace(/<think>[\s\S]*/g, '')
-      .replace(/^```(?:json)?\s*/m, '')
-      .replace(/\s*```\s*$/m, '')
-      .trim();
-    if (!cleaned) return null;
-    return JSON.parse(cleaned) as T;
-  } catch {
-    return null;
+  // Strip <think>...</think> blocks (closed or truncated/unclosed).
+  const cleaned = content
+    .replace(/<think>[\s\S]*?<\/think>/g, '')
+    .replace(/<think>[\s\S]*/g, '')
+    .trim();
+  if (!cleaned) return null;
+
+  const candidates = [cleaned, extractJsonCandidate(cleaned)]
+    .filter((value): value is string => Boolean(value?.trim()));
+
+  for (const candidate of candidates) {
+    const normalized = normalizeJsonCandidate(candidate);
+    try {
+      return JSON.parse(normalized) as T;
+    } catch {}
   }
+
+  return null;
+}
+
+function normalizeJsonCandidate(content: string): string {
+  const withoutFences = content
+    .replace(/^\s*```(?:json)?\s*/i, '')
+    .replace(/\s*```\s*$/i, '')
+    .trim();
+  return stripJsonComments(withoutFences).replace(/,\s*([}\]])/g, '$1').trim();
+}
+
+function extractJsonCandidate(content: string): string | null {
+  const start = findFirstJsonStart(content);
+  if (start < 0) return null;
+
+  const open = content[start];
+  const close = open === '{' ? '}' : ']';
+  const stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+
+  for (let i = start; i < content.length; i++) {
+    const char = content[i];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+    if (char === '{' || char === '[') {
+      stack.push(char === '{' ? '}' : ']');
+      continue;
+    }
+    if (char === '}' || char === ']') {
+      if (stack.pop() !== char) return null;
+      if (stack.length === 0 && char === close) return content.slice(start, i + 1);
+    }
+  }
+
+  return null;
+}
+
+function findFirstJsonStart(content: string): number {
+  const objectStart = content.indexOf('{');
+  const arrayStart = content.indexOf('[');
+  if (objectStart < 0) return arrayStart;
+  if (arrayStart < 0) return objectStart;
+  return Math.min(objectStart, arrayStart);
+}
+
+function stripJsonComments(content: string): string {
+  let result = '';
+  let inString = false;
+  let escaped = false;
+
+  for (let i = 0; i < content.length; i++) {
+    const char = content[i];
+    const next = content[i + 1];
+
+    if (inString) {
+      result += char;
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inString = true;
+      result += char;
+      continue;
+    }
+
+    if (char === '/' && next === '/') {
+      while (i < content.length && content[i] !== '\n') i++;
+      result += '\n';
+      continue;
+    }
+
+    if (char === '/' && next === '*') {
+      i += 2;
+      while (i < content.length && !(content[i] === '*' && content[i + 1] === '/')) i++;
+      i++;
+      continue;
+    }
+
+    result += char;
+  }
+
+  return result;
 }

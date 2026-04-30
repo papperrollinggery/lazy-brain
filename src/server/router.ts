@@ -578,7 +578,7 @@ function handleCompileStart(
   }
   
   try {
-    const COMPILE_TIMEOUT_MS = 5 * 60 * 1000;
+    const COMPILE_TIMEOUT_MS = parseInt(process.env.LAZYBRAIN_COMPILE_TIMEOUT || '1200000', 10); // default 20 min
     const child = spawn(process.execPath, [join(LAZYBRAIN_DIR, '..', '..', 'dist', 'bin', 'lazybrain.js'), ...args], {
       cwd: process.cwd(),
       env: { ...process.env, FORCE_COLOR: '0' },

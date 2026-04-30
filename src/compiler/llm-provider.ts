@@ -15,20 +15,26 @@ export class OpenAICompatibleProvider implements LLMProvider {
   private model: string;
   private apiBase: string;
   private apiKey: string;
+  private maxTokens: number;
 
   constructor(config: LLMProviderConfig) {
     this.model = config.model;
     this.apiBase = config.apiBase.replace(/\/$/, '');
     this.apiKey = config.apiKey ?? '';
+    this.maxTokens = config.maxTokens ?? parseInt(process.env.LAZYBRAIN_COMPILE_MAX_TOKENS || '2048', 10);
   }
 
   async complete(prompt: string, systemPrompt?: string, options?: { signal?: AbortSignal }): Promise<LLMResponse> {
     const messages: Array<{ role: string; content: string }> = [];
     if (systemPrompt) {
-      messages.push({ role: 'system', content: systemPrompt });
+      messages.push({
+        role: 'system',
+        content: `${systemPrompt}\nDo not include <think> blocks. Output the final JSON immediately.`,
+      });
     }
-    // Qwen 模型需要 /no_think 前缀关闭思考模式
-    const noThinkPrefix = this.model.toLowerCase().includes('qwen') ? '/no_think\n\n' : '';
+    // Some reasoning models accept /no_think but may still emit a short <think>;
+    // a larger token cap keeps the final JSON from being truncated.
+    const noThinkPrefix = /qwen|minimax|m2\.?7|deepseek/i.test(this.model) ? '/no_think\n\n' : '';
     messages.push({ role: 'user', content: noThinkPrefix + prompt });
 
     const res = await fetch(`${this.apiBase}/chat/completions`, {
@@ -42,7 +48,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
         model: this.model,
         messages,
         temperature: 0.3,
-        max_tokens: 512,
+        max_tokens: this.maxTokens,
       }),
       signal: options?.signal,
     });

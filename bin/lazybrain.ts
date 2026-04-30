@@ -611,12 +611,13 @@ async function cmdCompile() {
     writeFileSync(STATUS_PATH, JSON.stringify({ state: 'compiling', progress: `0/${rawCapabilities.length}`, updatedAt: Date.now() }));
 
     const phase2Bar = createProgressBar({ label: 'Phase 2/2  Relation Inference' });
+    let phase2Started = false;
 
     const result = await compile(rawCapabilities, {
       llm,
       modelName: config.compileModel,
       existingGraph: liveGraph,
-      forceRelations: args.includes('--force'),
+      forceRelations: args.includes('--force') || args.includes('--force-relations'),
       skipRelations: !args.includes('--with-relations'),
       config: { compileSystemPrompt: config.compileSystemPrompt, compileTagPrompt: config.compileTagPrompt, compileRelationPrompt: config.compileRelationPrompt },
       checkpointPath: GRAPH_PATH,
@@ -625,12 +626,13 @@ async function cmdCompile() {
         writeFileSync(STATUS_PATH, JSON.stringify({ state: 'compiling', progress: `${current}/${total}`, updatedAt: Date.now() }));
       },
       onRelationProgress: (current, total) => {
-        if (current === total) {
+        if (!phase2Started) {
+          phase2Bar.start(total);
+          phase2Started = true;
+        }
+        if (current >= total) {
           phase2Bar.complete();
         } else {
-          if (current === 0) {
-            phase2Bar.start(total);
-          }
           phase2Bar.update(current);
         }
       },
@@ -649,6 +651,13 @@ async function cmdCompile() {
     const elapsed = (phase1Bar.getElapsedSeconds() + (phase2Bar.getElapsedSeconds?.() ?? 0)).toFixed(0);
     const errors = result.errors.length;
     console.log(`  ${errors === 0 ? '✓' : '⚠'} Compiled ${result.compiled} capabilities  (${errors} errors, ${result.skipped} skipped)`);
+    if (errors > 0) {
+      console.log('  First errors:');
+      for (const error of result.errors.slice(0, 5)) {
+        console.log(`    - ${error.slice(0, 240)}`);
+      }
+      if (errors > 5) console.log(`    ... ${errors - 5} more`);
+    }
     console.log(`  Tokens: ${(result.totalTokens.input / 1000).toFixed(1)}K input / ${(result.totalTokens.output / 1000).toFixed(1)}K output`);
     console.log(`  Time: ${elapsed}s`);
     const s = result.graph.stats();
@@ -2603,6 +2612,8 @@ Usage:
   lazybrain scan [--platform <p>]       Scan capability sources
   lazybrain compile [--offline]      Build knowledge graph (--offline: no LLM)
   lazybrain compile --with-relations Include Phase 2 relation inference (slow)
+  lazybrain compile --with-relations --force-relations
+                                     Re-run relation inference for existing graph nodes
   lazybrain compile --all            Compile all platforms
   lazybrain compile --select         Interactive platform selection
   lazybrain compile --platform <p>   Compile specific platform only

@@ -601,6 +601,7 @@ export interface LLMProviderConfig {
   model: string;
   apiBase: string;
   apiKey?: string;
+  maxTokens?: number;
 }
 
 export interface LLMResponse {
