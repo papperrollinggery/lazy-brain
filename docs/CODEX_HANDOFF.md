@@ -182,7 +182,7 @@ Completed commit boundary:
 Final validation evidence:
 
 - `npm run build` passed.
-- `npm test` passed: 58 files / 629 tests.
+- `npm test` passed: 58 files / 642 tests.
 - `npm run lint` passed.
 - `npm run audit:public` passed.
 - `npm pack --dry-run --json` passed with 21 entries, including dist JS/map
@@ -193,6 +193,12 @@ Final validation evidence:
 - `doctor --all --json` has no hook conflicts. Current duplicate
   `frontend-design` and `setup` provider entries are classified as informational
   equivalent duplicates rather than warnings.
+
+Next-stage execution blueprint:
+
+- `plans/lazybrain-next-stage-adaptive-routing.md`
+- Scope: conflict-aware recommendations, runtime policy evidence, doctor
+  resolution guidance, and adaptive regression gates.
 
 ### Routing / Matching
 
