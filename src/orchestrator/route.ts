@@ -633,6 +633,7 @@ function choiceConflicts(skills: RouteSkillRef[], skillChoices: ChoiceOption[]):
       winner: winner.id,
       suppressed: items.slice(1).map(skill => choiceBySkillId.get(skill.id)?.id).filter((id): id is string => Boolean(id)),
       reason: 'Multiple matched capabilities share a registry conflict group; route should use the winner first and keep others as alternatives.',
+      suggestedAction: 'Use the winner for initial context. Select a suppressed provider only if its provider, platform, or side effects fit better; do not chain conflicting providers automatically.',
       severity: 'warn',
     });
   }
@@ -642,6 +643,7 @@ function choiceConflicts(skills: RouteSkillRef[], skillChoices: ChoiceOption[]):
       winner: available[0].id,
       suppressed: available.slice(1, 4).map(choice => choice.id),
       reason: 'Only the top matched capability should drive initial context; alternatives remain available in choices.',
+      suggestedAction: 'Auto-use the winner and keep alternatives visible for manual override; no user prompt is needed for this informational overlap.',
       severity: 'info',
     });
   }
@@ -652,6 +654,7 @@ function choiceConflicts(skills: RouteSkillRef[], skillChoices: ChoiceOption[]):
       winner: available[0]?.id ?? 'mode:route-plan',
       suppressed: missing.map(skill => `skill:${skill.id}`),
       reason: 'Some recommended combo roles are not installed, so the route should fall back to available capabilities or the generic workflow.',
+      suggestedAction: 'Continue with the available winner, or install the missing capability before rerunning the route if that role is required.',
       severity: 'warn',
     });
   }

@@ -307,5 +307,7 @@ describe('buildRouteSpec', () => {
     });
 
     expect(spec.choices.conflicts.some(conflict => conflict.group === 'skill:review')).toBe(true);
+    expect(spec.choices.conflicts.find(conflict => conflict.group === 'skill:review')?.suggestedAction)
+      .toContain('Use the winner');
   });
 });

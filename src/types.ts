@@ -342,6 +342,7 @@ export interface ConflictNotice {
   winner: string;
   suppressed: string[];
   reason: string;
+  suggestedAction?: string;
   severity: 'info' | 'warn' | 'block';
 }
 
