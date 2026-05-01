@@ -91,6 +91,8 @@ describe('buildRouteSpec', () => {
     expect(spec.whyRoute).toContain('dashboard_ceo');
     expect(spec.choices.recommended.kind).toBe('workflow');
     expect(spec.choices.recommended.id).toBe('workflow:dashboard_ceo');
+    expect(spec.choices.policy.defaultAction).toBe('auto');
+    expect(spec.choices.policy.askUser).toBe(false);
     expect(spec.choices.alternatives.some(choice => choice.kind === 'model')).toBe(true);
     expect(spec.choices.conflicts.some(conflict => conflict.group === 'skill:same-intent')).toBe(true);
     expect(spec.adapters.generic.prompt).toContain('Recommended choice: dashboard_ceo');
@@ -206,6 +208,7 @@ describe('buildRouteSpec', () => {
     expect(spec.choices.recommended.id).toBe('mode:clarify-first');
     expect(spec.choices.policy.defaultAction).toBe('ask');
     expect(spec.choices.policy.askUser).toBe(true);
+    expect(spec.choices.policy.reason).toContain('clarify');
     expect(spec.tokenStrategy.shouldClarifyFirst).toBe(true);
     expect(spec.clarificationQuestions?.length).toBeGreaterThan(0);
     expect(spec.skills).toEqual([]);
@@ -258,6 +261,7 @@ describe('buildRouteSpec', () => {
     expect(spec.mode).toBe('route_plan');
     expect(spec.choices.policy.defaultAction).toBe('ask');
     expect(spec.choices.policy.askUser).toBe(true);
+    expect(spec.choices.policy.reason).toContain('requires confirmation');
     expect(spec.choices.alternatives.some(choice => choice.id === 'model:strong-reasoning')).toBe(true);
     expect(spec.choices.alternatives.some(choice => choice.id === 'model:local-private')).toBe(true);
     expect(spec.choices.alternatives.some(choice => choice.id === 'mode:review' || choice.id === 'mode:qa')).toBe(true);
