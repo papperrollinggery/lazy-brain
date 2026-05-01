@@ -69,6 +69,7 @@ describe('capability conflict diagnostics', () => {
       suppressed: ['b'],
       severity: 'warn',
     });
+    expect(conflicts[0].suggestedAction).toContain('Choose one primary provider');
   });
 
   it('downgrades equivalent duplicate providers to info', () => {
@@ -102,6 +103,7 @@ describe('capability conflict diagnostics', () => {
       suppressed: ['b'],
       severity: 'info',
     });
+    expect(conflicts[0].suggestedAction).toContain('No action required');
   });
 
   it('treats same-name providers with highly similar descriptions as equivalent', () => {
@@ -131,5 +133,6 @@ describe('capability conflict diagnostics', () => {
       group: 'skill:frontend-design',
       severity: 'info',
     });
+    expect(conflicts[0].suggestedAction).toContain('No action required');
   });
 });

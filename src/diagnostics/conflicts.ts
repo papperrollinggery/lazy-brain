@@ -6,6 +6,7 @@ export interface CapabilityConflictDiagnostic {
   suppressed: string[];
   severity: 'info' | 'warn' | 'block';
   reason: string;
+  suggestedAction?: string;
 }
 
 type ConflictInput = Pick<RawCapability, 'kind' | 'name' | 'origin' | 'provider' | 'description' | 'filePath' | 'triggers'>;
@@ -132,6 +133,9 @@ export function detectCapabilityConflicts(capabilities: Capability[]): Capabilit
       reason: equivalent
         ? `Multiple providers expose equivalent ${group}; route will use the winner and keep duplicate providers as alternatives.`
         : `Multiple providers expose ${group}; route should rank one winner and keep the rest as alternatives.`,
+      suggestedAction: equivalent
+        ? 'No action required. Keep the selected winner and leave equivalent duplicate providers available as alternatives.'
+        : 'Choose one primary provider by sourcePriority or explicit conflictGroup metadata before chaining providers with different behavior.',
     });
   }
 

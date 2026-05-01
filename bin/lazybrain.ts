@@ -2273,6 +2273,7 @@ type DoctorHookConflict = {
   suppressed: string[];
   severity: 'info' | 'warn' | 'block';
   reason: string;
+  suggestedAction?: string;
 };
 
 type DoctorReport = {
@@ -2319,6 +2320,7 @@ function hookConflictDiagnostics(lifecycle: ReturnType<typeof getHookLifecycleSt
       suppressed: Array.from({ length: lifecycle.lazybrainUserPromptSubmitCount - 1 }, (_, index) => `duplicate:${index + 1}`),
       severity: 'warn',
       reason: 'Multiple LazyBrain UserPromptSubmit registrations are present; only one should own the event.',
+      suggestedAction: 'Run lazybrain doctor --fix for this scope to normalize LazyBrain-owned hook entries.',
     });
   }
   if (lifecycle.lazybrainStop) {
@@ -2328,6 +2330,7 @@ function hookConflictDiagnostics(lifecycle: ReturnType<typeof getHookLifecycleSt
       suppressed: ['lazybrain:stop'],
       severity: 'warn',
       reason: 'LazyBrain should not own Stop; Stop registrations are legacy and should be removed by doctor --fix.',
+      suggestedAction: 'Run lazybrain doctor --fix for this scope; it removes LazyBrain-owned legacy Stop entries without editing third-party hooks.',
     });
   }
   return conflicts;
@@ -2339,6 +2342,23 @@ function graphConflictDiagnostics(): CapabilityConflictDiagnostic[] {
     return detectCapabilityConflicts(Graph.load(GRAPH_PATH).getAllNodes());
   } catch {
     return [];
+  }
+}
+
+function printDoctorConflictGuidance(report: Pick<DoctorReport, 'conflicts'>): void {
+  const entries = [
+    ...report.conflicts.hooks.map(conflict => ({ type: 'hook', conflict })),
+    ...report.conflicts.capabilities.map(conflict => ({ type: 'capability', conflict })),
+  ];
+  if (entries.length === 0) return;
+
+  console.log('  Conflict guidance:');
+  for (const { type, conflict } of entries) {
+    console.log(`    - [${conflict.severity}] ${type}:${conflict.group}`);
+    console.log(`      Reason: ${conflict.reason}`);
+    if (conflict.suggestedAction) {
+      console.log(`      Action: ${conflict.suggestedAction}`);
+    }
   }
 }
 
@@ -2477,6 +2497,7 @@ function printDoctorForScope(doctorScope: HookInstallScope, shouldFix: boolean, 
       console.log('  Note: budget checker 已启用，但 doctor --fix 不会自动修改 LaunchAgent 状态。');
     }
   }
+  printDoctorConflictGuidance(report);
   return report;
 }
 
