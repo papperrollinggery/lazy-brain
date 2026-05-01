@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { applyChoicePreferences, loadChoicePreferences, recordChoiceFeedback } from '../../src/orchestrator/choice-preferences.js';
+import { applyChoicePreferences, clearChoicePreferences, loadChoicePreferences, recordChoiceFeedback } from '../../src/orchestrator/choice-preferences.js';
 import type { ChoiceSet } from '../../src/types.js';
 
 let tempDir: string | undefined;
@@ -105,5 +105,22 @@ describe('choice preferences', () => {
 
     expect(adjusted.recommended.id).toBe('model:balanced');
     expect(adjusted.alternatives.find(choice => choice.id === 'mode:autopilot')?.confidence).toBeGreaterThan(0.68);
+  });
+
+  it('clears one choice or all choices without storing prompt data', () => {
+    const path = tempPath();
+    recordChoiceFeedback({ choiceId: 'model:strong-reasoning', outcome: 'accepted', kind: 'model', path });
+    recordChoiceFeedback({ choiceId: 'mode:review', outcome: 'accepted', kind: 'mode', path });
+
+    const oneCleared = clearChoicePreferences({ choiceId: 'mode:review', path });
+
+    expect(oneCleared.choices['mode:review']).toBeUndefined();
+    expect(oneCleared.choices['model:strong-reasoning']?.accepted).toBe(1);
+    expect(JSON.stringify(oneCleared)).not.toContain('query');
+
+    const allCleared = clearChoicePreferences({ path });
+
+    expect(allCleared.choices).toEqual({});
+    expect(loadChoicePreferences(path).choices).toEqual({});
   });
 });

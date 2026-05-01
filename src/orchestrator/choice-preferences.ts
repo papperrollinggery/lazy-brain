@@ -72,6 +72,22 @@ export function recordChoiceFeedback(input: {
   return profile;
 }
 
+export function clearChoicePreferences(input: {
+  choiceId?: string;
+  path?: string;
+} = {}): ChoicePreferenceProfile {
+  const profile = loadChoicePreferences(input.path);
+  const choiceId = input.choiceId?.trim();
+  if (choiceId) {
+    delete profile.choices[choiceId];
+  } else {
+    profile.choices = {};
+  }
+  profile.updatedAt = new Date().toISOString();
+  saveChoicePreferences(profile, input.path);
+  return profile;
+}
+
 function preferenceWeight(stats: ChoicePreferenceStats | undefined): number {
   if (!stats) return 0;
   const total = stats.accepted + stats.rejected;

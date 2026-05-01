@@ -4,7 +4,9 @@
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as http from 'node:http';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
 import { createRouter } from '../../src/server/router.js';
 import { sanitizeConfigUpdate } from '../../src/config/schema.js';
 import { Graph } from '../../src/graph/graph.js';
@@ -47,8 +49,10 @@ function makeMockGraph(): Graph {
 let server: http.Server;
 let baseUrl: string;
 let graph: Graph;
+let tempDir: string;
 
 beforeAll(async () => {
+  tempDir = mkdtempSync(join(tmpdir(), 'lazybrain-server-choices-'));
   graph = makeMockGraph();
   const config: UserConfig = { ...DEFAULT_CONFIG };
 
@@ -57,6 +61,7 @@ beforeAll(async () => {
     config,
     version: '0.1.0-test',
     onReload: () => { graph = makeMockGraph(); },
+    choicePreferencesPath: join(tempDir, 'choice-preferences.json'),
   });
 
   server = http.createServer(router);
@@ -69,6 +74,7 @@ afterAll(async () => {
   await new Promise<void>((resolve, reject) =>
     server.close(err => (err ? reject(err) : resolve())),
   );
+  rmSync(tempDir, { recursive: true, force: true });
 });
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
@@ -277,6 +283,52 @@ describe('POST /api/route', () => {
     const { status, body } = await req('POST', '/api/route', { query: 'x'.repeat(2001) });
     expect(status).toBe(413);
     expect(body.error).toContain('too long');
+  });
+});
+
+describe('GET/POST /api/choices', () => {
+  it('returns, records, and clears local choice preferences', async () => {
+    const initial = await req('GET', '/api/choices');
+    expect(initial.status).toBe(200);
+    expect(initial.body).toHaveProperty('version', 1);
+    expect(initial.body.choices).toEqual({});
+
+    const feedback = await req('POST', '/api/choices/feedback', {
+      choiceId: 'model:strong-reasoning',
+      outcome: 'accepted',
+      kind: 'model',
+    });
+    expect(feedback.status).toBe(200);
+    expect(feedback.body.stats).toMatchObject({ accepted: 1, rejected: 0, kind: 'model' });
+    expect(JSON.stringify(feedback.body.preferences)).not.toContain('query');
+
+    const afterFeedback = await req('GET', '/api/choices');
+    expect(afterFeedback.body.choices['model:strong-reasoning'].accepted).toBe(1);
+
+    const clearOne = await req('POST', '/api/choices/clear', { choiceId: 'model:strong-reasoning' });
+    expect(clearOne.status).toBe(200);
+    expect(clearOne.body.preferences.choices['model:strong-reasoning']).toBeUndefined();
+
+    await req('POST', '/api/choices/feedback', {
+      choiceId: 'mode:review',
+      rejected: true,
+      kind: 'mode',
+    });
+    const clearAll = await req('POST', '/api/choices/clear', {});
+    expect(clearAll.status).toBe(200);
+    expect(clearAll.body.preferences.choices).toEqual({});
+  });
+
+  it('rejects invalid choice feedback', async () => {
+    const missing = await req('POST', '/api/choices/feedback', { outcome: 'accepted' });
+    expect(missing.status).toBe(400);
+
+    const ambiguous = await req('POST', '/api/choices/feedback', {
+      choiceId: 'model:balanced',
+      accepted: true,
+      rejected: true,
+    });
+    expect(ambiguous.status).toBe(400);
   });
 });
 

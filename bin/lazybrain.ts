@@ -76,7 +76,7 @@ import { getEmbeddingCacheStatus } from '../src/embeddings/cache.js';
 import { rebuildEmbeddingCache } from '../src/embeddings/rebuild.js';
 import { buildStatusReport } from '../src/server/status.js';
 import { buildRouteSpec, formatRouteSpec, isRouteTarget } from '../src/orchestrator/route.js';
-import { loadChoicePreferences, recordChoiceFeedback } from '../src/orchestrator/choice-preferences.js';
+import { clearChoicePreferences, loadChoicePreferences, recordChoiceFeedback } from '../src/orchestrator/choice-preferences.js';
 import { readRouteStats, recordRouteSpec } from '../src/orchestrator/route-events.js';
 import { formatComboList, listCombos } from '../src/combos/registry.js';
 import { getMcpToolNames, runMcpStdioServer } from '../src/mcp/server.js';
@@ -1201,7 +1201,23 @@ function cmdChoices() {
     return;
   }
 
-  console.error('Usage: lazybrain choices [prefs --json] | lazybrain choices feedback <choice-id> --accepted|--rejected [--kind <kind>]');
+  if (sub === 'clear') {
+    const all = args.includes('--all');
+    const choiceId = args[2]?.startsWith('--') ? undefined : args[2];
+    if (!all && !choiceId) {
+      console.error('Usage: lazybrain choices clear --all | lazybrain choices clear <choice-id> [--json]');
+      process.exit(1);
+    }
+    const preferences = clearChoicePreferences({ choiceId: all ? undefined : choiceId });
+    if (asJson) {
+      console.log(JSON.stringify({ cleared: all ? 'all' : choiceId, preferences }, null, 2));
+      return;
+    }
+    console.log(all ? 'Cleared all choice preferences.' : `Cleared choice preference: ${choiceId}`);
+    return;
+  }
+
+  console.error('Usage: lazybrain choices [prefs --json] | lazybrain choices feedback <choice-id> --accepted|--rejected [--kind <kind>] | lazybrain choices clear --all|<choice-id>');
   process.exit(1);
 }
 

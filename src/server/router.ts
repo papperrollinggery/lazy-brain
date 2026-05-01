@@ -12,7 +12,7 @@ import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import type { Graph } from '../graph/graph.js';
-import type { Platform, RouteTarget, UserConfig } from '../types.js';
+import type { ChoiceOptionKind, Platform, RouteTarget, UserConfig } from '../types.js';
 import { buildGraphView, formatGraphMermaid } from '../graph/graph-view.js';
 import { match } from '../matcher/matcher.js';
 import { recommendTeam } from '../matcher/team-recommender.js';
@@ -33,7 +33,7 @@ import { getEmbeddingCacheStatus } from '../embeddings/cache.js';
 import { rebuildEmbeddingCache } from '../embeddings/rebuild.js';
 import { EMBEDDINGS_INDEX_PATH, GRAPH_PATH, LAZYBRAIN_DIR, ROUTE_EVENTS_PATH } from '../constants.js';
 import { buildRouteSpec, isRouteTarget } from '../orchestrator/route.js';
-import { loadChoicePreferences } from '../orchestrator/choice-preferences.js';
+import { clearChoicePreferences, loadChoicePreferences, recordChoiceFeedback } from '../orchestrator/choice-preferences.js';
 import { loadRecentHistory } from '../history/history.js';
 import { loadProfile } from '../history/profile.js';
 import { recordRouteSpec } from '../orchestrator/route-events.js';
@@ -149,6 +149,7 @@ async function handleRoute(
   res: http.ServerResponse,
   graph: Graph,
   config: UserConfig,
+  choicePreferencesPath?: string,
 ): Promise<void> {
   let body: { query?: string; target?: RouteTarget };
   try {
@@ -170,11 +171,70 @@ async function handleRoute(
     config,
     history: loadRecentHistory(50),
     profile: loadProfile() ?? undefined,
-    choicePreferences: loadChoicePreferences(),
+    choicePreferences: loadChoicePreferences(choicePreferencesPath),
     target: body.target ?? 'generic',
   });
   recordRouteSpec(result, 'api');
   json(res, 200, result);
+}
+
+function handleChoices(
+  _req: http.IncomingMessage,
+  res: http.ServerResponse,
+  choicePreferencesPath?: string,
+): void {
+  json(res, 200, loadChoicePreferences(choicePreferencesPath));
+}
+
+async function handleChoiceFeedback(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  choicePreferencesPath?: string,
+): Promise<void> {
+  let body: { choiceId?: string; outcome?: string; accepted?: boolean; rejected?: boolean; kind?: string };
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch {
+    return err(res, 400, 'Invalid JSON body');
+  }
+  if (!body.choiceId || typeof body.choiceId !== 'string') {
+    return err(res, 400, 'Missing required field: choiceId');
+  }
+  const accepted = body.outcome === 'accepted' || body.accepted === true;
+  const rejected = body.outcome === 'rejected' || body.rejected === true;
+  if (accepted === rejected) {
+    return err(res, 400, 'Set exactly one feedback outcome: accepted or rejected.');
+  }
+  const validKinds = ['mode', 'model', 'skill', 'plugin', 'workflow'];
+  if (body.kind !== undefined && (typeof body.kind !== 'string' || !validKinds.includes(body.kind))) {
+    return err(res, 400, 'Invalid kind. Use mode, model, skill, plugin, or workflow.');
+  }
+  const preferences = recordChoiceFeedback({
+    choiceId: body.choiceId,
+    outcome: accepted ? 'accepted' : 'rejected',
+    kind: body.kind as ChoiceOptionKind | undefined,
+    path: choicePreferencesPath,
+  });
+  json(res, 200, { choiceId: body.choiceId, stats: preferences.choices[body.choiceId], preferences });
+}
+
+async function handleChoiceClear(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  choicePreferencesPath?: string,
+): Promise<void> {
+  let body: { choiceId?: string } = {};
+  try {
+    const raw = await readBody(req);
+    body = raw.trim() ? JSON.parse(raw) as { choiceId?: string } : {};
+  } catch {
+    return err(res, 400, 'Invalid JSON body');
+  }
+  if (body.choiceId !== undefined && typeof body.choiceId !== 'string') {
+    return err(res, 400, 'choiceId must be a string when provided.');
+  }
+  const preferences = clearChoicePreferences({ choiceId: body.choiceId, path: choicePreferencesPath });
+  json(res, 200, { cleared: body.choiceId ?? 'all', preferences });
 }
 
 async function handleTeam(
@@ -741,6 +801,7 @@ export interface RouterOptions {
   config: UserConfig;
   version: string;
   onReload: () => void;
+  choicePreferencesPath?: string;
 }
 
 
@@ -800,7 +861,16 @@ export function createRouter(opts: RouterOptions): http.RequestListener {
       return handleMatch(req, res, graph, opts.config);
     }
     if (method === 'POST' && (pathname === '/route' || pathname === '/api/route')) {
-      return handleRoute(req, res, graph, opts.config);
+      return handleRoute(req, res, graph, opts.config, opts.choicePreferencesPath);
+    }
+    if (method === 'GET' && (pathname === '/choices' || pathname === '/api/choices')) {
+      return handleChoices(req, res, opts.choicePreferencesPath);
+    }
+    if (method === 'POST' && (pathname === '/choices/feedback' || pathname === '/api/choices/feedback')) {
+      return handleChoiceFeedback(req, res, opts.choicePreferencesPath);
+    }
+    if (method === 'POST' && (pathname === '/choices/clear' || pathname === '/api/choices/clear')) {
+      return handleChoiceClear(req, res, opts.choicePreferencesPath);
     }
     // POST /team
     if (method === 'POST' && (pathname === '/team' || pathname === '/api/team')) {
