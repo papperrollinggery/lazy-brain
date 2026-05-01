@@ -16,7 +16,9 @@ run('adaptive regression tests', 'npm', [
   '--',
   'test/benchmark/match-quality.test.ts',
   'test/orchestrator/route.test.ts',
+  'test/orchestrator/choice-preferences.test.ts',
   'test/diagnostics/conflicts.test.ts',
+  'test/server/server.test.ts',
 ]);
 
 console.log('\n[adaptive-gate] doctor warning summary');

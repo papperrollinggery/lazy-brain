@@ -425,6 +425,8 @@ lazybrain route "review this PR" --json
 lazybrain route stats
 lazybrain choices prefs --json
 lazybrain choices feedback model:strong-reasoning --accepted --kind model
+lazybrain choices clear model:strong-reasoning
+lazybrain choices clear --all
 lazybrain prompt "review this PR" --target claude
 lazybrain prompt "review this PR" --target codex --copy
 lazybrain mcp status
@@ -435,6 +437,14 @@ lazybrain combos frontend
 `lazybrain route` upgrades raw matches into an advisory `RouteSpec`: `schemaVersion`, `mode`, scenario, skills, adaptive `choices`, token strategy, context needed, workflow, guardrails, verification, done conditions, and a target-specific prompt style for `generic`, `claude`, `codex`, or `cursor`.
 
 `lazybrain choices feedback <choice-id> --accepted|--rejected` records local preference evidence without storing raw prompts. Preferences can raise safer alternatives in later route choices, but they do not bypass high-risk confirmation policy.
+
+`lazybrain choices clear <choice-id>` removes one local preference counter. `lazybrain choices clear --all` resets local choice preferences for migration or cleanup.
+
+The local HTTP API exposes the same preference surface for companion clients:
+
+- `GET /api/choices`
+- `POST /api/choices/feedback`
+- `POST /api/choices/clear`
 
 Route modes:
 

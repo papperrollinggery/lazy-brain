@@ -131,6 +131,10 @@ Do not start with animations or a heavy UI framework. The sequence should be:
   --accepted|--rejected` records accepted/rejected choices without storing raw
   prompts. Preference weighting can promote safer alternatives but does not
   bypass high-risk ask-user policy.
+- Added preference cleanup and companion API surfaces. `lazybrain choices clear`
+  can remove one preference or reset all local counters, and `/api/choices`,
+  `/api/choices/feedback`, and `/api/choices/clear` expose the same local-only
+  choice profile for HTTP clients.
 - Added conflict-diagnostics substrate: capabilities now carry derived provider,
   conflict group, and side-effect metadata, and `lazybrain doctor --json` exposes
   structured hook/capability conflicts without mutating third-party state.
@@ -182,7 +186,7 @@ Completed commit boundary:
 Final validation evidence:
 
 - `npm run build` passed.
-- `npm test` passed: 58 files / 642 tests.
+- `npm test` passed: 58 files / 645 tests.
 - `npm run lint` passed.
 - `npm run gate:adaptive` passed: benchmark, route, conflict diagnostics,
   and doctor warning summary all green.
@@ -204,6 +208,9 @@ Next-stage execution blueprint:
 - Focused gate: `npm run gate:adaptive`
 - Gate expectation: `hookWarnings=0`, `capabilityWarnings=0`; informational
   duplicate providers may remain visible as non-blocking alternatives.
+- P4/P5 continuation: local preference clearing and HTTP choice preference
+  endpoints are implemented and covered by `test/orchestrator/choice-preferences.test.ts`
+  and `test/server/server.test.ts`.
 
 ### Routing / Matching
 

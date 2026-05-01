@@ -455,6 +455,8 @@ LazyBrain: "通常审查完会重构，要不要用 /refactor-clean？"
 | `lazybrain route stats` | 查看只保存 hash 的路由统计 |
 | `lazybrain choices prefs --json` | 查看本地选择偏好，不包含原始 prompt |
 | `lazybrain choices feedback <id> --accepted --kind model` | 记录某个模型/模式/技能选择被接受 |
+| `lazybrain choices clear <id>` | 清理单个本地选择偏好 |
+| `lazybrain choices clear --all` | 清空本地选择偏好，便于迁移或重置 |
 | `lazybrain prompt "你的任务" --target claude` | 输出可复制的目标 CLI prompt |
 | `lazybrain prompt "你的任务" --copy` | 显式复制 prompt 到剪贴板 |
 | `lazybrain mcp --stdio` | 启动只读 MCP server |
@@ -468,6 +470,12 @@ LazyBrain: "通常审查完会重构，要不要用 /refactor-clean？"
 | `lazybrain ui --no-open` | 启动 GUI 但不自动打开浏览器 |
 | `lazybrain ui status` | 查看 GUI/server 状态 |
 | `lazybrain ui stop` | 停止 GUI/server |
+
+本地 HTTP API 也暴露选择偏好，供 companion UI 使用：
+
+- `GET /api/choices`
+- `POST /api/choices/feedback`
+- `POST /api/choices/clear`
 | `lazybrain server --daemon` | 直接启动本地 API server |
 | `lazybrain api test` | 显式测试 LLM/embedding API |
 | `lazybrain embeddings status` | 查看 embedding cache 覆盖情况 |
