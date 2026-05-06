@@ -27,17 +27,18 @@ The active acceptance bar is:
   - Result: `test_pr_repair`, recommended `workflow:test_pr_repair`
 - `node dist/bin/lazybrain.js route '帮我修失败测试并提交 PR' --target codex --json`
   - Result: `test_pr_repair`, recommended `workflow:test_pr_repair`
-  - Copied Codex prompt `Use:` block is limited to primary combo skills plus
-    GitNexus skills; generic `test`, `skill-create`, and unrelated PR review
-    agents are not shown as primary tools.
+  - Copied Codex prompt `Use:` block is limited to primary combo skills and
+    explicitly requested skills; provider-specific graph skills are not shown by
+    default.
 - Local UI/API:
   - `http://127.0.0.1:3333/api/route` returns `routeEventId`.
   - `/api/route-events/adopt` records accepted copy/adoption feedback.
   - `/api/status` returns a local `gitNexus` object without requiring MCP.
-  - UI status/diagnostics render GitNexus index freshness and artifact warnings.
+  - UI diagnostics can inspect optional local code graph freshness and artifact
+    warnings.
   - `node dist/bin/statusline.js` shows recent API route activity such as
-    `api test_pr_repair [86%]` instead of permanent idle, and appends
-    `GNX current` when a fresh local GitNexus index exists.
+    `api test_pr_repair [86%]` instead of permanent idle. The statusline does
+    not expose GitNexus/code-graph state.
 - Benchmark:
   - `npm test -- test/benchmark/match-quality.test.ts`
   - Result: Top-1 `55/55 = 100.0%`, Top-3 `55/55 = 100.0%`
@@ -51,10 +52,10 @@ The active acceptance bar is:
   - `mcp__gitnexus__.query`: works for route/status/adoption exploration.
   - Continue verifying MCP first in fresh sessions before falling back to CLI.
 
-### Latest GitNexus / Benchmark Usability Fix
+### Latest Code Graph / Benchmark Usability Fix
 
-The latest pass converted GitNexus from an invisible routing hint into a
-visible product status surface and tightened benchmark quality.
+The latest pass keeps GitNexus as an optional internal code-analysis provider
+and prevents it from becoming a default user-facing route/HUD concept.
 
 Changed behavior:
 
@@ -62,12 +63,11 @@ Changed behavior:
   `indexedAt`, `lastCommit`, `currentCommit`, `stale`, `stats`,
   `artifactWarnings`, `source: local-meta`, and `mcpRequired: false`.
 - `/api/diagnostics` includes the same GitNexus status for troubleshooting.
-- The UI stats row and diagnostics grid show GitNexus freshness, short commit
-  hashes, symbol/edge/process counts, and artifact warning count.
-- `statusline.js` appends `GNX current` / `GNX stale` when a local GitNexus
-  index exists, without replacing route/hook state.
-- Route context now tells agents to use GitNexus MCP `context` / `impact` /
-  `detect_changes` first, then fall back to `gitnexus status/list + rg`.
+- The UI diagnostics grid shows a generic Code Graph row when local graph
+  metadata exists; HUD/statusline stays focused on LazyBrain route/runtime
+  state.
+- Route output hides provider-specific code graph skills unless the user
+  explicitly names GitNexus.
 - `.gitnexus.*` backup/corrupt artifacts are ignored; the current untracked
   backup/corrupt artifacts were removed, while `.gitnexus/` was preserved.
 - Benchmark golden labels now accept current better matches such as

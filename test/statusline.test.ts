@@ -40,6 +40,8 @@ describe('statusline route activity', () => {
 
       expect(output).toContain('cli test_pr_repair [86%]');
       expect(output).not.toContain('待机中');
+      expect(output).not.toContain('图谱');
+      expect(output).not.toContain('GNX');
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
@@ -80,6 +82,8 @@ describe('statusline route activity', () => {
       expect(output).toContain('上次');
       expect(output).toContain('cli route_dogfood [86%]');
       expect(output).not.toContain('待机中');
+      expect(output).not.toContain('图谱');
+      expect(output).not.toContain('GNX');
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }

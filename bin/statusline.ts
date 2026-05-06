@@ -20,7 +20,6 @@ import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { LAZYBRAIN_DIR, STATUS_PATH, HOOK_ACTIVE_PATH, HOOK_RUNS_DIR, ROUTE_EVENTS_PATH } from '../src/constants.js';
 import { readOmcMode } from '../src/utils/omc-state.js';
-import { getGitNexusStatus } from '../src/integrations/gitnexus.js';
 
 // ─── ANSI styling ───────────────────────────────────────────────────────────────
 
@@ -182,25 +181,12 @@ const OMC_MODE_LABELS: Record<string, string> = {
   hud: 'OMC',
 };
 
-function shortCommit(value: string | undefined): string {
-  return value ? value.slice(0, 7) : '?';
-}
-
-function gitNexusSuffix(): string {
-  const status = getGitNexusStatus();
-  if (!status.available) return '';
-  if (status.stale) return ` · 图谱待刷新 ${shortCommit(status.lastCommit)}→${shortCommit(status.currentCommit)}`;
-  if (status.state === 'current') return ' · 图谱已同步';
-  if (status.state === 'invalid') return ' · 图谱异常';
-  return '';
-}
-
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 function getLabel(): string {
   // (1) OMC mode suffix (always appended)
   const omcMode = readOmcMode();
-  const omcSuffix = `${omcMode ? ` · ${OMC_MODE_LABELS[omcMode] ?? omcMode}` : ''}${gitNexusSuffix()}`;
+  const omcSuffix = omcMode ? ` · ${OMC_MODE_LABELS[omcMode] ?? omcMode}` : '';
 
   // (2) compile/scan — highest priority
   const compileStatus = getCompileStatus();
