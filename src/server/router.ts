@@ -874,10 +874,30 @@ let _compileExitCode: number | null = null;
 let _compileTimedOut = false;
 let _compileJobId: string | null = null;
 
+type CompileJobOptions = {
+  scanFirst: boolean;
+  withRelations?: boolean;
+  forceRelations?: boolean;
+};
+
+function explicitFlag(url: URL, ...keys: string[]): boolean {
+  return keys.some(key => {
+    const value = url.searchParams.get(key);
+    if (value === null) return false;
+    return value === '' || value === '1' || value === 'true' || value === 'yes';
+  });
+}
+
+export function buildCompileArgs(options: Pick<CompileJobOptions, 'withRelations' | 'forceRelations'>): string[] {
+  const args = ['compile'];
+  if (options.withRelations) args.push('--with-relations');
+  if (options.forceRelations) args.push('--force-relations');
+  return args;
+}
+
 function startCompileJob(
-  config: UserConfig,
   onReload: () => void,
-  scanFirst: boolean,
+  options: CompileJobOptions,
 ): { status: number; body: Record<string, unknown> } {
   if (_compileProcess && _compileProcess.exitCode === null) {
     return { status: 409, body: { ok: false, error: 'Compilation is already running', jobId: _compileJobId } };
@@ -887,10 +907,7 @@ function startCompileJob(
   _compileExitCode = null;
   _compileTimedOut = false;
 
-  const compileArgs = ['compile'];
-  if (config.compileApiBase && config.compileApiKey) {
-    compileArgs.push('--with-relations');
-  }
+  const compileArgs = buildCompileArgs(options);
   
   try {
     const COMPILE_TIMEOUT_MS = parseInt(process.env.LAZYBRAIN_COMPILE_TIMEOUT || '1200000', 10); // default 20 min
@@ -899,7 +916,7 @@ function startCompileJob(
       return { status: 500, body: { ok: false, error: 'LazyBrain CLI build not found. Run `npm run build` first.' } };
     }
 
-    const job = createJob('compile', { progress: scanFirst ? 'queued scan' : 'queued compile' });
+    const job = createJob('compile', { progress: options.scanFirst ? 'queued scan' : options.withRelations ? 'queued relation compile' : 'queued compile' });
     _compileJobId = job.id;
     let activeChild: ReturnType<typeof spawn> | null = null;
     registerJobCanceller(job.id, 'compile', () => {
@@ -999,13 +1016,13 @@ function startCompileJob(
       });
     };
 
-    if (scanFirst) {
+    if (options.scanFirst) {
       startTask(['scan'], 'scan', () => startTask(compileArgs, 'compile'));
     } else {
       startTask(compileArgs, 'compile');
     }
 
-    return { status: 200, body: { ok: true, jobId: job.id, phase: _compilePhase } };
+    return { status: 200, body: { ok: true, jobId: job.id, phase: _compilePhase, mode: options.withRelations ? 'relations' : 'fast' } };
   } catch (err) {
     return { status: 500, body: { ok: false, error: err instanceof Error ? err.message : 'Failed to start compile' } };
   }
@@ -1014,12 +1031,14 @@ function startCompileJob(
 function handleCompileStart(
   req: http.IncomingMessage,
   res: http.ServerResponse,
-  config: UserConfig,
   onReload: () => void,
 ): void {
   const url = new URL(req.url ?? '/', 'http://localhost');
-  const scanFirst = url.searchParams.get('scan') === '1';
-  const result = startCompileJob(config, onReload, scanFirst);
+  const result = startCompileJob(onReload, {
+    scanFirst: explicitFlag(url, 'scan'),
+    withRelations: explicitFlag(url, 'relations', 'withRelations'),
+    forceRelations: explicitFlag(url, 'forceRelations'),
+  });
   json(res, result.status, result.body);
 }
 
@@ -1178,13 +1197,23 @@ function buildRepairActions(graph: Graph, config: UserConfig): { actions: Repair
     },
     {
       id: 'compile_graph',
-      title: 'Compile LazyBrain graph',
-      titleZh: '编译 LazyBrain 图谱',
+      title: 'Fast compile LazyBrain graph',
+      titleZh: '快速编译 LazyBrain 图谱',
       severity: hasGraphCompileIssue ? 'blocker' : 'info',
       available: true,
       requiresConfirmation: true,
       commandPreview: 'lazybrain compile',
       reason: hasGraphCompileIssue ? undefined : 'graph has no compile blocker',
+    },
+    {
+      id: 'compile_relations',
+      title: 'Rebuild graph relations',
+      titleZh: '重建图谱关系',
+      severity: 'info',
+      available: true,
+      requiresConfirmation: true,
+      commandPreview: 'lazybrain compile --with-relations --force-relations',
+      reason: 'optional LLM relation enrichment; not required for fast compile',
     },
     {
       id: 'rebuild_embeddings',
@@ -1244,7 +1273,10 @@ async function handleRepairsRun(
       const result = runDoctorJob('project', false, graph, config);
       results.push({ id, ...result.body });
     } else if (id === 'compile_graph') {
-      const result = startCompileJob(config, onReload, false);
+      const result = startCompileJob(onReload, { scanFirst: false });
+      results.push({ id, ...result.body });
+    } else if (id === 'compile_relations') {
+      const result = startCompileJob(onReload, { scanFirst: false, withRelations: true, forceRelations: true });
       results.push({ id, ...result.body });
     } else if (id === 'rebuild_embeddings') {
       const result = startEmbeddingJob(graph, config, false);
@@ -1461,7 +1493,7 @@ export function createRouter(opts: RouterOptions): http.RequestListener {
       return handleRepairsRun(req, res, graph, opts.config, opts.onReload);
     }
     if (method === 'POST' && pathname === '/api/compile') {
-      return handleCompileStart(req, res, opts.config, opts.onReload);
+      return handleCompileStart(req, res, opts.onReload);
     }
     if (method === 'GET' && pathname === '/api/embedding/discover') {
       return handleEmbeddingDiscover(req, res);

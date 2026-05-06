@@ -7,7 +7,7 @@ import * as http from 'node:http';
 import { homedir, tmpdir } from 'node:os';
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { createRouter } from '../../src/server/router.js';
+import { buildCompileArgs, createRouter } from '../../src/server/router.js';
 import { sanitizeConfigUpdate } from '../../src/config/schema.js';
 import { Graph } from '../../src/graph/graph.js';
 import type { UserConfig } from '../../src/types.js';
@@ -116,6 +116,14 @@ describe('GET /health', () => {
     const { status, body } = await req('GET', '/api/health');
     expect(status).toBe(200);
     expect(body.version).toBe('0.1.0-test');
+  });
+});
+
+describe('compile job options', () => {
+  it('keeps relation inference out of default compile args', () => {
+    expect(buildCompileArgs({})).toEqual(['compile']);
+    expect(buildCompileArgs({ withRelations: true })).toEqual(['compile', '--with-relations']);
+    expect(buildCompileArgs({ withRelations: true, forceRelations: true })).toEqual(['compile', '--with-relations', '--force-relations']);
   });
 });
 
@@ -262,6 +270,8 @@ describe('GUI routes', () => {
     const repairs = await req('GET', '/api/repairs');
     expect(repairs.status).toBe(200);
     expect(repairs.body.actions.some((action: { id?: string }) => action.id === 'doctor_global_hooks')).toBe(true);
+    expect(repairs.body.actions.some((action: { id?: string; commandPreview?: string }) => action.id === 'compile_graph' && action.commandPreview === 'lazybrain compile')).toBe(true);
+    expect(repairs.body.actions.some((action: { id?: string; commandPreview?: string }) => action.id === 'compile_relations' && action.commandPreview === 'lazybrain compile --with-relations --force-relations')).toBe(true);
 
     const run = await req('POST', '/api/repairs/run', { ids: ['doctor_global_hooks'] });
     expect(run.status).toBe(200);
