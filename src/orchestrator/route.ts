@@ -136,6 +136,27 @@ function toSkillRef(cap: Capability, result?: Recommendation['matches'][number],
   };
 }
 
+function isProviderSpecificCodeGraphCapability(cap: Capability): boolean {
+  const text = [
+    cap.id,
+    cap.name,
+    cap.origin,
+    cap.provider,
+    cap.description,
+    cap.scenario,
+    ...(cap.tags ?? []),
+  ].filter(Boolean).join(' ').toLowerCase();
+  return /\bgitnexus\b|gitnexus-/.test(text);
+}
+
+function queryMentionsCodeGraphProvider(query: string): boolean {
+  return /\bgit\s*nexus\b|\bgitnexus\b/i.test(query);
+}
+
+function shouldExposeCapabilityInRoute(query: string, cap: Capability): boolean {
+  return !isProviderSpecificCodeGraphCapability(cap) || queryMentionsCodeGraphProvider(query);
+}
+
 function missingSkillRef(name: string, category: string, reason: string): RouteSkillRef {
   return {
     id: `missing:${name}`,
@@ -179,12 +200,13 @@ function buildSkillRefs(graph: Graph, rec: Recommendation, combo: ComboTemplate 
     }
   }
 
-  for (const result of rec.matches.slice(0, 5)) {
+  for (const result of rec.matches.filter(result => shouldExposeCapabilityInRoute(query, result.capability)).slice(0, 5)) {
     refs.push(toSkillRef(result.capability, result));
   }
 
   const explicitlyNamed = graph.getAllNodes()
     .filter(cap => cap.status !== 'disabled' && queryMentionsCapability(query, cap))
+    .filter(cap => shouldExposeCapabilityInRoute(query, cap))
     .slice(0, 8);
   for (const cap of explicitlyNamed) {
     refs.push(explicitSkillRef(cap, resultById.get(cap.id)));
@@ -1100,7 +1122,7 @@ function primaryRouteSkills(spec: Pick<RouteSpec, 'skills' | 'combo' | 'query'>)
   const explicitMatchedSkills = spec.skills.filter(skill =>
     skill.available &&
     !(skill.origin === 'combo' || skill.reason?.startsWith('Combo ')) &&
-    (queryMentionsSkill(spec.query, skill) || skill.reason?.startsWith('GitNexus ')));
+    queryMentionsSkill(spec.query, skill));
   return comboSkills.length > 0
     ? unique([...comboSkills, ...explicitMatchedSkills], skill => skill.name)
     : spec.skills;

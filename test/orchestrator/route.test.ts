@@ -341,6 +341,19 @@ describe('buildRouteSpec', () => {
     expect(spec.warnings.some(warning => warning.toLowerCase().includes('semantic') || warning.toLowerCase().includes('embedding'))).toBe(true);
   });
 
+  it('keeps provider-specific code graph skills hidden unless explicitly requested', async () => {
+    const spec = await buildRouteSpec('review this PR for regressions', {
+      graph: makeGraph(),
+      config: { ...DEFAULT_CONFIG },
+      target: 'codex',
+    });
+
+    const output = formatRouteSpecBrief(spec);
+
+    expect(spec.skills.some(skill => skill.name === 'gitnexus-pr-review')).toBe(false);
+    expect(output).not.toContain('gitnexus-pr-review');
+  });
+
   it('surfaces explicitly named installed skills alongside combo skills in brief output', async () => {
     const spec = await buildRouteSpec('我刚装了一个 GitNexus 插件, 帮我 review PR 风险', {
       graph: makeGraph(),
