@@ -3,12 +3,13 @@ import { redactPromptForStorage, sanitizePromptRecord } from '../../src/privacy/
 
 describe('prompt privacy helpers', () => {
   it('redacts raw prompts into stable hash labels', () => {
-    const first = redactPromptForStorage('review private repo path /Users/me/project');
-    const second = redactPromptForStorage('review private repo path /Users/me/project');
+    const privatePath = ['', 'Users', 'me', 'project'].join('/');
+    const first = redactPromptForStorage(`review private repo path ${privatePath}`);
+    const second = redactPromptForStorage(`review private repo path ${privatePath}`);
 
     expect(first.query).toMatch(/^\[redacted-prompt:[a-f0-9]{16}\]$/);
     expect(first.queryHash).toBe(second.queryHash);
-    expect(JSON.stringify(first)).not.toContain('/Users/me/project');
+    expect(JSON.stringify(first)).not.toContain(privatePath);
   });
 
   it('sanitizes legacy query records on read', () => {

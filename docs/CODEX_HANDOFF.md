@@ -232,7 +232,7 @@ Fresh-session checklist:
 2. Run `mcp__gitnexus__.list_repos`.
 3. If MCP works, query this repo first:
    - query: `route dogfood debug_crash findCombo route scoring`
-   - repo: `/Users/jinjungao/work/lazy_user`
+   - repo: `<repo-root>`
 4. If MCP returns `Transport closed`, fall back to:
    - `gitnexus status`
    - `gitnexus list`

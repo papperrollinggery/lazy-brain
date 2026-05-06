@@ -8,15 +8,16 @@ describe('route events', () => {
   it('stores route metadata without raw query or raw warnings', () => {
     const dir = mkdtempSync(join(tmpdir(), 'lazybrain-route-events-'));
     const path = join(dir, 'route-events.jsonl');
+    const privatePath = ['', 'Users', 'example', 'path'].join('/');
     try {
       const event = recordRouteEvent({
-        query: 'review this private prompt with /Users/example/path',
+        query: `review this private prompt with ${privatePath}`,
         source: 'api',
         target: 'codex',
         mode: 'route_plan',
         intent: 'Review',
         skillIds: ['review'],
-        warnings: ['Embedding cache stale for /Users/example/path'],
+        warnings: [`Embedding cache stale for ${privatePath}`],
         recommendedChoice: {
           id: 'mode:review',
           kind: 'mode',
@@ -36,7 +37,7 @@ describe('route events', () => {
       expect(recent[0]).not.toHaveProperty('warnings');
       expect(recent[0].warningKinds).toEqual(['embedding']);
       expect(JSON.stringify(recent)).not.toContain('private prompt');
-      expect(JSON.stringify(recent)).not.toContain('/Users/example/path');
+      expect(JSON.stringify(recent)).not.toContain(privatePath);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

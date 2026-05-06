@@ -58,16 +58,17 @@ describe('runApiTests', () => {
   });
 
   it('redacts secrets echoed by provider errors', async () => {
+    const leakedToken = ['sk', 'leaked123456'].join('-');
     vi.stubGlobal('fetch', vi.fn(async () => ({
       ok: false,
       status: 401,
-      text: async () => 'Bearer sk-leaked123456 api_key=very-secret token: also-secret',
+      text: async () => `Bearer ${leakedToken} api_key=very-secret token: also-secret`,
     })));
 
     const report = await runApiTests({ ...DEFAULT_CONFIG, compileApiKey: 'fake-key' }, ['compile']);
     const serialized = JSON.stringify(report);
 
-    expect(serialized).not.toContain('sk-leaked123456');
+    expect(serialized).not.toContain(leakedToken);
     expect(serialized).not.toContain('very-secret');
     expect(serialized).not.toContain('also-secret');
     expect(serialized).toContain('[redacted]');

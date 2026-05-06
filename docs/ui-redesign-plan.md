@@ -15,13 +15,13 @@ Current UI truth:
 
 Generated reference images:
 
-- Composite exploration, not for slicing: `/Users/jinjungao/.codex/generated_images/019df7db-a0ab-7bb2-88ab-eaf56f044530/ig_0a7078967445aacb0169f9d21b96dc8191b2a68ca2cae829fc.png`
-- Multi-page board, directional only: `/Users/jinjungao/.codex/generated_images/019df7db-a0ab-7bb2-88ab-eaf56f044530/ig_0a7078967445aacb0169f9d35504788191b4db425448f3876e.png`
-- Setup page reference: `/Users/jinjungao/.codex/generated_images/019df7db-a0ab-7bb2-88ab-eaf56f044530/ig_0a7078967445aacb0169f9d57c293c8191a067b363fc1f17c1.png`
-- Route Studio reference: `/Users/jinjungao/.codex/generated_images/019df7db-a0ab-7bb2-88ab-eaf56f044530/ig_0a7078967445aacb0169f9d5c4a6708191be2e686514adbcec.png`
-- Adoption Review reference: `/Users/jinjungao/.codex/generated_images/019df7db-a0ab-7bb2-88ab-eaf56f044530/ig_0a7078967445aacb0169f9d6106df48191b64790673436a1fb.png`
-- Capability Map reference: `/Users/jinjungao/.codex/generated_images/019df7db-a0ab-7bb2-88ab-eaf56f044530/ig_0a7078967445aacb0169f9d66c860c819194abccefc99d4343.png`
-- Diagnostics reference: `/Users/jinjungao/.codex/generated_images/019df7db-a0ab-7bb2-88ab-eaf56f044530/ig_0a7078967445aacb0169f9d6c2befc81918e5bae67e773d9f0.png`
+- Composite exploration, not for slicing: generated image reference
+- Multi-page board, directional only: generated image reference
+- Setup page reference: generated image reference
+- Route Studio reference: generated image reference
+- Adoption Review reference: generated image reference
+- Capability Map reference: generated image reference
+- Diagnostics reference: generated image reference
 
 ## Product Direction
 

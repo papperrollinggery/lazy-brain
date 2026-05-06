@@ -497,7 +497,7 @@ GET /api/scan/status
 
 ```json
 {
-  "paths": ["/Users/.../.skillshub"],
+  "paths": ["<skill-root>"],
   "kind": "skill",
   "compileAfter": true
 }
