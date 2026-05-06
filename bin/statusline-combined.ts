@@ -28,8 +28,17 @@ function readStdin(): string {
 }
 
 function readChainConfig(): ChainConfig {
+  const explicitChainPath = process.env.LAZYBRAIN_STATUSLINE_CHAIN;
+  if (explicitChainPath) {
+    try {
+      if (!existsSync(explicitChainPath)) return {};
+      return JSON.parse(readFileSync(explicitChainPath, 'utf-8')) as ChainConfig;
+    } catch {
+      return {};
+    }
+  }
+
   const candidates = [
-    process.env.LAZYBRAIN_STATUSLINE_CHAIN,
     join(resolve(process.cwd(), '.claude'), 'lazybrain-statusline-chain.json'),
     getStatuslineChainPath(),
     `${process.env.HOME ?? ''}/.lazybrain/statusline-chain.json`,

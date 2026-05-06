@@ -6,18 +6,23 @@
  */
 
 import * as http from 'node:http';
-import { existsSync, writeFileSync, readFileSync, unlinkSync } from 'node:fs';
-import { join } from 'node:path';
-import { homedir } from 'node:os';
+import { writeFileSync, unlinkSync } from 'node:fs';
 import { Graph } from '../graph/graph.js';
 import { loadConfig } from '../config/config.js';
-import { GRAPH_PATH, LAZYBRAIN_DIR } from '../constants.js';
+import { GRAPH_PATH } from '../constants.js';
 import { createRouter } from './router.js';
 import { getPackageVersion } from '../version.js';
+import { DEFAULT_PORT, SERVER_PID_FILE, SERVER_RUNNING_FLAG } from './liveness.js';
 
-export const DEFAULT_PORT = 18450;
-export const SERVER_RUNNING_FLAG = join(LAZYBRAIN_DIR, '.server-running');
-export const SERVER_PID_FILE = join(LAZYBRAIN_DIR, 'server.pid');
+export {
+  DEFAULT_PORT,
+  SERVER_PID_FILE,
+  SERVER_RUNNING_FLAG,
+  getServerPid,
+  getServerPort,
+  getServerRuntimeState,
+  isServerRunning,
+} from './liveness.js';
 
 export interface ServerInstance {
   server: http.Server;
@@ -56,22 +61,4 @@ export function createServer(port: number = DEFAULT_PORT): ServerInstance {
       });
     },
   };
-}
-
-export function isServerRunning(): boolean {
-  return existsSync(SERVER_RUNNING_FLAG);
-}
-
-export function getServerPort(): number {
-  if (!existsSync(SERVER_RUNNING_FLAG)) return DEFAULT_PORT;
-  const raw = readFileSync(SERVER_RUNNING_FLAG, 'utf-8').trim();
-  const n = parseInt(raw, 10);
-  return isNaN(n) ? DEFAULT_PORT : n;
-}
-
-export function getServerPid(): number | null {
-  if (!existsSync(SERVER_PID_FILE)) return null;
-  const raw = readFileSync(SERVER_PID_FILE, 'utf-8').trim();
-  const n = parseInt(raw, 10);
-  return isNaN(n) ? null : n;
 }

@@ -63,6 +63,29 @@ describe('buildHookPlan', () => {
     expect(plan.statusline.inheritedCommand).toContain('third-party-hud');
   });
 
+  it('plans project-visible combined statusline when LazyBrain is inherited globally', () => {
+    const plan = buildHookPlan({
+      ...base,
+      settings: {},
+      globalSettings: {
+        statusLine: { type: 'command', command: 'node /repo/lazybrain/dist/bin/statusline-combined.js' },
+      },
+      shouldInstallStatusline: true,
+    });
+    expect(plan.statusline.mode).toBe('combine');
+    expect(plan.statusline.plannedCommand).toContain('statusline-combined.js');
+  });
+
+  it('plans LazyBrain statusline when statusline install is enabled and no HUD exists', () => {
+    const plan = buildHookPlan({
+      ...base,
+      settings: {},
+      shouldInstallStatusline: true,
+    });
+    expect(plan.statusline.mode).toBe('lazybrain');
+    expect(plan.statusline.plannedCommand).toContain('statusline.js');
+  });
+
   it('plans to combine existing project HUD instead of replacing it', () => {
     const plan = buildHookPlan({
       ...base,

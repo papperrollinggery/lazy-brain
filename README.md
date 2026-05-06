@@ -483,14 +483,14 @@ GUI entrypoints:
 
 - `GET /` and `GET /ui` — local status GUI
 - `GET /lab` — non-install recommendation Lab
-- `GET /api/status` — readiness, graph, routing, hook, API, embedding, agent, and server status
+- `GET /api/status` — readiness, graph, routing, local code graph, hook, API, embedding, agent, and server status
 - `POST /api/route` — advisory route plan; no execution and no target CLI config writes
 - `POST /api/config` — whitelisted local config updates; blank API key fields are no-ops
 - `POST /api/compile` and `GET /api/compile/status` — start graph compile and poll final exit status
 - `POST /api/test` — explicit API test only after user action
 - `POST /api/embeddings/rebuild` — requires `{ "confirm": "rebuild" }`
 
-GUI v1 is local and status-first: it does not read Claude transcripts, return agent body text, install hooks, or write `.claude/hooks/hooks.json` / `.claude/settings.json`.
+GUI v1 is local and status-first: it does not read Claude transcripts, return agent body text, install hooks, or write `.claude/hooks/hooks.json` / `.claude/settings.json`. Optional local code graph status is read from existing repository metadata plus the current git commit; no extra provider install or MCP connection is required for the GUI.
 
 ### Lab / Non-install visual testing
 
@@ -543,14 +543,14 @@ lazybrain doctor --all               # Report project and global scopes, no fix
 - `lazybrain hook install` creates a LazyBrain backup before writing hook/settings/install-state files
 - `lazybrain hook rollback` restores backed-up LazyBrain files, including `.claude/hooks/hooks.json` when it existed at backup time
 - `lazybrain ready` blocks when the graph contains persisted compile errors; inspect them with `lazybrain compile errors`
-- `lazybrain hook install --global` is refused unless `--yes` is also present
+- `lazybrain hook install --global` is refused unless `--yes` is also present, and it does not alter global statusline/HUD unless `--statusline` is explicitly added
 - runtime tiny gate only applies inside the recorded workspace root
 - if a prompt comes from another cwd, LazyBrain returns no-op immediately
 - the default hook does not run Secretary, wiki-card generation, full matching output, or agent/team expansion
 - high load, concurrency limit, breaker, missing graph, and non-`UserPromptSubmit` events fail closed with no user-facing delay
 - `Stop` is still outside the product lifecycle
 - third-party hooks and mixed hook entries are preserved
-- existing third-party HUD/statusline is skipped by default; `--statusline` combines, `--replace-statusline` replaces
+- existing third-party project HUD/statusline is combined by default so LazyBrain remains visible; `--no-statusline` skips LazyBrain HUD, `--replace-statusline` replaces intentionally
 - `doctor --fix` only repairs **LazyBrain's own state**
   - hook registration normalization
   - stale runtime record cleanup
@@ -591,7 +591,7 @@ Rollback restores only files that were captured by LazyBrain backups, including 
 | Hook is installed but no recommendation appears | v1.5.0 hook is a tiny gate, not a full recommender | Run `lazybrain hook status --json`; test the full plan with `lazybrain route "<same query>"` |
 | Main model ignores LazyBrain | MCP is not configured or the task looked trivial | Use `lazybrain prompt "<same query>" --target claude`, or configure `lazybrain mcp --stdio` in the client |
 | Hook seems stuck or returns no output after a long run | Runtime breaker or stale record may be active | Run `lazybrain hook ps`, then `lazybrain hook clean`, then `lazybrain ready` |
-| Third-party HUD/statusline is present | LazyBrain skips it by default | Use `lazybrain hook install --statusline` to combine, or `--replace-statusline` only when you intentionally want replacement |
+| Third-party HUD/statusline is present | LazyBrain combines with it by default | Use `lazybrain hook install`, or `--replace-statusline` only when you intentionally want replacement |
 | `lazybrain api test` reports 401 | API key is invalid or not accepted by the configured base/model | Reset the key with `lazybrain config set ...ApiKey <key>` and rerun `lazybrain api test` |
 | semantic/hybrid does not improve matches | Embedding config or cache is missing/stale/dimension-mismatched | Run `lazybrain embeddings status`; rebuild with `lazybrain embeddings rebuild --yes` after config is correct |
 | A skill is missing from results | The skill path or metadata is incomplete | Ensure the skill has `SKILL.md` with `name` or `description`, then run `lazybrain scan` |

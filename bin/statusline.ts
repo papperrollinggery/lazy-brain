@@ -6,8 +6,10 @@
  * Status priority (highest first):
  *   1. compile/scan in progress  → 编译中 / 扫描中
  *   2. hook running              → 思考中
- *   3. last-match available       → /tool [score%] with timeAgo
- *   4. no history / idle         → 待机中
+ *   3. recent route event         → route combo [score%] with timeAgo
+ *   4. stale route event          → 上次 route combo with timeAgo
+ *   5. last-match available       → /tool [score%] with timeAgo
+ *   6. no history / idle          → 待机中
  *
  * Visual convention:
  *   - Active states (hooked/matched/routing): bold
@@ -18,6 +20,7 @@ import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { LAZYBRAIN_DIR, STATUS_PATH, HOOK_ACTIVE_PATH, HOOK_RUNS_DIR, ROUTE_EVENTS_PATH } from '../src/constants.js';
 import { readOmcMode } from '../src/utils/omc-state.js';
+import { getGitNexusStatus } from '../src/integrations/gitnexus.js';
 
 // ─── ANSI styling ───────────────────────────────────────────────────────────────
 
@@ -29,14 +32,23 @@ function active(label: string): string  { return `${BOLD}${label}${RST}`; }
 function dormant(label: string): string { return `${DIM}${label}${RST}`; }
 
 const lastMatchPath = join(LAZYBRAIN_DIR, 'last-match.json');
+const routeEventsPath = process.env.LAZYBRAIN_ROUTE_EVENTS_PATH?.trim() || ROUTE_EVENTS_PATH;
 const RECENT_STATUS_WINDOW_MS = 5 * 60 * 1000;
 
 type RouteEventMode = 'route_plan' | 'needs_clarification' | 'no_route_needed';
+type RouteEventSource = 'cli' | 'api' | 'hook-gate' | 'prompt' | 'mcp';
 
 interface RouteEvent {
   timestamp: string;
-  source?: string;
+  source?: RouteEventSource;
   mode: RouteEventMode;
+  intent?: string;
+  combo?: string;
+  recommendedChoice?: {
+    id?: string;
+    label?: string;
+    confidence?: number;
+  };
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -76,6 +88,7 @@ function getCompileStatus(): string | null {
     if (Date.now() - data.updatedAt > fiveMin) return null;
     if (data.state === 'compiling') return `编译中 ${data.progress}`;
     if (data.state === 'scanning') return '扫描中';
+    if (data.state === 'embedding') return `Embedding ${data.progress ?? ''}`.trim();
   } catch {}
   return null;
 }
@@ -121,20 +134,42 @@ function parseRouteEvent(line: string): RouteEvent | null {
   }
 }
 
-function readRecentRouteEvent(): { mode: RouteEventMode; age: number } | null {
+function routeSourceLabel(source: RouteEventSource | undefined): string {
+  if (source === 'hook-gate') return 'hook';
+  if (source === 'prompt') return 'prompt';
+  if (source === 'api') return 'api';
+  if (source === 'mcp') return 'mcp';
+  return 'cli';
+}
+
+function routeEventName(event: RouteEvent): string {
+  return event.combo ?? event.recommendedChoice?.label ?? event.intent ?? 'route';
+}
+
+function routeEventScore(event: RouteEvent): string {
+  const confidence = event.recommendedChoice?.confidence;
+  return typeof confidence === 'number' && Number.isFinite(confidence)
+    ? ` [${Math.round(confidence * 100)}%]`
+    : '';
+}
+
+function routeEventLabel(event: RouteEvent): string {
+  return `${routeSourceLabel(event.source)} ${routeEventName(event)}${routeEventScore(event)}`;
+}
+
+function readRecentRouteEvent(): { event: RouteEvent; age: number } | null {
   try {
-    if (!existsSync(ROUTE_EVENTS_PATH)) return null;
-    const lines = readFileSync(ROUTE_EVENTS_PATH, 'utf-8').trim().split('\n');
+    if (!existsSync(routeEventsPath)) return null;
+    const lines = readFileSync(routeEventsPath, 'utf-8').trim().split('\n');
     for (let index = lines.length - 1; index >= 0; index -= 1) {
       const line = lines[index];
       if (!line) continue;
       const event = parseRouteEvent(line);
-      if (!event || event.source !== 'hook-gate') continue;
+      if (!event) continue;
       const timestamp = Date.parse(event.timestamp);
       if (!Number.isFinite(timestamp)) continue;
       const age = Date.now() - timestamp;
-      if (age > RECENT_STATUS_WINDOW_MS) return null;
-      return { mode: event.mode, age };
+      return { event, age };
     }
   } catch {}
   return null;
@@ -147,12 +182,25 @@ const OMC_MODE_LABELS: Record<string, string> = {
   hud: 'OMC',
 };
 
+function shortCommit(value: string | undefined): string {
+  return value ? value.slice(0, 7) : '?';
+}
+
+function gitNexusSuffix(): string {
+  const status = getGitNexusStatus();
+  if (!status.available) return '';
+  if (status.stale) return ` · 图谱待刷新 ${shortCommit(status.lastCommit)}→${shortCommit(status.currentCommit)}`;
+  if (status.state === 'current') return ' · 图谱已同步';
+  if (status.state === 'invalid') return ' · 图谱异常';
+  return '';
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 function getLabel(): string {
   // (1) OMC mode suffix (always appended)
   const omcMode = readOmcMode();
-  const omcSuffix = omcMode ? ` · ${OMC_MODE_LABELS[omcMode] ?? omcMode}` : '';
+  const omcSuffix = `${omcMode ? ` · ${OMC_MODE_LABELS[omcMode] ?? omcMode}` : ''}${gitNexusSuffix()}`;
 
   // (2) compile/scan — highest priority
   const compileStatus = getCompileStatus();
@@ -161,7 +209,25 @@ function getLabel(): string {
   // (3) hook running
   if (isHookRunning()) return active(`\u{1F9E0} 思考中${omcSuffix}`);
 
-  // (4) last-match data
+  // (4) recent route event. This covers CLI/API/MCP/Prompt usage, not only hooks.
+  const recentRouteEvent = readRecentRouteEvent();
+  if (recentRouteEvent?.event.mode === 'route_plan') {
+    const event = recentRouteEvent.event;
+    if (recentRouteEvent.age <= RECENT_STATUS_WINDOW_MS) {
+      return active(`\u{1F9E0} ${timeAgo(recentRouteEvent.age)} ${routeEventLabel(event)}${omcSuffix}`);
+    }
+    return dormant(`\u{1F9E0} 上次 ${timeAgo(recentRouteEvent.age)} ${routeEventLabel(event)}${omcSuffix}`);
+  }
+  if (recentRouteEvent?.event.mode === 'needs_clarification') {
+    if (recentRouteEvent.age > RECENT_STATUS_WINDOW_MS) return dormant(`\u{1F9E0} 上次 ${timeAgo(recentRouteEvent.age)} 需澄清${omcSuffix}`);
+    return active(`\u{1F9E0} ${timeAgo(recentRouteEvent.age)} 需澄清${omcSuffix}`);
+  }
+  if (recentRouteEvent?.event.mode === 'no_route_needed') {
+    if (recentRouteEvent.age > RECENT_STATUS_WINDOW_MS) return dormant(`\u{1F9E0} 上次 ${timeAgo(recentRouteEvent.age)} 直达${omcSuffix}`);
+    return active(`\u{1F9E0} ${timeAgo(recentRouteEvent.age)} 直达${omcSuffix}`);
+  }
+
+  // (5) last-match data
   const last = readLastMatch();
   if (last) {
     const age = Date.now() - last.updatedAt;
@@ -184,15 +250,7 @@ function getLabel(): string {
     }
   }
 
-  const recentRouteEvent = readRecentRouteEvent();
-  if (recentRouteEvent?.mode === 'route_plan') {
-    return active(`\u{1F9E0} ${timeAgo(recentRouteEvent.age)} 建议路由${omcSuffix}`);
-  }
-  if (recentRouteEvent?.mode === 'needs_clarification') {
-    return active(`\u{1F9E0} ${timeAgo(recentRouteEvent.age)} 需澄清${omcSuffix}`);
-  }
-
-  // (5) idle — dimmed to distinguish from active states
+  // (6) idle — dimmed to distinguish from active states
   return dormant(`\u{1F9E0} 待机中${omcSuffix}`);
 }
 

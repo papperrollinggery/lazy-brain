@@ -9,6 +9,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { parseTranscript, extractUsedTools, loadRecommendationsForSession } from './tool-usage-tracker.js';
+import { sanitizePromptRecord } from '../privacy/prompts.js';
 
 export interface AccuracyReport {
   sessionId: string;
@@ -282,14 +283,14 @@ export function computeWeeklyStats(days = 7): WeeklyStats {
   };
 }
 
-export type RecommendationEntry = { sessionId: string; timestamp: string; query: string; recommended: string[]; transcriptPath?: string };
+export type RecommendationEntry = { sessionId: string; timestamp: string; query: string; queryHash?: string; recommended: string[]; transcriptPath?: string };
 
 export function loadAllRecommendations(): RecommendationEntry[] {
   const REC_PATH = join(homedir(), '.lazybrain', 'recommendations.jsonl');
   if (!existsSync(REC_PATH)) return [];
   try {
     const raw = readFileSync(REC_PATH, 'utf-8');
-    return raw.trim().split('\n').filter(Boolean).map(l => JSON.parse(l) as RecommendationEntry);
+    return raw.trim().split('\n').filter(Boolean).map(l => sanitizePromptRecord(JSON.parse(l) as RecommendationEntry) as RecommendationEntry);
   } catch {
     return [];
   }

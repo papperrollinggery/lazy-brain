@@ -52,7 +52,7 @@ import { evolveCapabilities } from '../src/evolution/evolve.js';
 import { generateReport, computeWeeklyStats, formatWeeklyReport } from '../src/history/accuracy-report.js';
 import { detectDuplicates, findCapabilityByNameOrId, compareCapabilities } from '../src/graph/duplicate-detector.js';
 import { buildGraphView, formatGraphMermaid } from '../src/graph/graph-view.js';
-import { createServer, isServerRunning, getServerPort, getServerPid, DEFAULT_PORT } from '../src/server/server.js';
+import { createServer, getServerRuntimeState, DEFAULT_PORT } from '../src/server/server.js';
 import { execFileSync, spawn } from 'node:child_process';
 import type { Capability, RawCapability, RouteTarget, UserConfig } from '../src/types.js';
 import { buildSessionSummary, formatSessionSummary } from '../src/stats/session-summary.js';
@@ -75,9 +75,10 @@ import { runApiTests, type ApiTestTarget } from '../src/health/api-test.js';
 import { getEmbeddingCacheStatus } from '../src/embeddings/cache.js';
 import { rebuildEmbeddingCache } from '../src/embeddings/rebuild.js';
 import { buildStatusReport } from '../src/server/status.js';
-import { buildRouteSpec, formatRouteSpec, isRouteTarget } from '../src/orchestrator/route.js';
+import { buildRouteSpec, formatRouteSpec, formatRouteSpecBrief, isRouteTarget } from '../src/orchestrator/route.js';
 import { clearChoicePreferences, loadChoicePreferences, recordChoiceFeedback } from '../src/orchestrator/choice-preferences.js';
-import { readRouteStats, recordRouteSpec } from '../src/orchestrator/route-events.js';
+import { readRouteStats, recordRouteEvent, recordRouteSpec } from '../src/orchestrator/route-events.js';
+import { DOGFOOD_ROUTE_CASES } from '../src/orchestrator/route-dogfood-cases.js';
 import { formatComboList, listCombos } from '../src/combos/registry.js';
 import { getMcpToolNames, runMcpStdioServer } from '../src/mcp/server.js';
 import { detectCapabilityConflicts, type CapabilityConflictDiagnostic } from '../src/diagnostics/conflicts.js';
@@ -351,7 +352,7 @@ async function main() {
 
 function cmdScan() {
   const config = loadConfig();
-  writeFileSync(STATUS_PATH, JSON.stringify({ state: 'scanning', updatedAt: Date.now() }));
+  writeRuntimeStatus({ state: 'scanning' });
   console.log('Scanning capability sources...');
 
   // --platform <name>: scan specific platform only
@@ -409,7 +410,14 @@ function cmdScan() {
   }
   console.log(`\n  Saved to ${scanCachePath}`);
   console.log(`  Run 'lazybrain compile' to build the knowledge graph.`);
-  writeFileSync(STATUS_PATH, JSON.stringify({ state: 'idle', updatedAt: Date.now() }));
+  writeRuntimeStatus({
+    state: 'idle',
+    lastScanAt: Date.now(),
+    scannedFiles: result.scannedFiles,
+    scannedPaths: result.scannedPaths,
+    capabilitiesFound: result.capabilities.length,
+    newCapabilities: newOnes.slice(0, 20).map(capability => capability.name),
+  });
 }
 
 // ─── Interactive Platform Selection ──────────────────────────────────────
@@ -594,7 +602,7 @@ async function cmdCompile() {
     console.log(`  By kind: ${JSON.stringify(s.byKind)}`);
     console.log(`\n  Saved to ${GRAPH_PATH}`);
     console.log(`  Run 'lazybrain match "<query>"' to test matching.`);
-    writeFileSync(STATUS_PATH, JSON.stringify({ state: 'idle', updatedAt: Date.now(), lastCompileErrorCount: 0, lastCompileErrors: [] }));
+    writeRuntimeStatus({ state: 'idle', lastCompileAt: Date.now(), lastCompileErrorCount: 0, lastCompileErrors: [] });
   } else {
     // LLM mode
     console.log(`  Mode: LLM (${config.compileModel})`);
@@ -611,7 +619,7 @@ async function cmdCompile() {
 
     const sigintHandler = () => {
       liveGraph.save(GRAPH_PATH);
-      writeFileSync(STATUS_PATH, JSON.stringify({ state: 'idle', updatedAt: Date.now(), interrupted: true }));
+      writeRuntimeStatus({ state: 'idle', interrupted: true });
       console.log(`\n\nInterrupted. Saved ${liveGraph.getAllNodes().length} nodes to ${GRAPH_PATH}`);
       console.log('Run `lazybrain compile` (without --force) to resume.');
       process.exit(0);
@@ -620,7 +628,7 @@ async function cmdCompile() {
 
     const phase1Bar = createProgressBar({ label: 'Phase 1/2  Tags & Categories' });
     phase1Bar.start(rawCapabilities.length);
-    writeFileSync(STATUS_PATH, JSON.stringify({ state: 'compiling', progress: `0/${rawCapabilities.length}`, updatedAt: Date.now() }));
+    writeRuntimeStatus({ state: 'compiling', progress: `0/${rawCapabilities.length}` });
 
     const phase2Bar = createProgressBar({ label: 'Phase 2/2  Relation Inference' });
     let phase2Started = false;
@@ -635,7 +643,7 @@ async function cmdCompile() {
       checkpointPath: GRAPH_PATH,
       onProgress: (current, total, name) => {
         phase1Bar.update(current, name);
-        writeFileSync(STATUS_PATH, JSON.stringify({ state: 'compiling', progress: `${current}/${total}`, updatedAt: Date.now() }));
+        writeRuntimeStatus({ state: 'compiling', progress: `${current}/${total}` });
       },
       onRelationProgress: (current, total) => {
         if (!phase2Started) {
@@ -649,11 +657,10 @@ async function cmdCompile() {
         }
       },
     }).catch((err) => {
-      writeFileSync(STATUS_PATH, JSON.stringify({
+      writeRuntimeStatus({
         state: 'idle',
-        updatedAt: Date.now(),
         lastError: err instanceof Error ? err.message : String(err),
-      }));
+      });
       throw err;
     });
 
@@ -675,12 +682,12 @@ async function cmdCompile() {
     const s = result.graph.stats();
     console.log(`  Nodes: ${s.nodes}, Links: ${s.links}`);
     console.log(`\n  Saved to ${GRAPH_PATH}`);
-    writeFileSync(STATUS_PATH, JSON.stringify({
+    writeRuntimeStatus({
       state: 'idle',
-      updatedAt: Date.now(),
+      lastCompileAt: Date.now(),
       lastCompileErrorCount: errors,
       lastCompileErrors: result.errors.slice(0, 20),
-    }));
+    });
   }
 }
 
@@ -1017,14 +1024,29 @@ async function cmdMatch(implicitQuery?: string) {
 
 // ─── Route Plan ───────────────────────────────────────────────────────────
 
-function parseRouteArgs(): { query: string; target: RouteTarget; asJson: boolean } {
+function parseRouteTarget(defaultTarget: RouteTarget = 'generic'): RouteTarget {
+  let target = defaultTarget;
+  for (let i = 1; i < args.length; i++) {
+    if (args[i] !== '--target') continue;
+    const value = args[i + 1];
+    if (!value || !isRouteTarget(value)) {
+      console.error('Usage: --target generic|claude|codex|cursor');
+      process.exit(1);
+    }
+    target = value;
+  }
+  return target;
+}
+
+function parseRouteArgs(): { query: string; target: RouteTarget; asJson: boolean; brief: boolean } {
   let target: RouteTarget = 'generic';
   const asJson = args.includes('--json');
+  const brief = args.includes('--brief') || args.includes('-b');
   const queryParts: string[] = [];
 
   for (let i = 1; i < args.length; i++) {
     const arg = args[i];
-    if (arg === '--json') continue;
+    if (arg === '--json' || arg === '--brief' || arg === '-b') continue;
     if (arg === '--target') {
       const value = args[i + 1];
       if (!value || !isRouteTarget(value)) {
@@ -1038,7 +1060,7 @@ function parseRouteArgs(): { query: string; target: RouteTarget; asJson: boolean
     queryParts.push(arg);
   }
 
-  return { query: queryParts.join(' ').trim(), target, asJson };
+  return { query: queryParts.join(' ').trim(), target, asJson, brief };
 }
 
 function parsePromptArgs(): { query: string; target: RouteTarget; asJson: boolean; copy: boolean } {
@@ -1071,10 +1093,14 @@ async function cmdRoute() {
     console.log(JSON.stringify(readRouteStats(), null, 2));
     return;
   }
+  if (args[1] === 'dogfood') {
+    await cmdRouteDogfood();
+    return;
+  }
 
-  const { query, target, asJson } = parseRouteArgs();
+  const { query, target, asJson, brief } = parseRouteArgs();
   if (!query) {
-    console.error('Usage: lazybrain route "<query>" [--target generic|claude|codex|cursor] [--json] | lazybrain route stats');
+    console.error('Usage: lazybrain route "<query>" [--target generic|claude|codex|cursor] [--json|--brief] | lazybrain route dogfood | lazybrain route stats');
     process.exit(1);
   }
 
@@ -1102,7 +1128,77 @@ async function cmdRoute() {
     return;
   }
 
-  console.log(formatRouteSpec(spec));
+  console.log(brief ? formatRouteSpecBrief(spec) : formatRouteSpec(spec));
+}
+
+async function cmdRouteDogfood() {
+  const target = parseRouteTarget('claude');
+  const asJson = args.includes('--json');
+  const verbose = args.includes('--verbose') || args.includes('-v');
+  if (!existsSync(GRAPH_PATH)) {
+    console.error('No graph found. Run `lazybrain scan && lazybrain compile` first.');
+    process.exit(1);
+  }
+
+  const graph = Graph.load(GRAPH_PATH);
+  const config = loadConfig();
+  const history = loadRecentHistory(50);
+  const profile = loadProfile() ?? undefined;
+  const rows = [];
+  for (const testCase of DOGFOOD_ROUTE_CASES) {
+    const spec = await buildRouteSpec(testCase.query, {
+      graph,
+      config,
+      history,
+      profile,
+      choicePreferences: loadChoicePreferences(),
+      target,
+    });
+    rows.push({
+      label: `${testCase.category}:${testCase.query}`,
+      query: testCase.query,
+      expectedCombo: testCase.combo,
+      combo: spec.combo ?? null,
+      intent: spec.intent,
+      recommended: spec.choices.recommended.id,
+      pass: spec.combo === testCase.combo,
+    });
+  }
+
+  if (asJson) {
+    console.log(JSON.stringify({ target, passed: rows.every(row => row.pass), rows }, null, 2));
+    return;
+  }
+
+  const passed = rows.filter(row => row.pass).length;
+  recordRouteEvent({
+    query: 'lazybrain route dogfood',
+    source: 'cli',
+    target,
+    mode: 'route_plan',
+    intent: 'Route dogfood acceptance',
+    combo: 'route_dogfood',
+    skillIds: rows.map(row => row.combo ?? row.expectedCombo),
+    warnings: rows.filter(row => !row.pass).map(row => `${row.label}: expected ${row.expectedCombo}, got ${row.combo ?? '-'}`),
+  });
+  if (!verbose) {
+    const status = passed === rows.length ? 'PASS' : 'FAIL';
+    const failed = rows.filter(row => !row.pass).map(row => `${row.label}:${row.combo ?? '-'}!=${row.expectedCombo}`);
+    console.log(`LazyBrain route dogfood (${target}): ${status} ${passed}/${rows.length}`);
+    console.log(`Routes: ${rows.map(row => row.combo ?? '-').join(', ')}`);
+    if (failed.length > 0) console.log(`Failures: ${failed.join(', ')}`);
+    if (passed !== rows.length) process.exit(1);
+    return;
+  }
+
+  console.log(`LazyBrain route dogfood (${target})`);
+  for (const row of rows) {
+    const mark = row.pass ? 'PASS' : 'FAIL';
+    console.log(`${mark} ${row.label}: ${row.combo ?? '-'} | ${row.intent} | ${row.recommended}`);
+    if (!row.pass) console.log(`     expected: ${row.expectedCombo}`);
+  }
+  console.log(`Result: ${passed}/${rows.length} passed`);
+  if (passed !== rows.length) process.exit(1);
 }
 
 async function cmdPrompt() {
@@ -1818,8 +1914,13 @@ function cmdHook() {
   const combinedStatuslineScript = resolve(binDir, 'statusline-combined.js');
   const statuslineChainPath = getScopedStatuslineChainPath(commandScope);
   const combinedStatuslineCommand = `env LAZYBRAIN_STATUSLINE_CHAIN=${shellQuote(statuslineChainPath)} node ${shellQuote(combinedStatuslineScript)}`;
-  const shouldInstallStatusline = args.includes('--statusline') || args.includes('--install-statusline');
   const shouldReplaceStatusline = args.includes('--replace-statusline');
+  const statuslineExplicitlyRequested = args.includes('--statusline') || args.includes('--install-statusline') || shouldReplaceStatusline;
+  const shouldInstallStatusline = (
+    !args.includes('--no-statusline') &&
+    !args.includes('--no-install-statusline') &&
+    (commandScope === 'project' || statuslineExplicitlyRequested)
+  );
   const isLazyBrainStatuslineCommand = (command: unknown): command is string => {
     if (typeof command !== 'string') return false;
     const normalized = command.replace(/\\/g, '/');
@@ -1946,11 +2047,13 @@ function cmdHook() {
       } catch {}
 
       const hasOtherStatusline = Boolean(upstreamStatuslineCommand && !isLazyBrainStatuslineCommand(upstreamStatuslineCommand));
-      const alreadyCombined = Boolean(existingStatuslineCommand && existingStatuslineCommand.includes('statusline-combined.js'));
+      const upstreamIsLazyBrainStatusline = isLazyBrainStatuslineCommand(upstreamStatuslineCommand);
+      const alreadyCombined = Boolean(upstreamIsLazyBrainStatusline && upstreamStatuslineCommand.includes('statusline-combined.js'));
       const shouldComposeStatusline = shouldInstallStatusline && hasOtherStatusline && !shouldReplaceStatusline;
       const shouldUseLazyBrainOnlyStatusline = (
         shouldReplaceStatusline ||
         (isLazyBrainStatuslineCommand(existingStatuslineCommand) && !alreadyCombined) ||
+        (shouldInstallStatusline && upstreamIsLazyBrainStatusline && !alreadyCombined) ||
         (!upstreamStatuslineCommand && shouldInstallStatusline)
       );
 
@@ -1970,7 +2073,16 @@ function cmdHook() {
           command: combinedStatuslineCommand,
         };
         statuslineMode = 'combined';
-      } else if (alreadyCombined && chainedUpstreamCommand) {
+      } else if (shouldInstallStatusline && alreadyCombined) {
+        if (!existsSync(statuslineChainPath)) {
+          mkdirSync(dirname(statuslineChainPath), { recursive: true });
+          writeFileSync(statuslineChainPath, JSON.stringify({
+            upstreamCommand: chainedUpstreamCommand,
+            upstreamType: chainedUpstreamCommand ? 'command-object' : 'none',
+            hadOriginalStatusLine: false,
+            installedAt: new Date().toISOString(),
+          }, null, 2));
+        }
         settings.statusLine = {
           type: 'command',
           command: combinedStatuslineCommand,
@@ -2013,9 +2125,18 @@ function cmdHook() {
         console.log(`  Statusline: ${statuslineScript}`);
       } else if (hasOtherStatusline) {
         console.log('  Statusline: skipped because another statusLine is already configured.');
-        console.log('  Re-run `lazybrain hook install --statusline` to combine with it, or `--replace-statusline` to replace it.');
+        if (installScope === 'global') {
+          console.log('  Re-run with `--global --yes --statusline` to opt into global HUD composition.');
+        } else {
+          console.log('  Re-run `lazybrain hook install` to combine with it, or `--replace-statusline` to replace it.');
+        }
       } else {
-        console.log('  Statusline: not installed. Use `lazybrain hook install --statusline` if you want LazyBrain statusline and no existing HUD is configured.');
+        console.log(installScope === 'global'
+          ? '  Statusline: not installed for global scope unless --statusline is explicitly requested.'
+          : '  Statusline: not installed because --no-statusline was requested.');
+      }
+      if (statuslineMode === 'none' || statuslineMode === 'skipped') {
+        console.log('  Visibility: limited. Run `lazybrain hook install` without --no-statusline, then restart Claude Code.');
       }
       console.log('  Runtime guard: 非目标项目 cwd 将直接跳过');
       console.log(`  Restart Claude Code to activate.`);
@@ -2146,6 +2267,15 @@ function cmdHook() {
       });
       const stopAudit = loadLatestStopHookAudit(process.cwd());
       const installState = status.installState;
+      const statuslineMode = installState?.statuslineMode ?? 'none';
+      let inheritedStatuslineCommand = '';
+      if (commandScope === 'project' && !getStatusLineCommand(settings.statusLine)) {
+        try {
+          inheritedStatuslineCommand = getStatusLineCommand(readSettingsFile(getClaudeSettingsPath('global')).statusLine);
+        } catch {}
+      }
+      const statuslineCommand = getStatusLineCommand(settings.statusLine) || inheritedStatuslineCommand;
+      const statuslineVisible = isLazyBrainStatuslineCommand(statuslineCommand);
 
       if (args.includes('--json')) {
         console.log(JSON.stringify({
@@ -2163,6 +2293,9 @@ function cmdHook() {
           stopCommands: status.stopCommands,
           sessionStartCommands: status.sessionStartCommands,
           installState,
+          statuslineMode,
+          statuslineVisible,
+          statuslineCommand,
           runtime: {
             activeRuns: status.runtime.activeRuns.length,
             hungRuns: status.runtime.hungRuns.length,
@@ -2188,6 +2321,7 @@ function cmdHook() {
       console.log(`  SessionStart: ${status.lazybrainSessionStart ? 'ℹ️ 含 LazyBrain' : 'ℹ️ 无 LazyBrain 注册'}`);
       console.log(`  Hooks file: ${hooksPath}`);
       console.log(`  Scope: ${installState ? installState.scope : 'unknown'}`);
+      console.log(`  Statusline: ${statuslineVisible ? `✅ ${statuslineMode}` : `⚠️ ${statuslineMode}`}`);
       if (installState?.workspaceRoot) {
         console.log(`  Workspace root: ${installState.workspaceRoot}`);
       }
@@ -2195,6 +2329,11 @@ function cmdHook() {
       console.log(`  Hung hooks: ${status.runtime.hungRuns.length}`);
       console.log(`  Breaker: ${status.breakerOpen ? 'OPEN' : 'closed'}`);
       console.log(`  Avg / P95: ${status.avgDurationMs}ms / ${status.p95DurationMs}ms`);
+      if (!statuslineVisible) {
+        console.log('  Visibility: ⚠️ HUD/statusline 未接入，用户会感觉 LazyBrain 没在工作。');
+        console.log('  Fix: lazybrain hook install');
+        console.log('  Then restart Claude Code / cmux workspace.');
+      }
       console.log('');
       console.log('当前 Stop 链：');
       if (status.stopCommands.length === 0) {
@@ -2264,7 +2403,7 @@ function cmdHook() {
       break;
     }
     default:
-      console.error('Usage: lazybrain hook [plan|install|rollback|uninstall|restore-statusline|status|ps|clean] [--statusline|--replace-statusline|--global|--yes]');
+      console.error('Usage: lazybrain hook [plan|install|rollback|uninstall|restore-statusline|status|ps|clean] [--no-statusline|--replace-statusline|--global|--yes]');
       process.exit(1);
   }
 }
@@ -2551,6 +2690,11 @@ function readJsonStatus(path: string): Record<string, unknown> | null {
   }
 }
 
+function writeRuntimeStatus(patch: Record<string, unknown>): void {
+  const existing = readJsonStatus(STATUS_PATH) ?? {};
+  writeFileSync(STATUS_PATH, JSON.stringify({ ...existing, ...patch, updatedAt: Date.now() }));
+}
+
 function cmdReady() {
   const releaseMode = args.includes('--release');
   const config = loadConfig();
@@ -2634,7 +2778,8 @@ function cmdHome(asJson: boolean): void {
 
   const graphInfo = status.graph as { nodes: number };
   const readiness = status.readiness as { state: string; blockers: string[]; warnings: string[] };
-  const embedding = status.embedding as { state: string; covered: number; active: number };
+  const embedding = status.embedding as { state: string; covered: number; active: number; coveragePercent?: number };
+  const unlock = status.unlock as { recentNewCapabilities?: string[]; missingEmbeddings?: number } | undefined;
   const routing = status.routing as { engine: string; apiConfigured: { compile: boolean; secretary: boolean; embedding: boolean } };
   const hook = status.hook as { scopes: Array<{ scope: string; installed: boolean; stopClean: boolean }>; breakerOpen: boolean; hungRuns: number };
   const server = status.server as { running: boolean; url: string };
@@ -2647,7 +2792,10 @@ function cmdHome(asJson: boolean): void {
   console.log(`Graph        ${statusLabel(graphInfo.nodes > 0)}     ${graphInfo.nodes} capabilities`);
   console.log(`Hook         ${statusLabel(hookOk, !projectHook?.installed)}     ${projectHook?.installed ? 'project installed' : 'not installed'} | ${projectHook?.stopClean ? 'Stop clean' : 'Stop dirty'}`);
   console.log(`LLM/API      ${statusLabel(apiOk, !apiOk)}     compile ${routing.apiConfigured.compile ? 'configured' : 'missing'} | secretary ${routing.apiConfigured.secretary ? 'configured' : 'missing'}`);
-  console.log(`Embedding    ${statusLabel(embedding.state === 'ok', embedding.state !== 'missing' && embedding.state !== 'invalid')}     ${embedding.state.toUpperCase()} | ${embedding.covered}/${embedding.active} covered`);
+  console.log(`Embedding    ${statusLabel(embedding.state === 'ok', embedding.state !== 'missing' && embedding.state !== 'invalid')}     ${embedding.state.toUpperCase()} | ${embedding.covered}/${embedding.active} covered (${embedding.coveragePercent ?? Math.round((embedding.covered / Math.max(1, embedding.active)) * 100)}%)`);
+  if (unlock?.recentNewCapabilities?.length) {
+    console.log(`Unlock       WARN     ${unlock.missingEmbeddings ?? 0} missing embeddings | ${unlock.recentNewCapabilities.slice(0, 3).join(', ')}`);
+  }
   console.log(`Server       ${server.running ? 'OK' : 'IDLE'}     ${server.running ? server.url : 'lazybrain ui'}`);
   console.log(`Agents       ${agents.total > 0 ? 'OK' : 'WARN'}     ${agents.available}/${agents.total} available\n`);
 
@@ -2692,7 +2840,7 @@ async function cmdApi(): Promise<void> {
   for (const result of report.results) {
     const state = result.ok ? 'OK' : result.configured ? 'ERROR' : 'MISSING';
     const detail = result.ok
-      ? `${result.model ?? ''}${result.dim ? ` dim=${result.dim}` : ''}`
+      ? `${result.model ?? ''}${result.dim ? ` dim=${result.dim}` : ''}${result.latencyMs !== undefined ? ` ${result.latencyMs}ms` : ''}`
       : result.error ?? 'unknown error';
     console.log(`  ${result.target.padEnd(9)} ${state.padEnd(7)} ${result.apiBase ?? '(no base)'} ${detail}`);
   }
@@ -2711,6 +2859,10 @@ function cmdEmbeddingsStatus(asJson: boolean): void {
   console.log(`  Covered: ${status.covered}/${status.active}`);
   console.log(`  Coverage: ${Math.round(status.coverage * 100)}%`);
   console.log(`  Dimension: ${status.dim ?? '(unknown)'}`);
+  if (status.provider || status.model) console.log(`  Provider: ${status.provider ?? '(unknown)'} ${status.model ?? ''}`.trimEnd());
+  if (status.missingIds.length > 0) {
+    console.log(`  Missing: ${status.missingIds.slice(0, 5).join(', ')}${status.missingIds.length > 5 ? ` (+${status.missingIds.length - 5})` : ''}`);
+  }
   console.log(`  Message: ${status.message}`);
 }
 
@@ -2727,12 +2879,19 @@ async function cmdEmbeddings(): Promise<void> {
       process.exit(1);
     }
     const graph = Graph.load(GRAPH_PATH);
-    const result = await rebuildEmbeddingCache(graph.getAllNodes(), loadConfig());
+    const force = args.includes('--force');
+    writeRuntimeStatus({ state: 'embedding', progress: force ? 'full' : 'incremental' });
+    const result = await rebuildEmbeddingCache(graph.getAllNodes(), loadConfig(), { force });
+    writeRuntimeStatus({ state: 'idle', lastEmbeddingAt: Date.now(), lastEmbeddingResult: result.ok ? 'ok' : 'failed' });
     if (asJson) {
       console.log(JSON.stringify(result, null, 2));
     } else {
       console.log(`Embedding rebuild: ${result.ok ? 'OK' : 'FAILED'}`);
+      console.log(`  Mode: ${result.mode}`);
       console.log(`  Indexed: ${result.indexed}`);
+      console.log(`  Embedded: ${result.embedded}`);
+      console.log(`  Reused: ${result.reused}`);
+      console.log(`  Removed: ${result.removed}`);
       console.log(`  Dimension: ${result.dim || '(unknown)'}`);
       console.log(`  Status: ${result.status.state}`);
       if (result.error) console.log(`  Error: ${result.error}`);
@@ -2740,7 +2899,7 @@ async function cmdEmbeddings(): Promise<void> {
     if (!result.ok) process.exit(1);
     return;
   }
-  console.error('Usage: lazybrain embeddings [status|rebuild --yes] [--json]');
+  console.error('Usage: lazybrain embeddings [status|rebuild --yes [--force]] [--json]');
   process.exit(1);
 }
 
@@ -2750,7 +2909,11 @@ async function cmdServer() {
   const subCmd = args[1];
 
   if (subCmd === 'stop') {
-    const pid = getServerPid();
+    const { running, pid } = getServerRuntimeState();
+    if (!running) {
+      console.log('Server is not running.');
+      return;
+    }
     if (!pid) {
       console.log('Server is not running.');
       return;
@@ -2765,9 +2928,8 @@ async function cmdServer() {
   }
 
   if (subCmd === 'status') {
-    if (isServerRunning()) {
-      const port = getServerPort();
-      const pid = getServerPid();
+    const { running, port, pid } = getServerRuntimeState();
+    if (running) {
       console.log(`Server is running on http://127.0.0.1:${port} (pid ${pid})`);
     } else {
       console.log('Server is not running.');
@@ -2811,8 +2973,9 @@ async function cmdServer() {
 async function cmdUi(): Promise<void> {
   const sub = args[1];
   if (sub === 'status') {
-    if (isServerRunning()) {
-      console.log(`UI is available at http://127.0.0.1:${getServerPort()}/ (pid ${getServerPid()})`);
+    const { running, port, pid } = getServerRuntimeState();
+    if (running) {
+      console.log(`UI is available at http://127.0.0.1:${port}/ (pid ${pid})`);
     } else {
       console.log('UI server is not running.');
     }
@@ -2826,8 +2989,9 @@ async function cmdUi(): Promise<void> {
 
   const portIdx = args.indexOf('--port');
   const requestedPort = portIdx !== -1 ? parseInt(args[portIdx + 1], 10) : DEFAULT_PORT;
-  const port = isServerRunning() ? getServerPort() : requestedPort;
-  if (!isServerRunning()) {
+  const serverState = getServerRuntimeState();
+  const port = serverState.running ? serverState.port : requestedPort;
+  if (!serverState.running) {
     const child = spawn(process.execPath, [process.argv[1], 'server', '--port', String(port)], {
       detached: true,
       stdio: 'ignore',
@@ -2931,9 +3095,12 @@ Usage:
   lazybrain compile --tier <n>       Compile specific tier (0/1/2)
   lazybrain match "<query>"          Match input to capabilities
   lazybrain route "<query>"          Build an advisory route plan
+  lazybrain route "<query>" --brief  Print a short dogfood-friendly route summary
   lazybrain route "<query>" --json   Output stable RouteSpec JSON
   lazybrain route "<query>" --target generic|claude|codex|cursor
                                      Render target-specific advisory prompt
+  lazybrain route dogfood            Run compact core route acceptance checks
+  lazybrain route dogfood --verbose  Print every route acceptance case
   lazybrain route stats              Show privacy-preserving routing counters
   lazybrain choices prefs [--json]   Show adaptive choice preferences
   lazybrain choices feedback <id> --accepted|--rejected
@@ -2965,13 +3132,17 @@ Usage:
   lazybrain server status            Check server status
   lazybrain api test [--json]        Test configured LLM/embedding APIs explicitly
   lazybrain embeddings status        Show embedding cache coverage
-  lazybrain embeddings rebuild --yes Rebuild embedding cache atomically
+  lazybrain embeddings rebuild --yes [--force] Rebuild embedding cache atomically
   lazybrain ready                    Check graph, hook, HUD, and semantic readiness
   lazybrain ready --release          Check release readiness without transient host load
   lazybrain hook plan                Preview hook install changes without writing files
-  lazybrain hook install             Install project-scoped Claude Code hook
+  lazybrain hook install             Install project hook + visible statusline/HUD
+  lazybrain hook install --no-statusline
+                                     Install hook only, without LazyBrain statusline
   lazybrain hook install --global --yes
                                      Install global hook after explicit confirmation
+  lazybrain hook install --global --yes --statusline
+                                     Also opt into global LazyBrain statusline composition
   lazybrain hook rollback            Restore latest LazyBrain hook backup
   lazybrain hook status              Show LazyBrain hook lifecycle status
   lazybrain hook ps                  Show active LazyBrain hook runs

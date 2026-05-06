@@ -3,7 +3,7 @@ import { join, resolve } from 'node:path';
 import { loadavg } from 'node:os';
 import type { Graph } from '../graph/graph.js';
 import type { UserConfig } from '../types.js';
-import { EMBEDDINGS_BIN_PATH, EMBEDDINGS_INDEX_PATH, GRAPH_PATH, LAZYBRAIN_DIR, STATUS_PATH, getClaudeConfigDir } from '../constants.js';
+import { EMBEDDINGS_BIN_PATH, EMBEDDINGS_INDEX_PATH, GRAPH_PATH, STATUS_PATH, getClaudeConfigDir } from '../constants.js';
 import { getPackageVersion } from '../version.js';
 import { redactConfig } from '../config/redaction.js';
 import { getEmbeddingCacheStatus } from '../embeddings/cache.js';
@@ -13,9 +13,10 @@ import { evaluateReady } from '../hook/readiness.js';
 import { getHookLifecycleStatus } from '../hook/status.js';
 import type { HookInstallScope } from '../hook/types.js';
 import { scanAgentInventory } from '../lab/agent-inventory.js';
-
-const SERVER_RUNNING_FLAG = join(LAZYBRAIN_DIR, '.server-running');
-const SERVER_PID_FILE = join(LAZYBRAIN_DIR, 'server.pid');
+import { buildModelHealth, buildUnlockHealth } from '../unlock/health.js';
+import { getGitNexusStatus } from '../integrations/gitnexus.js';
+import { hasLocalActiveJob } from '../runtime/jobs.js';
+import { getServerRuntimeState } from './liveness.js';
 
 function readJson(path: string): Record<string, unknown> | null {
   if (!existsSync(path)) return null;
@@ -81,21 +82,51 @@ function apiConfigured(config: UserConfig): { compile: boolean; secretary: boole
   };
 }
 
-function getServerPort(): number {
-  const raw = existsSync(SERVER_RUNNING_FLAG) ? readFileSync(SERVER_RUNNING_FLAG, 'utf-8').trim() : '';
-  const parsed = parseInt(raw, 10);
-  return Number.isFinite(parsed) ? parsed : 18450;
+function hasLocalRuntimeJob(state: unknown): boolean {
+  if (state === 'compiling' || state === 'scanning') {
+    return hasLocalActiveJob('compile') || hasLocalActiveJob('scan');
+  }
+  if (state === 'embedding') return hasLocalActiveJob('embedding');
+  return true;
 }
 
-function getServerPid(): number | null {
-  const raw = existsSync(SERVER_PID_FILE) ? readFileSync(SERVER_PID_FILE, 'utf-8').trim() : '';
-  const parsed = parseInt(raw, 10);
-  return Number.isFinite(parsed) ? parsed : null;
+function publicRuntimeStatus(status: Record<string, unknown> | null): Record<string, unknown> {
+  const allowed = new Set([
+    'state',
+    'progress',
+    'updatedAt',
+    'lastScanAt',
+    'lastCompileAt',
+    'lastEmbeddingAt',
+    'lastEmbeddingResult',
+    'scannedFiles',
+    'scannedPaths',
+    'capabilitiesFound',
+    'newCapabilities',
+  ]);
+  const out: Record<string, unknown> = {};
+  if (!status) return out;
+  for (const key of allowed) {
+    const value = status[key];
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') out[key] = value;
+    if (Array.isArray(value)) out[key] = value.filter(item => typeof item === 'string').slice(0, 20);
+  }
+  if (
+    (status.state === 'compiling' || status.state === 'scanning' || status.state === 'embedding') &&
+    !hasLocalRuntimeJob(status.state)
+  ) {
+    out.stale = true;
+    out.staleReason = status.state === 'embedding' ? 'no active embedding process' : 'no active compile process';
+  }
+  return out;
 }
 
 export function buildStatusReport(graph: Graph, config: UserConfig): Record<string, unknown> {
   const nodes = graph.getAllNodes();
   const runtime = getHookRuntimeSnapshot({ config });
+  const status = readJson(STATUS_PATH);
+  const runtimeStatus = publicRuntimeStatus(status);
+  const statusForReady = runtimeStatus.stale === true ? { ...(status ?? {}), state: 'idle' } : status;
   const scopes = (['project', 'global'] as const).map((scope) => {
     const settingsPath = getSettingsPath(scope);
     const hooksPath = getHooksPath(scope);
@@ -114,7 +145,7 @@ export function buildStatusReport(graph: Graph, config: UserConfig): Record<stri
   const ready = evaluateReady({
     graphExists: existsSync(GRAPH_PATH),
     compileErrors: graph.getCompileErrors(),
-    status: readJson(STATUS_PATH),
+    status: statusForReady,
     runtime,
     scopes: readyScopes,
     cwd: process.cwd(),
@@ -126,6 +157,10 @@ export function buildStatusReport(graph: Graph, config: UserConfig): Record<stri
   const runtimeStats = getHookRuntimeStats(runtime);
   const embedding = getEmbeddingCacheStatus(nodes);
   const agents = scanAgentInventory();
+  const unlock = buildUnlockHealth(graph);
+  const modelHealth = buildModelHealth(config, graph);
+  const gitNexus = getGitNexusStatus();
+  const serverState = getServerRuntimeState();
 
   return {
     ok: ready.state === 'READY',
@@ -143,6 +178,7 @@ export function buildStatusReport(graph: Graph, config: UserConfig): Record<stri
         return acc;
       }, {}),
     },
+    gitNexus,
     routing: {
       engine: config.engine,
       mode: config.mode,
@@ -151,6 +187,9 @@ export function buildStatusReport(graph: Graph, config: UserConfig): Record<stri
       apiConfigured: apiConfigured(config),
     },
     embedding,
+    unlock,
+    modelHealth,
+    runtimeStatus,
     hook: {
       scopes: scopes.map(({ scope, settingsPath, hooksPath, installState, lifecycle }) => ({
         scope,
@@ -186,10 +225,10 @@ export function buildStatusReport(graph: Graph, config: UserConfig): Record<stri
       }, {}),
     },
     server: {
-      running: existsSync(SERVER_RUNNING_FLAG),
-      port: getServerPort(),
-      pid: getServerPid(),
-      url: `http://127.0.0.1:${getServerPort()}`,
+      running: serverState.running,
+      port: serverState.port,
+      pid: serverState.pid,
+      url: `http://127.0.0.1:${serverState.port}`,
     },
     config: redactConfig(config),
   };

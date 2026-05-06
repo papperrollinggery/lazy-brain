@@ -5,11 +5,13 @@ describe('getDefaultScanPaths', () => {
   it('defaults to Claude paths when no platform filter is provided', () => {
     const paths = getDefaultScanPaths();
     expect(paths.some(path => path.includes('/.claude/'))).toBe(true);
+    expect(paths.some(path => path.includes('/.skillshub'))).toBe(true);
   });
 
   it('does not include Claude paths when scanning only codex', () => {
     const paths = getDefaultScanPaths({ codex: true });
     expect(paths.some(path => path.includes('/.claude/'))).toBe(false);
+    expect(paths.some(path => path.includes('/.skillshub'))).toBe(false);
     expect(paths.some(path => path.includes('/.codex/'))).toBe(true);
   });
 

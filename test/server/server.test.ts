@@ -5,13 +5,14 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as http from 'node:http';
 import { homedir, tmpdir } from 'node:os';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { createRouter } from '../../src/server/router.js';
 import { sanitizeConfigUpdate } from '../../src/config/schema.js';
 import { Graph } from '../../src/graph/graph.js';
 import type { UserConfig } from '../../src/types.js';
-import { DEFAULT_CONFIG } from '../../src/constants.js';
+import { DEFAULT_CONFIG, STATUS_PATH } from '../../src/constants.js';
+import { UI_HTML } from '../../src/ui/html.js';
 
 // ─── Mock Graph ───────────────────────────────────────────────────────────────
 
@@ -62,6 +63,8 @@ beforeAll(async () => {
     version: '0.1.0-test',
     onReload: () => { graph = makeMockGraph(); },
     choicePreferencesPath: join(tempDir, 'choice-preferences.json'),
+    routeEventsPath: join(tempDir, 'route-events.jsonl'),
+    routeRegressionPath: join(tempDir, 'route-regressions.jsonl'),
   });
 
   server = http.createServer(router);
@@ -87,6 +90,15 @@ async function req(method: string, path: string, body?: unknown) {
   });
   const json = await res.json();
   return { status: res.status, body: json };
+}
+
+async function waitForJobTerminal(jobId: string): Promise<void> {
+  for (let i = 0; i < 30; i++) {
+    const job = await req('GET', `/api/jobs/${jobId}`);
+    const state = job.body.job?.state;
+    if (state && state !== 'queued' && state !== 'running') return;
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -136,12 +148,22 @@ describe('GUI routes', () => {
     expect(body).toHaveProperty('version');
     expect(body).toHaveProperty('readiness');
     expect(body).toHaveProperty('graph');
+    expect(body).toHaveProperty('gitNexus');
+    expect(body.gitNexus).toHaveProperty('available');
+    expect(body.gitNexus).toHaveProperty('mcpRequired', false);
+    expect(body.gitNexus).toHaveProperty('state');
+    expect(body.gitNexus).toHaveProperty('artifactWarnings');
     expect(body).toHaveProperty('routing');
     expect(body).toHaveProperty('embedding');
+    expect(body).toHaveProperty('unlock');
+    expect(body).toHaveProperty('modelHealth');
+    expect(body).toHaveProperty('runtimeStatus');
     expect(body).toHaveProperty('hook');
     expect(body).toHaveProperty('agents');
     expect(body).toHaveProperty('server');
     expect(body.config).not.toHaveProperty('compileApiKey');
+    expect(JSON.stringify(body.modelHealth)).not.toContain('ApiKey');
+    expect(JSON.stringify(body.runtimeStatus)).not.toContain('ApiKey');
   });
 
   it('reports persisted graph compile errors through /api/status', async () => {
@@ -156,6 +178,26 @@ describe('GUI routes', () => {
     }
   });
 
+  it('marks stale persisted compile status without keeping readiness blocked', async () => {
+    const hadStatus = existsSync(STATUS_PATH);
+    const previousStatus = hadStatus ? readFileSync(STATUS_PATH, 'utf-8') : null;
+    mkdirSync(dirname(STATUS_PATH), { recursive: true });
+    writeFileSync(STATUS_PATH, JSON.stringify({ state: 'compiling', progress: '292/859', updatedAt: Date.now() }), 'utf-8');
+    try {
+      const { status, body } = await req('GET', '/api/status');
+      expect(status).toBe(200);
+      expect(body.runtimeStatus.stale).toBe(true);
+      expect(body.runtimeStatus.staleReason).toContain('no active compile process');
+      expect(body.readiness.blockers.join('\n')).not.toContain('Compile state is still compiling');
+    } finally {
+      if (previousStatus !== null) {
+        writeFileSync(STATUS_PATH, previousStatus, 'utf-8');
+      } else {
+        unlinkSync(STATUS_PATH);
+      }
+    }
+  });
+
   it('reports embedding status through the GUI API', async () => {
     const { status, body } = await req('GET', '/api/embeddings/status');
     expect(status).toBe(200);
@@ -167,6 +209,74 @@ describe('GUI routes', () => {
     const { status, body } = await req('POST', '/api/embeddings/rebuild', {});
     expect(status).toBe(400);
     expect(body.error).toContain('confirm');
+  });
+
+  it('accepts both boolean and string embedding rebuild confirmations and returns jobs', async () => {
+    const hadStatus = existsSync(STATUS_PATH);
+    const previousStatus = hadStatus ? readFileSync(STATUS_PATH, 'utf-8') : null;
+    try {
+      const first = await req('POST', '/api/embeddings/rebuild', { confirm: true });
+      expect(first.status).toBe(200);
+      expect(first.body).toHaveProperty('jobId');
+
+      const job = await req('GET', `/api/jobs/${first.body.jobId}`);
+      expect(job.status).toBe(200);
+      expect(job.body.job.kind).toBe('embedding');
+      await waitForJobTerminal(first.body.jobId);
+
+      const second = await req('POST', '/api/embeddings/rebuild', { confirm: 'rebuild' });
+      expect(second.status).toBe(200);
+      expect(second.body).toHaveProperty('jobId');
+      await waitForJobTerminal(second.body.jobId);
+    } finally {
+      if (previousStatus !== null) {
+        writeFileSync(STATUS_PATH, previousStatus, 'utf-8');
+      } else if (!hadStatus) {
+        unlinkSync(STATUS_PATH);
+      }
+    }
+  });
+
+  it('serves backend job lists', async () => {
+    const { status, body } = await req('GET', '/api/jobs?limit=5');
+    expect(status).toBe(200);
+    expect(Array.isArray(body.jobs)).toBe(true);
+  });
+
+  it('serves config schema, redacted config, and config test endpoint', async () => {
+    const schema = await req('GET', '/api/config/schema');
+    expect(schema.status).toBe(200);
+    expect(schema.body.fields.some((field: { key?: string }) => field.key === 'engine')).toBe(true);
+    expect(schema.body.fields.some((field: { key?: string; secret?: boolean }) => field.key === 'compileApiKey' && field.secret === true)).toBe(true);
+
+    const configRes = await req('GET', '/api/config');
+    expect(configRes.status).toBe(200);
+    expect(JSON.stringify(configRes.body)).not.toContain('sk-');
+
+    const testRes = await req('POST', '/api/config/test', { targets: ['compile'] });
+    expect(testRes.status).toBe(200);
+    expect(testRes.body.results[0].target).toBe('compile');
+  });
+
+  it('exposes repair actions and requires confirmation before running them', async () => {
+    const repairs = await req('GET', '/api/repairs');
+    expect(repairs.status).toBe(200);
+    expect(repairs.body.actions.some((action: { id?: string }) => action.id === 'doctor_global_hooks')).toBe(true);
+
+    const run = await req('POST', '/api/repairs/run', { ids: ['doctor_global_hooks'] });
+    expect(run.status).toBe(200);
+    expect(run.body.ok).toBe(false);
+    expect(run.body.results[0].reason).toContain('confirmation');
+  });
+
+  it('runs doctor fix API in dry-run mode by default', async () => {
+    const { status, body } = await req('POST', '/api/doctor/fix', { scope: 'project' });
+    expect(status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(body.dryRun).toBe(true);
+    expect(body.scope).toBe('project');
+    expect(body).toHaveProperty('jobId');
+    expect(body).toHaveProperty('readiness');
   });
 
   it('runs API tests only when explicitly requested', async () => {
@@ -269,6 +379,8 @@ describe('POST /api/route', () => {
     expect(body).toHaveProperty('verification');
     expect(body).toHaveProperty('doneWhen');
     expect(body).toHaveProperty('adapters');
+    expect(body).toHaveProperty('routeEventId');
+    expect(body).toHaveProperty('unlockWarnings');
     expect(body.adapters.codex.prompt).toContain('Codex advisory route plan');
     expect(JSON.stringify(body)).not.toContain(homedir());
   });
@@ -283,6 +395,128 @@ describe('POST /api/route', () => {
     const { status, body } = await req('POST', '/api/route', { query: 'x'.repeat(2001) });
     expect(status).toBe(413);
     expect(body.error).toContain('too long');
+  });
+});
+
+describe('GET/POST /api/route-events', () => {
+  it('returns privacy-preserving route events and records prompt adoption', async () => {
+    const route = await req('POST', '/api/route', { query: 'review code for regressions', target: 'claude' });
+    expect(route.status).toBe(200);
+    expect(route.body.routeEventId).toBeTruthy();
+
+    const events = await req('GET', '/api/route-events?limit=5');
+    expect(events.status).toBe(200);
+    expect(events.body.events[0]).toHaveProperty('queryHash');
+    expect(events.body.events[0]).toHaveProperty('recommendedChoice');
+    expect(events.body.events[0]).toHaveProperty('topModelChoice');
+    expect(events.body.events[0]).not.toHaveProperty('query');
+    expect(JSON.stringify(events.body)).not.toContain('review code for regressions');
+
+    const adopted = await req('POST', '/api/route-events/adopt', {
+      eventId: route.body.routeEventId,
+      target: 'codex',
+      choiceId: route.body.choices.recommended.id,
+      action: 'copy_prompt',
+    });
+    expect(adopted.status).toBe(200);
+    expect(adopted.body.event.adopted).toBe(true);
+    expect(adopted.body.event.adoptedTarget).toBe('codex');
+
+    const after = await req('GET', '/api/route-events?limit=1');
+    expect(after.body.events[0].adopted).toBe(true);
+    expect(after.body.events[0]).not.toHaveProperty('query');
+  });
+
+  it('records rejected feedback reasons and creates route regression fixtures', async () => {
+    const query = 'review this PR for regressions';
+    const route = await req('POST', '/api/route', { query, target: 'codex' });
+    expect(route.status).toBe(200);
+
+    const rejected = await req('POST', '/api/route-events/adopt', {
+      eventId: route.body.routeEventId,
+      choiceId: route.body.choices.recommended.id,
+      action: 'feedback',
+      outcome: 'rejected',
+      reason: 'wrong_skill',
+    });
+    expect(rejected.status).toBe(200);
+    expect(rejected.body.event.feedbackOutcome).toBe('rejected');
+    expect(rejected.body.event.feedbackReason).toBe('wrong_skill');
+
+    const ready = await req('POST', '/api/route-events/regression', {
+      eventId: route.body.routeEventId,
+      query,
+      expectedChoiceId: route.body.choices.recommended.id,
+      reason: 'wrong_skill',
+    });
+    expect(ready.status).toBe(200);
+    expect(ready.body.regressionCase.status).toBe('ready');
+    expect(ready.body.regressionCase.query).toBe(query);
+
+    const pendingRoute = await req('POST', '/api/route', { query: '帮我重新规划产品方向' });
+    const pending = await req('POST', '/api/route-events/regression', {
+      eventId: pendingRoute.body.routeEventId,
+    });
+    expect(pending.status).toBe(200);
+    expect(pending.body.regressionCase.status).toBe('pending_query');
+    expect(pending.body.regressionCase.queryPlaceholder).toMatch(/^TODO_REPLACE_QUERY_/);
+
+    const mismatch = await req('POST', '/api/route-events/regression', {
+      eventId: route.body.routeEventId,
+      query: 'different prompt',
+    });
+    expect(mismatch.status).toBe(400);
+
+    const fixture = readFileSync(join(tempDir, 'route-regressions.jsonl'), 'utf-8');
+    expect(fixture).toContain('"status":"ready"');
+    expect(fixture).toContain('"status":"pending_query"');
+    expect(fixture).not.toContain('帮我重新规划产品方向');
+  });
+});
+
+describe('UI HTML', () => {
+  it('ships executable inline scripts', () => {
+    const scripts = [...UI_HTML.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)]
+      .map(match => match[1])
+      .filter(script => script.trim().length > 0);
+    expect(scripts.length).toBeGreaterThan(0);
+
+    const mainScript = scripts.sort((a, b) => b.length - a.length)[0];
+    expect(mainScript).toContain('async function load');
+    expect(() => new Function(mainScript)).not.toThrow();
+  });
+
+  it('renders code graph diagnostics in the main health table without exposing provider branding', () => {
+    expect(UI_HTML).toContain('代码图谱');
+    expect(UI_HTML).toContain('Code Graph');
+    expect(UI_HTML).not.toContain('GitNexus 索引');
+    expect(UI_HTML).toContain('gitNexusStats');
+  });
+});
+
+describe('GET /api/diagnostics privacy', () => {
+  it('returns sanitized route events from the configured event store', async () => {
+    const routeEventsPath = join(tempDir, 'route-events.jsonl');
+    const route = await req('POST', '/api/route', { query: 'private route query should not leak', target: 'claude' });
+    expect(route.status).toBe(200);
+    expect(readFileSync(routeEventsPath, 'utf-8')).not.toContain('private route query should not leak');
+    appendFileSync(routeEventsPath, JSON.stringify({
+      timestamp: new Date().toISOString(),
+      source: 'api',
+      queryHash: 'legacybadqueryhash',
+      query: 'legacy raw query should not leak',
+      mode: 'route_plan',
+      skillIds: [],
+      warningKinds: [],
+    }) + '\n', 'utf-8');
+
+    const diagnostics = await req('GET', '/api/diagnostics');
+    expect(diagnostics.status).toBe(200);
+    expect(diagnostics.body).toHaveProperty('gitNexus');
+    expect(diagnostics.body.gitNexus).toHaveProperty('mcpRequired', false);
+    expect(diagnostics.body.recentEvents[0]).toHaveProperty('queryHash');
+    expect(JSON.stringify(diagnostics.body)).not.toContain('private route query should not leak');
+    expect(JSON.stringify(diagnostics.body)).not.toContain('legacy raw query should not leak');
   });
 });
 

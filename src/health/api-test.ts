@@ -10,6 +10,8 @@ export interface ApiTestResult {
   apiBase?: string;
   model?: string;
   dim?: number;
+  latencyMs?: number;
+  lastCheckedAt: string;
   error?: string;
 }
 
@@ -19,8 +21,15 @@ export interface ApiTestReport {
   testedAt: string;
 }
 
+function redactSecrets(text: string): string {
+  return text
+    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [redacted]')
+    .replace(/(api[_-]?key|token|secret|password)(["'\s:=]+)[^"',\s}]+/gi, '$1$2[redacted]')
+    .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g, 'sk-[redacted]');
+}
+
 function summarizeError(text: string): string {
-  return text.replace(/\s+/g, ' ').slice(0, 220);
+  return redactSecrets(text).replace(/\s+/g, ' ').slice(0, 220);
 }
 
 function publicBase(apiBase?: string): string | undefined {
@@ -33,8 +42,10 @@ async function testChat(
   apiKey: string | undefined,
   model: string | undefined,
 ): Promise<ApiTestResult> {
+  const startedAt = Date.now();
+  const lastCheckedAt = new Date().toISOString();
   const configured = Boolean(apiBase && apiKey && model);
-  if (!configured) return { target, ok: false, configured, apiBase: publicBase(apiBase), model, error: 'missing config' };
+  if (!configured) return { target, ok: false, configured, apiBase: publicBase(apiBase), model, latencyMs: 0, lastCheckedAt, error: 'missing config' };
   try {
     const res = await fetch(`${apiBase!.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
@@ -59,6 +70,8 @@ async function testChat(
       status: res.status,
       apiBase: publicBase(apiBase),
       model,
+      latencyMs: Date.now() - startedAt,
+      lastCheckedAt,
       error: res.ok ? undefined : summarizeError(text),
     };
   } catch (err) {
@@ -68,17 +81,21 @@ async function testChat(
       configured,
       apiBase: publicBase(apiBase),
       model,
-      error: err instanceof Error ? err.message : String(err),
+      latencyMs: Date.now() - startedAt,
+      lastCheckedAt,
+      error: summarizeError(err instanceof Error ? err.message : String(err)),
     };
   }
 }
 
 async function testEmbedding(config: UserConfig): Promise<ApiTestResult> {
+  const startedAt = Date.now();
+  const lastCheckedAt = new Date().toISOString();
   const apiBase = config.embeddingApiBase;
   const apiKey = config.embeddingApiKey;
   const model = config.embeddingModel;
   const configured = Boolean(apiBase && apiKey && model);
-  if (!configured) return { target: 'embedding', ok: false, configured, apiBase: publicBase(apiBase), model, error: 'missing config' };
+  if (!configured) return { target: 'embedding', ok: false, configured, apiBase: publicBase(apiBase), model, latencyMs: 0, lastCheckedAt, error: 'missing config' };
   try {
     const res = await fetch(`${apiBase!.replace(/\/$/, '')}/embeddings`, {
       method: 'POST',
@@ -98,6 +115,8 @@ async function testEmbedding(config: UserConfig): Promise<ApiTestResult> {
         status: res.status,
         apiBase: publicBase(apiBase),
         model,
+        latencyMs: Date.now() - startedAt,
+        lastCheckedAt,
         error: summarizeError(text),
       };
     }
@@ -107,7 +126,7 @@ async function testEmbedding(config: UserConfig): Promise<ApiTestResult> {
       const vector = data.data?.[0]?.embedding;
       dim = Array.isArray(vector) ? vector.length : 0;
     } catch {
-      return { target: 'embedding', ok: false, configured, status: res.status, apiBase: publicBase(apiBase), model, error: 'bad JSON response' };
+      return { target: 'embedding', ok: false, configured, status: res.status, apiBase: publicBase(apiBase), model, latencyMs: Date.now() - startedAt, lastCheckedAt, error: 'bad JSON response' };
     }
     return {
       target: 'embedding',
@@ -117,6 +136,8 @@ async function testEmbedding(config: UserConfig): Promise<ApiTestResult> {
       apiBase: publicBase(apiBase),
       model,
       dim,
+      latencyMs: Date.now() - startedAt,
+      lastCheckedAt,
       error: dim > 0 ? undefined : 'embedding API returned no vector',
     };
   } catch (err) {
@@ -126,7 +147,9 @@ async function testEmbedding(config: UserConfig): Promise<ApiTestResult> {
       configured,
       apiBase: publicBase(apiBase),
       model,
-      error: err instanceof Error ? err.message : String(err),
+      latencyMs: Date.now() - startedAt,
+      lastCheckedAt,
+      error: summarizeError(err instanceof Error ? err.message : String(err)),
     };
   }
 }

@@ -97,6 +97,10 @@ function safeReadFile(filePath: string): string | null {
   }
 }
 
+function isSkillRootPath(path: string): boolean {
+  return path.includes('/skills') || path.includes('/skills-disabled') || basename(path) === '.skillshub';
+}
+
 export function scan(options?: ScanOptions): ScanResult {
   const paths = [...getDefaultScanPaths(options?.platforms), ...(options?.extraPaths ?? [])];
   const capabilities: RawCapability[] = [];
@@ -109,7 +113,7 @@ export function scan(options?: ScanOptions): ScanResult {
     if (!existsSync(path) || !isDirectory(path)) continue;
 
     try {
-      if (path.includes('/skills') || path.includes('/skills-disabled')) {
+      if (isSkillRootPath(path)) {
         const skillFiles = findSkillFiles(path);
         for (const filePath of skillFiles) {
           scannedFiles++;

@@ -111,6 +111,32 @@ describe('evaluateReady', () => {
     expect(report.warnings.join('\n')).toContain('may hide the global HUD');
   });
 
+  it('warns when LazyBrain hook is installed without visible statusline', () => {
+    const report = evaluateReady({
+      ...base,
+      scopes: [
+        {
+          ...base.scopes[0],
+          settings: {
+            hooks: {
+              UserPromptSubmit: [{ hooks: [{ type: 'command', command: 'node /repo/lazybrain/dist/bin/hook.js' }] }],
+            },
+          },
+          installState: {
+            scope: 'project',
+            workspaceRoot: '/repo/project',
+            hookCommand: 'node /repo/lazybrain/dist/bin/hook.js',
+            installedAt: '2026-04-25T00:00:00.000Z',
+            statuslineMode: 'none',
+          },
+        },
+        base.scopes[1],
+      ],
+    });
+    expect(report.state).toBe('READY');
+    expect(report.warnings.join('\n')).toContain('statusline/HUD is not visible');
+  });
+
   it('reports NOT_READY when hook breaker is open', () => {
     const report = evaluateReady({
       ...base,

@@ -23,7 +23,10 @@ export const WIKI_DIR = join(LAZYBRAIN_DIR, 'wiki');
 export const EXTERNAL_CATALOG_PATH = join(LAZYBRAIN_DIR, 'external-catalog.json');
 export const PROFILE_PATH = join(LAZYBRAIN_DIR, 'profile.json');
 export const ROUTE_EVENTS_PATH = join(LAZYBRAIN_DIR, 'route-events.jsonl');
+export const ROUTE_REGRESSIONS_PATH = join(LAZYBRAIN_DIR, 'route-regressions.jsonl');
 export const CHOICE_PREFERENCES_PATH = process.env.LAZYBRAIN_CHOICE_PREFERENCES_PATH?.trim() || join(LAZYBRAIN_DIR, 'choice-preferences.json');
+export const JOBS_DIR = join(LAZYBRAIN_DIR, 'jobs');
+export const JOBS_LATEST_PATH = join(JOBS_DIR, 'latest.json');
 
 /** OMC state directory — read to detect active execution mode */
 export const OMC_STATE_DIR = join(homedir(), '.omc', 'state');
@@ -87,6 +90,7 @@ export function getDefaultScanPaths(platforms?: Record<string, boolean>): string
       join(claude, 'ecc', '.cursor', 'skills'),
       join(claude, 'ecc', '.kiro', 'skills'),
       join(claude, 'plugins'),
+      join(home, '.skillshub'),
     );
   }
 

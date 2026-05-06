@@ -186,7 +186,9 @@ describe('tagMatch', () => {
 
   it('expands unit test phrasing into test coverage and tdd tokens', () => {
     const tokens = tokenize('add unit tests');
-    expect(tokens).toEqual(expect.arrayContaining(['test-coverage', 'tdd', 'cpp-test']));
+    expect(tokens).toEqual(expect.arrayContaining(['test-coverage', 'tdd', 'tdd-workflow', 'test-engineer']));
+    expect(tokens).not.toContain('cpp-test');
+    expect(tokens).not.toContain('flutter-test');
   });
 
   it('expands commit phrasing into git commit capability names', () => {

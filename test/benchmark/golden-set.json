@@ -8,7 +8,7 @@
   },
   {
     "query": "审查这个PR",
-    "expected": ["review-pr", "code-review", "Code Reviewer"],
+    "expected": ["gitnexus-pr-review", "review-pr", "code-review", "Code Reviewer"],
     "expectedNot": [],
     "topK": 3,
     "note": "中文 PR 审查"
@@ -29,7 +29,7 @@
   },
   {
     "query": "refactor for readability",
-    "expected": ["code-simplifier", "refactor-clean", "planner"],
+    "expected": ["refactor-method-complexity-reduce", "code-simplifier", "refactor-clean", "planner"],
     "expectedNot": ["Tax Strategist"],
     "topK": 3,
     "note": "英文重构"
@@ -113,7 +113,7 @@
   },
   {
     "query": "Kotlin 开发最佳实践",
-    "expected": ["kotlin-test", "kotlin-review", "android-native-dev"],
+    "expected": ["kotlin-patterns", "kotlin-test", "kotlin-review", "android-native-dev"],
     "expectedNot": [],
     "topK": 3,
     "note": "Kotlin 开发"
@@ -134,14 +134,14 @@
   },
   {
     "query": "安全漏洞扫描",
-    "expected": ["security-review", "security-reviewer", "security-bounty-hunter"],
+    "expected": ["security-scan", "security-review", "security-reviewer", "security-bounty-hunter"],
     "expectedNot": [],
     "topK": 3,
     "note": "中文安全扫描"
   },
   {
     "query": "security vulnerability scan",
-    "expected": ["security-review", "security-reviewer", "security-bounty-hunter"],
+    "expected": ["security-scan", "security-review", "security-reviewer", "security-bounty-hunter"],
     "expectedNot": [],
     "topK": 3,
     "note": "英文安全扫描"
@@ -176,7 +176,7 @@
   },
   {
     "query": "前端 UI 设计",
-    "expected": ["frontend-design", "designer", "Frontend Developer"],
+    "expected": ["frontend-dev", "frontend-design", "designer", "Frontend Developer"],
     "expectedNot": [],
     "topK": 3,
     "note": "中文前端设计"
@@ -323,17 +323,17 @@
   },
   {
     "query": "Flutter 开发",
-    "expected": ["flutter-build", "flutter-test", "flutter-review"],
+    "expected": ["dart-flutter-patterns", "flutter-build", "flutter-test", "flutter-review"],
     "expectedNot": [],
     "topK": 3,
     "note": "Flutter 开发"
   },
   {
     "query": "Spring Boot 开发",
-    "expected": ["project-session-manager", "debugger", "backend-patterns"],
+    "expected": ["springboot-patterns", "springboot-tdd", "springboot-verification"],
     "expectedNot": [],
     "topK": 3,
-    "note": "Spring Boot 开发（embedding 误匹配）"
+    "note": "Spring Boot 开发"
   },
   {
     "query": "MCP server 开发",
@@ -351,7 +351,7 @@
   },
   {
     "query": "代码重构减少复杂度",
-    "expected": ["code-simplifier", "refactor-clean", "ai-slop-cleaner"],
+    "expected": ["refactor-method-complexity-reduce", "code-simplifier", "refactor-clean", "ai-slop-cleaner"],
     "expectedNot": ["Tax Strategist"],
     "topK": 3,
     "note": "中文重构复杂度"

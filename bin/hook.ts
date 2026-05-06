@@ -25,7 +25,7 @@ import { loadProfile, isProfileStale, distillAndSave } from '../src/history/prof
 import { writeRecommendation } from '../src/history/tool-usage-tracker.js';
 import { generateProposals } from '../src/utils/token-estimate.js';
 import { detectDuplicates, buildDuplicateIndex, findCapabilityByNameOrId, compareCapabilities } from '../src/graph/duplicate-detector.js';
-import { isServerRunning, getServerPort } from '../src/server/server.js';
+import { getServerRuntimeState } from '../src/server/server.js';
 import type { DuplicatePair } from '../src/graph/duplicate-detector.js';
 import type { WikiCard, SecretaryResponse, ProposalOption } from '../src/types.js';
 import type { TeamComposition } from '../src/matcher/team-recommender.js';
@@ -48,8 +48,9 @@ import type { Capability } from '../src/types.js';
 // ─── Server HTTP Client (optional fast path) ─────────────────────────────────
 
 async function tryMatchViaServer(prompt: string): Promise<import('../src/types.js').Recommendation | null> {
-  if (!isServerRunning()) return null;
-  const port = getServerPort();
+  const serverState = getServerRuntimeState();
+  if (!serverState.running) return null;
+  const port = serverState.port;
   try {
     const res = await fetch(`http://127.0.0.1:${port}/match`, {
       method: 'POST',

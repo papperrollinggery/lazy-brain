@@ -86,11 +86,15 @@ export async function semanticMatch(
 
   const activeNodeIds = new Set(nodes.map((n) => n.id));
   const covered = ids.filter((id) => activeNodeIds.has(id)).length;
-  if (covered / Math.max(1, activeNodeIds.size) < 0.8) {
+  const coverage = covered / Math.max(1, activeNodeIds.size);
+  if (covered === 0) {
     return {
       results: [],
-      warnings: [`Semantic engine requested but embedding cache is stale (${covered}/${activeNodeIds.size} active nodes covered).`],
+      warnings: [`Semantic engine requested but embedding cache has no active coverage (${covered}/${activeNodeIds.size} active nodes covered).`],
     };
+  }
+  if (coverage < 0.8) {
+    warnings.push(`Semantic engine using partial embedding cache (${covered}/${activeNodeIds.size} active nodes covered); tag routing remains primary for missing nodes.`);
   }
 
   const bin = readFileSync(EMBEDDINGS_BIN_PATH);
@@ -121,7 +125,8 @@ export async function semanticMatch(
     if (!cap || cap.status === 'disabled' || !platformCompatible(cap, platform)) continue;
     const cosine = dotProduct(queryEmbedding, matrix, i * dim, dim);
     if (cosine < 0.25) continue;
-    const score = Math.max(0, Math.min(1, (cosine + 1) / 2));
+    const baseScore = Math.max(0, Math.min(1, (cosine + 1) / 2));
+    const score = coverage < 0.8 ? baseScore * 0.85 : baseScore;
     results.push({
       capability: cap,
       score,

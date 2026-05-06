@@ -13,6 +13,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { HISTORY_PATH, LAZYBRAIN_DIR } from '../constants.js';
 import type { HistoryEntry } from '../types.js';
+import { sanitizePromptRecord } from '../privacy/prompts.js';
 
 const USAGE_PATH = join(LAZYBRAIN_DIR, 'usage.jsonl');
 
@@ -83,7 +84,7 @@ function loadHistoryEntries(historyPath?: string): HistoryEntry[] {
   try {
     const raw = readFileSync(path, 'utf-8').trim();
     if (!raw) return [];
-    return raw.split('\n').filter(Boolean).map(l => JSON.parse(l) as HistoryEntry);
+    return raw.split('\n').filter(Boolean).map(l => sanitizePromptRecord(JSON.parse(l) as HistoryEntry) as HistoryEntry);
   } catch {
     return [];
   }

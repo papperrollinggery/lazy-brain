@@ -12,6 +12,7 @@ import { HISTORY_PATH } from '../constants.js';
 import type { HistoryEntry } from '../types.js';
 import type { DuplicatePair } from '../graph/duplicate-detector.js';
 import { loadRecommendations } from '../history/tool-usage-tracker.js';
+import { sanitizePromptRecord } from '../privacy/prompts.js';
 
 export interface SessionStats {
   totalCapabilities: number;
@@ -36,7 +37,7 @@ function loadHistoryEntries(): HistoryEntry[] {
   try {
     const raw = readFileSync(HISTORY_PATH, 'utf-8').trim();
     if (!raw) return [];
-    return raw.split('\n').filter(Boolean).map(l => JSON.parse(l) as HistoryEntry);
+    return raw.split('\n').filter(Boolean).map(l => sanitizePromptRecord(JSON.parse(l) as HistoryEntry) as HistoryEntry);
   } catch {
     return [];
   }

@@ -2,7 +2,7 @@
  * LazyBrain — Matching Quality Benchmark
  *
  * Measures top-1 and top-3 hit rate against a golden set of queries.
- * Target: top-1 >= 60%, top-3 >= 80% (保守目标，真实标注后)
+ * Target: top-1 >= 90%, top-3 >= 96% on the current local graph.
  *
  * Uses the full match() orchestrator (alias → tag → semantic → graph enrichment)
  * to reflect real-world behavior, not just the tag layer in isolation.
@@ -85,9 +85,10 @@ describe('matching quality — individual cases (log only, no assertions)', () =
 // ─── Aggregate hit rate ───────────────────────────────────────────────────────
 
 describe.skipIf(process.env.CI === 'true')('matching quality — aggregate', { timeout: 120000 }, () => {
-  it('top-1 >= 60%, top-3 >= 80%', async () => {
+  it('top-1 >= 90%, top-3 >= 96%', async () => {
     let top1Hits = 0;
     let top3Hits = 0;
+    const top1Misses: Array<{ query: string; got: string; expected: string[] }> = [];
     const misses: Array<{ query: string; got: string[]; expected: string[] }> = [];
 
     for (const c of goldenSet) {
@@ -99,6 +100,12 @@ describe.skipIf(process.env.CI === 'true')('matching quality — aggregate', { t
       // top-1 命中
       if (top1.some(n => checkMatch(n, c.expected))) {
         top1Hits++;
+      } else {
+        top1Misses.push({
+          query: c.query,
+          got: top1[0] ?? '',
+          expected: c.expected,
+        });
       }
 
       // top-3 命中
@@ -119,18 +126,25 @@ describe.skipIf(process.env.CI === 'true')('matching quality — aggregate', { t
     console.log(`\nTop-1 hit rate: ${top1Hits}/${goldenSet.length} = ${(top1Rate * 100).toFixed(1)}%`);
     console.log(`Top-3 hit rate: ${top3Hits}/${goldenSet.length} = ${(top3Rate * 100).toFixed(1)}%`);
 
-    if (top3Rate < 0.8) {
+    if (top1Rate < 0.9) {
+      console.log('\nTop-1 Misses:');
+      for (const m of top1Misses) {
+        console.log(`  "${m.query}" -> ${m.got} (want: ${m.expected.join(' | ')})`);
+      }
+    }
+
+    if (top3Rate < 0.96) {
       console.log('\nTop-3 Misses:');
       for (const m of misses) {
         console.log(`  "${m.query}" → [${m.got.join(', ')}] (want: ${m.expected.join(' | ')})`);
       }
     }
 
-    expect(top1Rate).toBeGreaterThanOrEqual(0.4);
-    expect(top3Rate).toBeGreaterThanOrEqual(0.65);
+    expect(top1Rate).toBeGreaterThanOrEqual(0.9);
+    expect(top3Rate).toBeGreaterThanOrEqual(0.96);
   });
 
-  it('Chinese query top-1 >= 60%, top-3 >= 80%', async () => {
+  it('Chinese query top-1 >= 85%, top-3 >= 93%', async () => {
     const chineseCases = goldenSet.filter(c => /[\u4e00-\u9fff]/.test(c.query));
     let top1Hits = 0;
     let top3Hits = 0;
@@ -151,8 +165,8 @@ describe.skipIf(process.env.CI === 'true')('matching quality — aggregate', { t
     console.log(`\nChinese Top-1: ${top1Hits}/${chineseCases.length} = ${(top1Rate * 100).toFixed(1)}%`);
     console.log(`Chinese Top-3: ${top3Hits}/${chineseCases.length} = ${(top3Rate * 100).toFixed(1)}%`);
 
-    expect(top1Rate).toBeGreaterThanOrEqual(0.3);
-    expect(top3Rate).toBeGreaterThanOrEqual(0.6);
+    expect(top1Rate).toBeGreaterThanOrEqual(0.85);
+    expect(top3Rate).toBeGreaterThanOrEqual(0.93);
   });
 });
 

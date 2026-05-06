@@ -58,6 +58,7 @@ describe('detectThinkingNeed', () => {
       const hint = detectThinkingNeed('你觉得这个架构怎么样');
       expect(hint.triggered).toBe(true);
       expect(hint.suggestedSkills.some(s => s.name === 'critic')).toBe(true);
+      expect(hint.suggestedSkills.some(s => s.name === 'council')).toBe(true);
     });
 
     it('triggers critic for 觉得 at start', () => {

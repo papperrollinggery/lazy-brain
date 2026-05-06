@@ -85,6 +85,7 @@ const LANG_KEYWORDS = new Set([
 
 /** Penalty multiplier for language-specialized capabilities on generic queries */
 const LANG_SPECIALTY_PENALTY = 0.5;
+const SCOPED_MAINTENANCE_PENALTY = 0.25;
 const INTENT_CLUSTER_BOOST = 0.35;
 const SPECIALIZED_INTENT_BOOST = 0.35;
 
@@ -196,7 +197,7 @@ const INTENT_CLUSTERS: IntentCluster[] = [
   },
   {
     triggers: ['spring', 'springboot', 'java', 'project-session-manager'],
-    nameHints: ['spring', 'debugger', 'project-session'],
+    nameHints: ['springboot', 'spring'],
     tagHints: ['spring', 'java', 'backend'],
     descHints: ['spring', 'java', 'backend'],
     categoryHints: ['development', 'deployment'],
@@ -212,6 +213,19 @@ interface SpecializedIntentRule {
 }
 
 const SPECIALIZED_INTENT_RULES: SpecializedIntentRule[] = [
+  {
+    pattern: /(fix.*failing.*tests?|failing.*tests?.*(pr|pull request)|test failure.*(pr|pull request)|修.*测试|测试失败.*(pr|pull request|开|提交)|失败测试.*(pr|pull request|开|提交))/i,
+    nameHints: ['ai-regression-testing', 'build-fix', 'github-ops', 'project-session-manager', 'minimal change'],
+    descHints: ['failing test', 'failed test', 'pull request', 'pr handoff', 'ci failure', 'minimal'],
+    boost: 0.55,
+  },
+  {
+    pattern: /(product direction|product strategy|replan.*product|产品方向|產品方向|重新规划.*产品|重新規劃.*產品|规划.*执行方案|規劃.*執行方案)/i,
+    nameHints: ['office-hours', 'plan-ceo-review', 'product-capability', 'ce:plan'],
+    tagHints: ['product', 'planning', 'strategy', 'startup'],
+    descHints: ['product', 'startup', 'brainstorm', 'worth building', 'design doc'],
+    boost: 0.55,
+  },
   {
     pattern: /(ai.*slop|slop|ai-generated|ai generated|垃圾代码|垃圾代碼)/i,
     nameHints: ['ai-slop-cleaner'],
@@ -254,7 +268,7 @@ const SPECIALIZED_INTENT_RULES: SpecializedIntentRule[] = [
   },
   {
     pattern: /(pr review|review.*pr|审查.*pr|審查.*pr|pr.*审查|pr.*審查)/i,
-    nameHints: ['review-pr', 'code-review', 'code reviewer'],
+    nameHints: ['gitnexus-pr-review', 'review-pr', 'code-review', 'code reviewer'],
     descHints: ['pull request', 'code changes'],
     boost: 0.22,
   },
@@ -310,6 +324,27 @@ const SPECIALIZED_INTENT_RULES: SpecializedIntentRule[] = [
     descHints: ['frontend components', 'web components', 'visual design'],
     boost: 0.35,
   },
+  {
+    pattern: /(write.*unit tests?|add.*unit tests?|unit tests?|写.*单元测试|寫.*單元測試|写.*单测|寫.*單測|单元测试|單元測試|单测|單測)/i,
+    nameHints: ['test-coverage', 'tdd', 'test-engineer', 'tdd-workflow'],
+    tagHints: ['coverage', 'tdd', 'test'],
+    descHints: ['test coverage', 'missing tests', 'test-driven', 'test strategy'],
+    boost: 0.68,
+  },
+  {
+    pattern: /(debug.*(bug|issue|crash|error)|bug.*(debug|crash|error)|crash.*debug|调试.*bug|調試.*bug|排查.*bug|bug.*排查|崩溃.*调试|崩潰.*調試|报错.*排查|報錯.*排查)/i,
+    nameHints: ['debugger', 'agent-introspection-debugging', 'build-fix'],
+    tagHints: ['debugger', 'debugging', 'debug', 'build'],
+    descHints: ['root-cause', 'stack trace', 'regression isolation', 'compilation error'],
+    boost: 0.72,
+  },
+  {
+    pattern: /(adversarial.*dual.*review|dual.*review|对抗性.*双.*审查|對抗性.*雙.*審查|双模型.*审查|雙模型.*審查)/i,
+    nameHints: ['santa-loop', 'code-reviewer', 'critic'],
+    tagHints: ['dual-review', 'review', 'critic'],
+    descHints: ['adversarial dual-review', 'independent model reviewers'],
+    boost: 0.7,
+  },
 ];
 
 /**
@@ -339,6 +374,20 @@ function queryHasLangHint(tokens: string[]): boolean {
     }
   }
   return false;
+}
+
+function isScopedMaintenanceCapability(cap: Capability): boolean {
+  const haystack = [
+    cap.name,
+    cap.description,
+    ...cap.tags,
+    ...cap.exampleQueries,
+  ].join(' ').toLowerCase();
+  return /claude[.-]?md|claude\.md|project memory/.test(haystack);
+}
+
+function queryHasScopedMaintenanceSignal(query: string): boolean {
+  return /claude[.-]?md|claude\.md|project memory|项目记忆|專案記憶|项目规则|專案規則/i.test(query);
 }
 
 function matchesAnyHint(target: string, hints: string[] | undefined): boolean {
@@ -624,6 +673,10 @@ export function tagMatch(
     // Penalize language-specialized capabilities on generic queries
     if (!hasLangHint && specializedBoost === 0 && getLangSpecialty(cap)) {
       score *= LANG_SPECIALTY_PENALTY;
+    }
+
+    if (isScopedMaintenanceCapability(cap) && !queryHasScopedMaintenanceSignal(query)) {
+      score *= SCOPED_MAINTENANCE_PENALTY;
     }
 
     score = Math.min(1, score);

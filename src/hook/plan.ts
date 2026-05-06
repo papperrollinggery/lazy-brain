@@ -164,7 +164,8 @@ export function buildHookPlan(options: HookPlanOptions): HookPlan {
     upstreamStatuslineCommand &&
     !isLazyBrainStatuslineCommand(upstreamStatuslineCommand, options.statuslineScript, options.combinedStatuslineScript),
   );
-  const alreadyCombined = Boolean(existingStatuslineCommand && existingStatuslineCommand.includes('statusline-combined.js'));
+  const upstreamIsLazyBrainStatusline = isLazyBrainStatuslineCommand(upstreamStatuslineCommand, options.statuslineScript, options.combinedStatuslineScript);
+  const alreadyCombined = Boolean(upstreamIsLazyBrainStatusline && upstreamStatuslineCommand.includes('statusline-combined.js'));
 
   let statuslineMode: StatuslinePlanMode = 'none';
   let plannedStatuslineCommand = '';
@@ -174,11 +175,12 @@ export function buildHookPlan(options: HookPlanOptions): HookPlan {
   } else if (options.shouldInstallStatusline && hasOtherStatusline) {
     statuslineMode = 'combine';
     plannedStatuslineCommand = options.combinedStatuslineCommand;
-  } else if (alreadyCombined) {
+  } else if (options.shouldInstallStatusline && alreadyCombined) {
     statuslineMode = 'combine';
     plannedStatuslineCommand = options.combinedStatuslineCommand;
   } else if (
     isLazyBrainStatuslineCommand(existingStatuslineCommand, options.statuslineScript, options.combinedStatuslineScript) ||
+    (options.shouldInstallStatusline && upstreamIsLazyBrainStatusline) ||
     (!upstreamStatuslineCommand && options.shouldInstallStatusline)
   ) {
     statuslineMode = 'lazybrain';

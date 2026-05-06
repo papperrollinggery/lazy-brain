@@ -142,6 +142,11 @@ export function evaluateReady(options: EvaluateReadyOptions): ReadyReport {
   const global = options.scopes.find((scope) => scope.scope === 'global');
   const projectStatusline = getStatusLineCommand(project?.settings.statusLine);
   const globalStatusline = getStatusLineCommand(global?.settings.statusLine);
+  const lazybrainStatuslineVisible = isLazyBrainStatuslineCommand(projectStatusline) || isLazyBrainStatuslineCommand(globalStatusline);
+  const lazybrainHookInstalled = scopes.some(scope => scope.lazybrainUserPromptSubmit);
+  if (lazybrainHookInstalled && !lazybrainStatuslineVisible) {
+    warnings.push('LazyBrain hook is installed but statusline/HUD is not visible. Run `lazybrain hook install`, then restart Claude Code or cmux.');
+  }
   if (
     projectStatusline &&
     globalStatusline &&

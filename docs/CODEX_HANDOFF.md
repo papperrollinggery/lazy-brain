@@ -1,5 +1,305 @@
 # Codex Handoff — LazyBrain
 
+## Latest Handoff - 2026-05-05
+
+Read this section first in a fresh session.
+
+### Current Goal
+
+Finish LazyBrain as a usable local routing product, not just a passing CLI.
+The active acceptance bar is:
+
+- Web UI usable by a real operator.
+- HUD/statusline shows real recent route state, not permanent idle.
+- New skills/plugins are route-visible immediately through tag/combo routing;
+  embeddings enhance routing but must not block unlock.
+- Route events remain private: store hashes and adoption signals, not raw
+  prompts.
+- Dogfood routing protects realistic bilingual tasks.
+
+### Latest Verified State
+
+- `node dist/bin/lazybrain.js route dogfood --target claude`
+  - Result: `PASS 40/40`
+- `node dist/bin/lazybrain.js route 'bug ，帮查' --target claude --json`
+  - Result: `debug_crash`, recommended `workflow:debug_crash`
+- `node dist/bin/lazybrain.js route 'fix failing tests and create a PR' --target claude --json`
+  - Result: `test_pr_repair`, recommended `workflow:test_pr_repair`
+- `node dist/bin/lazybrain.js route '帮我修失败测试并提交 PR' --target codex --json`
+  - Result: `test_pr_repair`, recommended `workflow:test_pr_repair`
+  - Copied Codex prompt `Use:` block is limited to primary combo skills plus
+    GitNexus skills; generic `test`, `skill-create`, and unrelated PR review
+    agents are not shown as primary tools.
+- Local UI/API:
+  - `http://127.0.0.1:3333/api/route` returns `routeEventId`.
+  - `/api/route-events/adopt` records accepted copy/adoption feedback.
+  - `/api/status` returns a local `gitNexus` object without requiring MCP.
+  - UI status/diagnostics render GitNexus index freshness and artifact warnings.
+  - `node dist/bin/statusline.js` shows recent API route activity such as
+    `api test_pr_repair [86%]` instead of permanent idle, and appends
+    `GNX current` when a fresh local GitNexus index exists.
+- Benchmark:
+  - `npm test -- test/benchmark/match-quality.test.ts`
+  - Result: Top-1 `55/55 = 100.0%`, Top-3 `55/55 = 100.0%`
+  - Chinese result: Top-1 `33/33 = 100.0%`, Top-3 `33/33 = 100.0%`
+- GitNexus CLI index:
+  - `gitnexus status`: up-to-date
+  - `gitnexus list`: `171 files`, `3598 symbols`, `6028 edges`,
+    `263 processes`
+- GitNexus MCP in this Codex session:
+  - `mcp__gitnexus__.list_repos`: works.
+  - `mcp__gitnexus__.query`: works for route/status/adoption exploration.
+  - Continue verifying MCP first in fresh sessions before falling back to CLI.
+
+### Latest GitNexus / Benchmark Usability Fix
+
+The latest pass converted GitNexus from an invisible routing hint into a
+visible product status surface and tightened benchmark quality.
+
+Changed behavior:
+
+- `/api/status` includes `gitNexus.available`, `state`, `repoName`, `repoPath`,
+  `indexedAt`, `lastCommit`, `currentCommit`, `stale`, `stats`,
+  `artifactWarnings`, `source: local-meta`, and `mcpRequired: false`.
+- `/api/diagnostics` includes the same GitNexus status for troubleshooting.
+- The UI stats row and diagnostics grid show GitNexus freshness, short commit
+  hashes, symbol/edge/process counts, and artifact warning count.
+- `statusline.js` appends `GNX current` / `GNX stale` when a local GitNexus
+  index exists, without replacing route/hook state.
+- Route context now tells agents to use GitNexus MCP `context` / `impact` /
+  `detect_changes` first, then fall back to `gitnexus status/list + rg`.
+- `.gitnexus.*` backup/corrupt artifacts are ignored; the current untracked
+  backup/corrupt artifacts were removed, while `.gitnexus/` was preserved.
+- Benchmark golden labels now accept current better matches such as
+  `gitnexus-pr-review`, `security-scan`, `kotlin-patterns`,
+  `dart-flutter-patterns`, `springboot-*`, and
+  `refactor-method-complexity-reduce`.
+- Generic unit-test query expansion no longer injects language-specific
+  `cpp-test` / `flutter-test`; it now prefers `test-coverage`, `tdd`,
+  `tdd-workflow`, and `test-engineer`.
+
+Validation already run for this pass:
+
+- `npm test -- test/benchmark/match-quality.test.ts test/integrations/gitnexus.test.ts`
+  - Passed: `114` tests.
+  - Benchmark: Top-1/Top-3 `100.0%`; Chinese Top-1/Top-3 `100.0%`.
+- `npm test -- test/matcher/tag-layer.test.ts test/orchestrator/route.test.ts test/orchestrator/route-dogfood.test.ts`
+  - Passed: `107` tests.
+- `npm test -- test/server/server.test.ts test/statusline.test.ts test/integrations/gitnexus.test.ts`
+  - Passed: `47` tests.
+
+### Latest Product Usability Fix
+
+The latest issue found during product acceptance was a realistic bilingual PR
+handoff miss:
+
+- `帮我修失败测试并提交 PR` routed to `pr-test-analyzer` and surfaced unrelated
+  Flutter/Spring/PR-review tools instead of the `test_pr_repair` workflow.
+
+This is now fixed.
+
+Changed files:
+
+- `src/combos/registry.ts`
+  - Added Chinese `失败测试` / `修失败测试` / `提交 PR` signals.
+- `src/matcher/tag-layer.ts`
+  - Tightened the test/PR specialized boost so broad `testing` or `pr` tags do
+    not lift unrelated language/framework tools to the top.
+- `src/orchestrator/route.ts`
+  - Prevented single generic capability names such as `test` from being treated
+    as explicitly named skills.
+  - Reused primary-route skill filtering for adapter prompts, so copied
+    Claude/Codex/Cursor prompts stay focused on combo skills and GitNexus.
+  - Compact fallback scenario/details to avoid dumping long plugin examples
+    into generated route plans.
+- `src/ui/html.ts`
+  - The Try Router result now shows primary combo skills plus explicit/GitNexus
+    skills, not every noisy backend candidate.
+- `src/orchestrator/route-dogfood-cases.ts`
+  - Dogfood set now includes the Chinese failing-test PR handoff case.
+- `test/orchestrator/route.test.ts`
+  - Added regressions for Chinese failing-test PR handoff and generic token
+    filtering.
+
+Validation run after this fix:
+
+- `npm test -- test/orchestrator/route.test.ts test/orchestrator/route-dogfood.test.ts test/server/server.test.ts`
+  - Passed: `112` tests.
+- `node dist/bin/lazybrain.js route dogfood --target claude`
+  - Passed: `40/40`.
+- `npm test`
+  - Passed: `64` files / `725` tests.
+- `npm run lint`
+  - Passed.
+- `npm run build`
+  - Passed.
+- `npm run gate:adaptive`
+  - Passed: hook warnings `0`; capability warnings remain advisory.
+- `node dist/bin/lazybrain.js ready --release`
+  - `READY`.
+- `git diff --check`
+  - Passed.
+
+### Recent Route Regression Fix
+
+Claude found a real regression: `bug ，帮查` routed to browse instead of debug.
+This is now fixed.
+
+Changed files:
+
+- `src/combos/registry.ts`
+  - Boosted debug intent for short high-signal terms such as `bug`, `crash`,
+    `error`, Chinese error/debug terms, and mixed CJK punctuation.
+  - Strengthened PR creation signals for `create/open PR`, `pull request`,
+    and Chinese `开/创建/发/提 PR`.
+- `src/orchestrator/route-gate.ts`
+  - Treats PR creation wording as route-worthy instead of too broad.
+- `src/orchestrator/route-dogfood-cases.ts`
+  - New shared 39-case dogfood set.
+- `test/orchestrator/route-dogfood.test.ts`
+  - Unit test now uses the shared dogfood cases.
+- `test/orchestrator/route.test.ts`
+  - Added regression coverage for `bug ，帮查`.
+- `bin/lazybrain.ts`
+  - CLI `route dogfood` now uses the shared 39-case dogfood set instead of
+    the old 6-case smoke set.
+
+Validation already run after this fix:
+
+- `npm test -- test/orchestrator/route-dogfood.test.ts test/orchestrator/route.test.ts`
+  - Passed: `67` tests.
+- `npm run lint`
+  - Passed.
+- `npm run build`
+  - Passed.
+- `node dist/bin/lazybrain.js route dogfood --target claude`
+  - Passed: `39/39`.
+- `npm test`
+  - Passed: `64` files / `722` tests.
+- `npm run gate:adaptive`
+  - Passed.
+- `node dist/bin/lazybrain.js ready --release`
+  - `READY`.
+- `git diff --check`
+  - Passed.
+
+### Product Usability Fixes Already Implemented
+
+Do not redo these unless tests or manual UI checks prove they regressed.
+
+- Web UI inline script escaping was fixed in `src/ui/html.ts`.
+- UI script syntax acceptance was added so server-rendered inline JS is checked.
+- Route event privacy was tightened:
+  - route events store query hashes, not raw prompts.
+  - diagnostics should read route/history data through redaction helpers.
+- Copy/adopt loop was added to the Web UI route result.
+- `/api/route-events` and route adoption paths were added/extended for recent
+  route visibility.
+- HUD/statusline work added route/status visibility and reduced stale idle noise.
+- README statusline instructions were updated to current behavior.
+
+### Model / Embedding / Unlock Work Already Implemented
+
+The intended behavior is:
+
+- Newly installed skills/plugins route immediately through graph/tag/combo
+  signals.
+- Embedding rebuild is incremental by default.
+- Stale or partial embeddings degrade semantic weight instead of disabling
+  routing.
+- Status APIs expose unlock/model/embedding health.
+- GitNexus is a routing enhancement only; it is not a core LazyBrain
+  dependency.
+
+Important files:
+
+- `src/embeddings/cache.ts`
+- `src/embeddings/rebuild.ts`
+- `src/matcher/embedding-layer.ts`
+- `src/matcher/tag-layer.ts`
+- `src/scanner/scanner.ts`
+- `src/server/status.ts`
+- `src/unlock/`
+- `src/integrations/`
+
+### GitNexus Handling
+
+Use GitNexus if available, but do not block LazyBrain work on it.
+
+Fresh-session checklist:
+
+1. Run `tool_search` for GitNexus tools if MCP tools are not already exposed.
+2. Run `mcp__gitnexus__.list_repos`.
+3. If MCP works, query this repo first:
+   - query: `route dogfood debug_crash findCombo route scoring`
+   - repo: `/Users/jinjungao/work/lazy_user`
+4. If MCP returns `Transport closed`, fall back to:
+   - `gitnexus status`
+   - `gitnexus list`
+   - source reading with `rg`
+5. Do not commit `.gitnexus.*` backup/corrupt artifacts.
+
+Current local GitNexus facts:
+
+- CLI binary: `/opt/homebrew/bin/gitnexus`
+- Version previously observed: `1.6.3`
+- Current repo index: up-to-date on commit `83f6767`
+- Backup/corrupt GitNexus artifacts exist in the worktree and should be
+  ignored or cleaned only with explicit intent.
+
+### Dirty Worktree Warning
+
+The worktree is intentionally dirty from product-usability work. Do not reset
+or checkout files.
+
+Notable modified areas:
+
+- CLI: `bin/lazybrain.ts`, `bin/statusline*.ts`
+- UI/server: `src/ui/html.ts`, `src/server/*`
+- Routing: `src/orchestrator/*`, `src/combos/registry.ts`,
+  `src/matcher/*`
+- Embeddings/unlock/runtime/privacy: `src/embeddings/*`, `src/unlock/`,
+  `src/runtime/`, `src/privacy/`
+- Tests across server, route, embeddings, scanner, statusline, privacy, runtime
+
+### Next Session Start
+
+Run these first:
+
+```bash
+git status --short
+gitnexus status
+node dist/bin/lazybrain.js route dogfood --target claude
+node dist/bin/lazybrain.js route 'bug ，帮查' --target claude --json | jq -r '[(.combo // "-"), (.intent // "-"), (.choices.recommended.id // "-")] | @tsv'
+```
+
+Then verify the product surface, not only tests:
+
+```bash
+npm run build
+node dist/bin/lazybrain.js ui --port 3333
+```
+
+Open the UI and check:
+
+- home page does not stay loading.
+- `/api/status` is requested.
+- recent routes render.
+- trial route shows model/choice and tool copy buttons.
+- copying/adopting a route creates a recent adopted event.
+- HUD/statusline changes after route activity and does not stay permanently
+  idle.
+
+Final release gate before claiming done:
+
+```bash
+npm test
+npm run lint
+npm run build
+npm run gate:adaptive
+node dist/bin/lazybrain.js ready --release
+```
+
 ## Project Purpose
 
 LazyBrain is a semantic capability router for AI coding agents. It scans local
@@ -206,7 +506,8 @@ Next-stage execution blueprint:
 - Scope: conflict-aware recommendations, runtime policy evidence, doctor
   resolution guidance, and adaptive regression gates.
 - Focused gate: `npm run gate:adaptive`
-- Gate expectation: `hookWarnings=0`, `capabilityWarnings=0`; informational
+- Gate expectation: `hookWarnings=0`; capability warnings are advisory because
+  they can come from the user's installed plugin inventory. Informational
   duplicate providers may remain visible as non-blocking alternatives.
 - P4/P5 continuation: local preference clearing and HTTP choice preference
   endpoints are implemented and covered by `test/orchestrator/choice-preferences.test.ts`

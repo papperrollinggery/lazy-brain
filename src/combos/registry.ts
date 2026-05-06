@@ -122,6 +122,26 @@ export const COMBOS: ComboTemplate[] = [
     doneWhen: ['A new user can install, test, troubleshoot, and roll back from the docs alone.'],
   },
   {
+    id: 'test_pr_repair',
+    title: 'Test repair and PR handoff',
+    category: 'code-quality',
+    description: 'Fix failing tests, verify the change, and prepare a pull request handoff.',
+    entryCommand: 'lazybrain route "<query>"',
+    executionMode: 'guided',
+    modelStrategy: 'Use QA/work mode: reproduce the failing test, make the smallest fix, then prepare PR evidence.',
+    keywords: ['failing tests', 'fix failing tests', 'failed tests', 'test failure', 'create a pr', 'pull request', '修测试', '修失败测试', '失败测试', '测试失败', '开 PR', '创建 PR', '提交 PR'],
+    skillNames: ['ai-regression-testing', 'github-ops', 'project-session-manager'],
+    workflow: [
+      step('reproduce-failing-test', 'Reproduce the failing test or CI failure'),
+      step('fix-smallest-surface', 'Fix the smallest responsible code path'),
+      step('verify-pr-evidence', 'Run focused tests and prepare PR evidence'),
+    ],
+    contextNeeded: ['Failing test command or CI output', 'Changed branch or diff', 'Expected behavior', 'PR target branch'],
+    guardrails: [guard('Do not broaden the PR beyond the failing behavior', undefined, 'strict')],
+    verification: [check('focused-tests', 'Focused failing tests pass'), check('full-tests', 'Automated tests pass', 'npm test')],
+    doneWhen: ['The original failing test passes.', 'The PR handoff includes what changed and which verification ran.'],
+  },
+  {
     id: 'code_review_regression',
     title: 'Regression code review',
     category: 'code-quality',
@@ -190,7 +210,7 @@ export const COMBOS: ComboTemplate[] = [
     entryCommand: 'lazybrain route "<query>"',
     executionMode: 'guided',
     modelStrategy: 'Use a conservative implementation pass, then verify behavior and tests.',
-    keywords: ['refactor', 'cleanup', 'clean up', 'simplify', '重构', '清理', '整理', '函数', '代码太乱', '垃圾代码', '臃肿', '重复代码'],
+    keywords: ['refactor', 'cleanup', 'clean up', 'simplify', 'slop', 'ai-generated', 'ai generated', '重构', '清理', '整理', '函数', '代码太乱', '垃圾代码', '臃肿', '重复代码', 'AI 生成'],
     negativeKeywords: ['网页', '页面', '界面', 'ui', 'redesign', '视觉'],
     skillNames: ['ai-slop-cleaner', 'coding-standards', 'ai-regression-testing'],
     workflow: [
@@ -226,6 +246,72 @@ export const COMBOS: ComboTemplate[] = [
     doneWhen: ['Security findings are evidence-backed, prioritized, and verified after fixes.'],
   },
   {
+    id: 'product_direction_planning',
+    title: 'Product direction planning',
+    category: 'planning',
+    description: 'Re-plan product direction and execution strategy before implementation.',
+    entryCommand: 'lazybrain route "<query>"',
+    executionMode: 'advisory',
+    modelStrategy: 'Use product office-hours mode: clarify the audience, wedge, proof, and next execution loop.',
+    keywords: ['product direction', 'product strategy', 'roadmap', 'execution plan', '重新规划', '产品方向', '產品方向', '执行方案', '執行方案', '规划产品', '規劃產品', 'office hours'],
+    skillNames: ['office-hours', 'plan-ceo-review', 'product-capability'],
+    workflow: [
+      step('identify-user-and-pain', 'Identify the target user, current pain, and existing workaround'),
+      step('choose-narrow-wedge', 'Choose the smallest useful wedge to validate next'),
+      step('define-execution-loop', 'Define the next validation loop and success signal'),
+    ],
+    contextNeeded: ['Target audience', 'Current product state', 'What feels not useful yet', '30-day success signal'],
+    guardrails: [guard('Do not start implementation until the product premise is explicit', undefined, 'strict')],
+    verification: [check('premise-review', 'Premises and next validation loop are explicit')],
+    doneWhen: ['The direction names a user, wedge, success signal, and next execution plan.'],
+  },
+  {
+    id: 'council_escalation',
+    title: 'Council escalation review',
+    category: 'planning',
+    description: 'Use multi-perspective council review for architecture, cost, product, or irreversible tradeoffs.',
+    entryCommand: 'lazybrain route "<query>"',
+    executionMode: 'advisory',
+    modelStrategy: 'Use a strong reasoning model and council mode: compare positions, surface tradeoffs, then decide.',
+    keywords: [
+      'council',
+      'council mode',
+      'escalation',
+      'tradeoff',
+      'trade-off',
+      'architecture decision',
+      'cost decision',
+      'irreversible',
+      '议会',
+      '議會',
+      '议会模式',
+      '議會模式',
+      '取舍',
+      '取捨',
+      '裁决',
+      '裁決',
+      '不可逆',
+      '架构决策',
+      '架構決策',
+      '成本决策',
+      '成本決策',
+    ],
+    skillNames: ['critic', 'ralplan', 'architect'],
+    workflow: [
+      step('frame-decision', 'Frame the decision, owner, deadline, and constraints'),
+      step('collect-positions', 'Collect the strongest arguments for each viable option'),
+      step('stress-tradeoffs', 'Stress architecture, cost, reversibility, and adoption risks'),
+      step('record-recommendation', 'Record the recommendation, confidence, dissent, and next step'),
+    ],
+    contextNeeded: ['Decision question', 'Options under consideration', 'Irreversible risks', 'Cost or timeline constraints', 'Expected decision owner'],
+    guardrails: [
+      guard('Do not execute irreversible actions from a council route', undefined, 'strict'),
+      guard('Require a decision record with options, tradeoffs, recommendation, dissent, and next step', undefined, 'strict'),
+    ],
+    verification: [check('decision-record', 'Decision record includes options, tradeoffs, recommendation, dissent, owner, and next step')],
+    doneWhen: ['The council output makes a clear recommendation and names the remaining uncertainty.'],
+  },
+  {
     id: 'release_public_audit',
     title: 'Public release audit',
     category: 'release',
@@ -257,6 +343,23 @@ export function listCombos(category?: string): ComboTemplate[] {
   return COMBOS.filter(combo => combo.category.toLowerCase() === normalized || combo.id.startsWith(normalized));
 }
 
+function hasDebugCrashIntent(query: string): boolean {
+  const hasFailureSignal = /\b(bug|crash|error)\b|报错|崩溃|失败|异常|不工作|修不好/i.test(query);
+  if (!hasFailureSignal) return false;
+  return /\b(debug|investigate|diagnose|trace|fix)\b|帮查|排查|查一下|帮我查|定位|看下|帮我看/i.test(query) ||
+    /报错|崩溃|异常/.test(query);
+}
+
+function hasCreatePrIntent(query: string): boolean {
+  return /\b(create|open|prepare|make|submit)\s+(a\s+)?(pr|pull request)\b|\b(create|open|prepare|make|submit)\s+.*\bpull request\b|开\s*pr|创建\s*pr|发\s*pr|提\s*pr|提交\s*pr/i.test(query);
+}
+
+function comboIntentBoost(combo: ComboTemplate, query: string): number {
+  if (combo.id === 'debug_crash' && hasDebugCrashIntent(query)) return 0.25;
+  if (combo.id === 'test_pr_repair' && hasCreatePrIntent(query)) return 0.25;
+  return 0;
+}
+
 export function findCombo(query: string, categories: string[] = []): ComboTemplate | undefined {
   const q = query.toLowerCase();
   const categorySet = new Set(categories.map(c => c.toLowerCase()));
@@ -273,7 +376,7 @@ export function findCombo(query: string, categories: string[] = []): ComboTempla
     const categoryScore = categorySet.has(combo.category.toLowerCase()) ? 1 : 0;
     const normalizedKeywordScore = Math.min(1, keywordScore / 6);
     const hasNegativeSignal = combo.negativeKeywords?.some(keyword => q.includes(keyword.toLowerCase())) ?? false;
-    const score = (categoryScore * 0.6) + (normalizedKeywordScore * 0.4) - (hasNegativeSignal ? 0.5 : 0);
+    const score = (categoryScore * 0.6) + (normalizedKeywordScore * 0.4) + comboIntentBoost(combo, q) - (hasNegativeSignal ? 0.5 : 0);
     if (!best || score > best.score) best = { combo, score };
   }
 

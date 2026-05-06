@@ -6,7 +6,7 @@
  */
 
 import type * as http from 'node:http';
-import { readdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { readdirSync, existsSync, readFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
@@ -25,18 +25,45 @@ import { evaluateLab } from '../lab/evaluator.js';
 import { scanAgentInventory } from '../lab/agent-inventory.js';
 import { UI_HTML } from '../ui/html.js';
 import { buildStatusReport } from './status.js';
+import { redactConfig } from '../config/redaction.js';
 import { loadConfig, saveConfig } from '../config/config.js';
-import { validateConfigUpdate } from '../config/schema.js';
+import {
+  CONFIG_ALLOWED_KEYS,
+  SECRET_CONFIG_KEYS,
+  VALID_EMBEDDING_SOURCES,
+  VALID_ENGINES,
+  VALID_LANGUAGES,
+  VALID_MODES,
+  VALID_STRATEGIES,
+  validateConfigUpdate,
+} from '../config/schema.js';
 import { getHookRuntimeSnapshot, getHookRuntimeStats } from '../hook/runtime.js';
 import { runApiTests, type ApiTestTarget } from '../health/api-test.js';
 import { getEmbeddingCacheStatus } from '../embeddings/cache.js';
 import { rebuildEmbeddingCache } from '../embeddings/rebuild.js';
-import { EMBEDDINGS_INDEX_PATH, GRAPH_PATH, LAZYBRAIN_DIR, ROUTE_EVENTS_PATH } from '../constants.js';
+import { DEFAULT_CONFIG, EMBEDDINGS_INDEX_PATH, GRAPH_PATH, LAZYBRAIN_DIR } from '../constants.js';
 import { buildRouteSpec, isRouteTarget } from '../orchestrator/route.js';
 import { clearChoicePreferences, loadChoicePreferences, recordChoiceFeedback } from '../orchestrator/choice-preferences.js';
 import { loadRecentHistory } from '../history/history.js';
 import { loadProfile } from '../history/profile.js';
-import { recordRouteSpec } from '../orchestrator/route-events.js';
+import { isRouteEventFeedbackReason, readRecentRouteEvents, recordRouteAdoption, recordRouteSpec } from '../orchestrator/route-events.js';
+import { recordRouteRegressionCase, RouteRegressionError } from '../orchestrator/route-regressions.js';
+import { mergeRuntimeStatus } from '../runtime/status.js';
+import { getGitNexusStatus } from '../integrations/gitnexus.js';
+import { runHookDoctor } from '../hook/doctor.js';
+import type { HookInstallScope } from '../hook/types.js';
+import {
+  appendJobLog,
+  cancelJob,
+  clearJobCanceller,
+  createJob,
+  getJob,
+  listActiveJobs,
+  listJobs,
+  registerJobCanceller,
+  updateJob,
+  type BackendJob,
+} from '../runtime/jobs.js';
 
 // ─── Rate Limiter ────────────────────────────────────────────────────────────
 
@@ -53,6 +80,7 @@ const LAZYBRAIN_CLI_CANDIDATES = [
   join(ROUTER_DIR, '..', 'dist', 'bin', 'lazybrain.js'),
   join(ROUTER_DIR, '..', '..', 'dist', 'bin', 'lazybrain.js'),
 ];
+const ROUTE_FEEDBACK_REASON_ERROR = 'Invalid reason. Use wrong_skill, wrong_model, too_broad, missed_council, bad_copy_prompt, or other.';
 
 function isRateLimited(ip: string): boolean {
   const now = Date.now();
@@ -123,6 +151,28 @@ async function readBody(req: http.IncomingMessage, maxBytes = 64 * 1024): Promis
   });
 }
 
+function isLocalRequest(req: http.IncomingMessage): boolean {
+  const address = req.socket.remoteAddress ?? '';
+  const localAddress = address === '' ||
+    address === '127.0.0.1' ||
+    address === '::1' ||
+    address === '::ffff:127.0.0.1';
+  if (!localAddress) return false;
+  const origin = req.headers.origin ?? req.headers.referer ?? '';
+  return !origin || origin.startsWith('http://127.0.0.1') || origin.startsWith('http://localhost');
+}
+
+async function readJsonBody<T extends Record<string, unknown>>(
+  req: http.IncomingMessage,
+  empty: T,
+): Promise<T | null> {
+  const raw = await readBody(req);
+  if (!raw.trim()) return empty;
+  const parsed = JSON.parse(raw) as unknown;
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  return parsed as T;
+}
+
 // ─── Route Handlers ──────────────────────────────────────────────────────────
 
 async function handleMatch(
@@ -150,6 +200,7 @@ async function handleRoute(
   graph: Graph,
   config: UserConfig,
   choicePreferencesPath?: string,
+  routeEventsPath?: string,
 ): Promise<void> {
   let body: { query?: string; target?: RouteTarget };
   try {
@@ -174,8 +225,98 @@ async function handleRoute(
     choicePreferences: loadChoicePreferences(choicePreferencesPath),
     target: body.target ?? 'generic',
   });
-  recordRouteSpec(result, 'api');
-  json(res, 200, result);
+  const event = recordRouteSpec(result, 'api', routeEventsPath);
+  json(res, 200, event ? { ...result, routeEventId: event.eventId } : result);
+}
+
+function handleRouteEvents(req: http.IncomingMessage, res: http.ServerResponse, routeEventsPath?: string): void {
+  const url = new URL(req.url ?? '/', 'http://localhost');
+  const limitRaw = parseInt(url.searchParams.get('limit') ?? '20', 10);
+  const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 100) : 20;
+  json(res, 200, { events: readRecentRouteEvents({ limit, path: routeEventsPath }) });
+}
+
+async function handleRouteEventAdopt(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  routeEventsPath?: string,
+): Promise<void> {
+  let body: { eventId?: string; target?: RouteTarget; choiceId?: string; action?: string; outcome?: string; reason?: string };
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch {
+    return err(res, 400, 'Invalid JSON body');
+  }
+  if (!body.eventId || typeof body.eventId !== 'string') {
+    return err(res, 400, 'Missing required field: eventId');
+  }
+  if (body.target !== undefined && (typeof body.target !== 'string' || !isRouteTarget(body.target))) {
+    return err(res, 400, 'Invalid target. Use generic, claude, codex, or cursor.');
+  }
+  const action = body.action === 'feedback' ? 'feedback' : body.action === 'copy_prompt' || body.action === undefined ? 'copy_prompt' : null;
+  if (!action) return err(res, 400, 'Invalid action. Use copy_prompt or feedback.');
+  const outcome = body.outcome === 'accepted' || body.outcome === 'rejected' ? body.outcome : undefined;
+  if (body.outcome !== undefined && !outcome) return err(res, 400, 'Invalid outcome. Use accepted or rejected.');
+  const reason = isRouteEventFeedbackReason(body.reason) ? body.reason : undefined;
+  if (body.reason !== undefined && !reason) {
+    return err(res, 400, ROUTE_FEEDBACK_REASON_ERROR);
+  }
+  const event = recordRouteAdoption({
+    eventId: body.eventId,
+    target: body.target,
+    choiceId: typeof body.choiceId === 'string' ? body.choiceId : undefined,
+    action,
+    outcome,
+    reason,
+    path: routeEventsPath,
+  });
+  if (!event) return err(res, 404, `Route event not found: ${body.eventId}`);
+  json(res, 200, { event });
+}
+
+async function handleRouteEventRegression(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  routeEventsPath?: string,
+  routeRegressionPath?: string,
+): Promise<void> {
+  let body: { eventId?: string; query?: string; expectedChoiceId?: string; reason?: string };
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch {
+    return err(res, 400, 'Invalid JSON body');
+  }
+  if (!body.eventId || typeof body.eventId !== 'string') {
+    return err(res, 400, 'Missing required field: eventId');
+  }
+  if (body.query !== undefined && typeof body.query !== 'string') {
+    return err(res, 400, 'query must be a string when provided.');
+  }
+  if (body.query && body.query.length > 2000) {
+    return err(res, 413, 'Query is too long. Limit: 2000 characters.');
+  }
+  if (body.expectedChoiceId !== undefined && typeof body.expectedChoiceId !== 'string') {
+    return err(res, 400, 'expectedChoiceId must be a string when provided.');
+  }
+  const reason = isRouteEventFeedbackReason(body.reason) ? body.reason : undefined;
+  if (body.reason !== undefined && !reason) {
+    return err(res, 400, ROUTE_FEEDBACK_REASON_ERROR);
+  }
+
+  try {
+    const regressionCase = recordRouteRegressionCase({
+      eventId: body.eventId,
+      query: body.query,
+      expectedChoiceId: body.expectedChoiceId,
+      reason,
+      routeEventsPath,
+      path: routeRegressionPath,
+    });
+    json(res, 200, { regressionCase });
+  } catch (error) {
+    if (error instanceof RouteRegressionError) return err(res, error.statusCode, error.message);
+    return err(res, 500, 'Failed to record route regression case.');
+  }
 }
 
 function handleChoices(
@@ -430,17 +571,70 @@ async function handleEmbeddingRebuild(
   graph: Graph,
   config: UserConfig,
 ): Promise<void> {
-  let body: { confirm?: string };
+  let body: { confirm?: string | boolean; force?: boolean };
   try {
-    body = JSON.parse(await readBody(req)) as { confirm?: string };
+    body = JSON.parse(await readBody(req)) as { confirm?: string | boolean; force?: boolean };
   } catch {
     return err(res, 400, 'Invalid JSON body');
   }
-  if (body.confirm !== 'rebuild') {
+  if (body.confirm !== 'rebuild' && body.confirm !== true) {
     return err(res, 400, 'Embedding rebuild requires {"confirm":"rebuild"}.');
   }
-  const result = await rebuildEmbeddingCache(graph.getAllNodes(), config);
-  json(res, result.ok ? 200 : 500, result);
+  const result = startEmbeddingJob(graph, config, body.force === true);
+  json(res, result.status, result.body);
+}
+
+function startEmbeddingJob(
+  graph: Graph,
+  config: UserConfig,
+  force: boolean,
+): { status: number; body: Record<string, unknown> } {
+  const active = listActiveJobs({ kind: 'embedding', localOnly: true })[0];
+  if (active) return { status: 409, body: { ok: false, error: 'Embedding rebuild is already running', jobId: active.id } };
+
+  const job = createJob('embedding', { progress: force ? 'queued full rebuild' : 'queued incremental rebuild' });
+  let cancelled = false;
+  registerJobCanceller(job.id, 'embedding', () => {
+    cancelled = true;
+    return true;
+  });
+  updateJob(job.id, {
+    state: 'running',
+    startedAt: new Date().toISOString(),
+    progress: force ? 'full rebuild running' : 'incremental rebuild running',
+  });
+  mergeRuntimeStatus({ state: 'embedding', progress: force ? 'full' : 'incremental' });
+
+  void (async () => {
+    try {
+      appendJobLog(job.id, [`embedding rebuild started (${force ? 'full' : 'incremental'})`]);
+      const result = await rebuildEmbeddingCache(graph.getAllNodes(), config, { force });
+      if (cancelled || getJob(job.id)?.state === 'cancelled') return;
+      appendJobLog(job.id, [result.ok ? `embedding rebuild indexed ${result.indexed}` : `embedding rebuild failed: ${result.error ?? 'unknown error'}`]);
+      mergeRuntimeStatus({
+        state: 'idle',
+        lastEmbeddingAt: Date.now(),
+        lastEmbeddingResult: result.ok ? 'ok' : 'failed',
+      });
+      updateJob(job.id, {
+        state: result.ok ? 'succeeded' : 'failed',
+        progress: result.ok ? 'completed' : 'failed',
+        exitCode: result.ok ? 0 : 1,
+        error: result.ok ? undefined : result.error ?? 'embedding rebuild failed',
+        result,
+      });
+    } catch (error) {
+      if (cancelled || getJob(job.id)?.state === 'cancelled') return;
+      const message = error instanceof Error ? error.message : String(error);
+      mergeRuntimeStatus({ state: 'idle', lastEmbeddingAt: Date.now(), lastEmbeddingResult: 'failed' });
+      appendJobLog(job.id, [`embedding rebuild failed: ${message}`]);
+      updateJob(job.id, { state: 'failed', progress: 'failed', exitCode: 1, error: message });
+    } finally {
+      clearJobCanceller(job.id);
+    }
+  })();
+
+  return { status: 200, body: { ok: true, jobId: job.id } };
 }
 
 function handleLabPage(
@@ -562,14 +756,62 @@ function handleReportSession(
 
 // ─── Config /api/config ───────────────────────────────────────────────────────
 
+function enumValues(values: Set<string>): string[] {
+  return [...values];
+}
+
+function configFieldSchema(key: string, currentConfig: UserConfig): Record<string, unknown> {
+  const enumByKey: Record<string, string[] | undefined> = {
+    engine: enumValues(VALID_ENGINES),
+    strategy: enumValues(VALID_STRATEGIES),
+    mode: enumValues(VALID_MODES),
+    language: enumValues(VALID_LANGUAGES),
+    embeddingSource: enumValues(VALID_EMBEDDING_SOURCES),
+  };
+  return {
+    key,
+    type: key === 'autoThreshold' ? 'number' : 'string',
+    secret: SECRET_CONFIG_KEYS.has(key),
+    editable: true,
+    defaultValue: (DEFAULT_CONFIG as unknown as Record<string, unknown>)[key] ?? null,
+    value: SECRET_CONFIG_KEYS.has(key)
+      ? ((currentConfig as unknown as Record<string, unknown>)[key] ? '<redacted>' : '')
+      : (currentConfig as unknown as Record<string, unknown>)[key] ?? null,
+    ...(enumByKey[key] ? { enum: enumByKey[key] } : {}),
+  };
+}
+
+function handleGetConfig(
+  _req: http.IncomingMessage,
+  res: http.ServerResponse,
+  liveConfig: UserConfig,
+): void {
+  json(res, 200, { ok: true, config: redactConfig({ ...loadConfig(), ...liveConfig }) });
+}
+
+function handleConfigSchema(
+  _req: http.IncomingMessage,
+  res: http.ServerResponse,
+  liveConfig: UserConfig,
+): void {
+  const currentConfig = { ...loadConfig(), ...liveConfig };
+  const fields = [...CONFIG_ALLOWED_KEYS].map(key => configFieldSchema(key, currentConfig));
+  json(res, 200, { ok: true, fields });
+}
+
+function configFieldError(message: string): Record<string, string> {
+  const match = message.match(/(?:Unknown config key:|Invalid|^)(?:\s+config key)?\s*"?([A-Za-z][A-Za-z0-9]*)"?/);
+  const key = match?.[1];
+  return key && CONFIG_ALLOWED_KEYS.has(key) ? { [key]: message } : { _global: message };
+}
+
 async function handleUpdateConfig(
   req: http.IncomingMessage,
   res: http.ServerResponse,
   liveConfig: UserConfig,
 ): Promise<void> {
   // Only accept requests from local origin (defense-in-depth)
-  const origin = req.headers.origin ?? req.headers.referer ?? '';
-  if (origin && !origin.startsWith('http://127.0.0.1') && !origin.startsWith('http://localhost')) {
+  if (!isLocalRequest(req)) {
     return json(res, 403, { ok: false, error: 'Forbidden: config writes only allowed from localhost' });
   }
 
@@ -586,7 +828,7 @@ async function handleUpdateConfig(
 
   const validation = validateConfigUpdate(body);
   if (!validation.ok) {
-    return json(res, 400, { ok: false, error: validation.error });
+    return json(res, 400, { ok: false, error: validation.error, fieldErrors: configFieldError(validation.error) });
   }
 
   try {
@@ -605,6 +847,24 @@ async function handleUpdateConfig(
   }
 }
 
+async function handleConfigTest(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  config: UserConfig,
+): Promise<void> {
+  let body: { target?: ApiTestTarget; targets?: ApiTestTarget[] } = {};
+  try {
+    body = await readJsonBody(req, {}) ?? {};
+  } catch {
+    return err(res, 400, 'Invalid JSON body');
+  }
+  const allowed = new Set<ApiTestTarget>(['compile', 'secretary', 'embedding']);
+  const targets = Array.isArray(body.targets)
+    ? body.targets.filter((target): target is ApiTestTarget => allowed.has(target))
+    : body.target && allowed.has(body.target) ? [body.target] : undefined;
+  json(res, 200, await runApiTests(config, targets));
+}
+
 // ─── Compile /api/compile ────────────────────────────────────────────────────
 
 let _compileProcess: ReturnType<typeof spawn> | null = null;
@@ -612,23 +872,20 @@ let _compileLog: string[] = [];
 let _compilePhase = '';
 let _compileExitCode: number | null = null;
 let _compileTimedOut = false;
+let _compileJobId: string | null = null;
 
-function handleCompileStart(
-  req: http.IncomingMessage,
-  res: http.ServerResponse,
+function startCompileJob(
   config: UserConfig,
   onReload: () => void,
-): void {
+  scanFirst: boolean,
+): { status: number; body: Record<string, unknown> } {
   if (_compileProcess && _compileProcess.exitCode === null) {
-    return json(res, 409, { ok: false, error: 'Compilation is already running' });
+    return { status: 409, body: { ok: false, error: 'Compilation is already running', jobId: _compileJobId } };
   }
   _compileLog = [];
   _compilePhase = 'starting';
   _compileExitCode = null;
   _compileTimedOut = false;
-
-  const url = new URL(req.url ?? '/', 'http://localhost');
-  const scanFirst = url.searchParams.get('scan') === '1';
 
   const compileArgs = ['compile'];
   if (config.compileApiBase && config.compileApiKey) {
@@ -639,22 +896,38 @@ function handleCompileStart(
     const COMPILE_TIMEOUT_MS = parseInt(process.env.LAZYBRAIN_COMPILE_TIMEOUT || '1200000', 10); // default 20 min
     const cliPath = resolveLazyBrainCliPath();
     if (!cliPath) {
-      return json(res, 500, { ok: false, error: 'LazyBrain CLI build not found. Run `npm run build` first.' });
+      return { status: 500, body: { ok: false, error: 'LazyBrain CLI build not found. Run `npm run build` first.' } };
     }
+
+    const job = createJob('compile', { progress: scanFirst ? 'queued scan' : 'queued compile' });
+    _compileJobId = job.id;
+    let activeChild: ReturnType<typeof spawn> | null = null;
+    registerJobCanceller(job.id, 'compile', () => {
+      if (activeChild && activeChild.exitCode === null) return activeChild.kill();
+      return false;
+    });
 
     const startTask = (taskArgs: string[], kind: 'scan' | 'compile', onSuccess?: () => void): void => {
       _compilePhase = kind === 'scan' ? 'scanning' : 'starting';
+      mergeRuntimeStatus({ state: kind === 'scan' ? 'scanning' : 'compiling', progress: _compilePhase });
+      updateJob(job.id, {
+        state: 'running',
+        startedAt: getJob(job.id)?.startedAt ?? new Date().toISOString(),
+        progress: _compilePhase,
+      });
       const child = spawn(process.execPath, [cliPath, ...taskArgs], {
         cwd: process.cwd(),
         env: { ...process.env, FORCE_COLOR: '0' },
         stdio: ['ignore', 'pipe', 'pipe'],
       });
+      activeChild = child;
       _compileProcess = child;
 
       child.stdout.on('data', (data: Buffer) => {
         const lines = data.toString().split('\n').filter(Boolean);
         _compileLog.push(...lines);
         if (_compileLog.length > 100) _compileLog = _compileLog.slice(-100);
+        appendJobLog(job.id, lines);
         for (const line of lines) {
           if (kind === 'scan') {
             if (line.includes('Scan complete')) _compilePhase = 'scan completed';
@@ -664,11 +937,14 @@ function handleCompileStart(
             if (line.includes('complete') || line.includes('Graph saved')) _compilePhase = '完成';
           }
         }
+        updateJob(job.id, { progress: _compilePhase });
       });
 
       child.stderr.on('data', (data: Buffer) => {
-        _compileLog.push('[err] ' + data.toString().trim());
+        const line = '[err] ' + data.toString().trim();
+        _compileLog.push(line);
         if (_compileLog.length > 100) _compileLog = _compileLog.slice(-100);
+        appendJobLog(job.id, [line]);
       });
 
       child.on('error', (error) => {
@@ -676,6 +952,10 @@ function handleCompileStart(
         _compileExitCode = 1;
         _compilePhase = 'failed';
         _compileProcess = null;
+        activeChild = null;
+        clearJobCanceller(job.id);
+        mergeRuntimeStatus({ state: 'idle', progress: 'failed' });
+        updateJob(job.id, { state: 'failed', progress: 'failed', exitCode: 1, error: error.message });
       });
 
       const compileTimer = setTimeout(() => {
@@ -703,6 +983,19 @@ function handleCompileStart(
         _compileExitCode = exitCode;
         _compilePhase = _compileTimedOut ? 'timeout' : exitCode === 0 ? 'completed' : 'failed';
         _compileProcess = null;
+        activeChild = null;
+        clearJobCanceller(job.id);
+        mergeRuntimeStatus({
+          state: 'idle',
+          progress: _compilePhase,
+          ...(kind === 'compile' && exitCode === 0 ? { lastCompileAt: Date.now() } : {}),
+        });
+        updateJob(job.id, {
+          state: exitCode === 0 ? 'succeeded' : 'failed',
+          progress: _compilePhase,
+          exitCode,
+          error: exitCode === 0 ? undefined : _compileTimedOut ? 'compile timed out' : `compile exited with code ${exitCode}`,
+        });
       });
     };
 
@@ -712,10 +1005,22 @@ function handleCompileStart(
       startTask(compileArgs, 'compile');
     }
 
-    json(res, 200, { ok: true, phase: _compilePhase });
+    return { status: 200, body: { ok: true, jobId: job.id, phase: _compilePhase } };
   } catch (err) {
-    json(res, 500, { ok: false, error: err instanceof Error ? err.message : 'Failed to start compile' });
+    return { status: 500, body: { ok: false, error: err instanceof Error ? err.message : 'Failed to start compile' } };
   }
+}
+
+function handleCompileStart(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  config: UserConfig,
+  onReload: () => void,
+): void {
+  const url = new URL(req.url ?? '/', 'http://localhost');
+  const scanFirst = url.searchParams.get('scan') === '1';
+  const result = startCompileJob(config, onReload, scanFirst);
+  json(res, result.status, result.body);
 }
 
 function handleCompileStatus(
@@ -723,12 +1028,231 @@ function handleCompileStatus(
   res: http.ServerResponse,
 ): void {
   const running = _compileProcess !== null && _compileProcess.exitCode === null;
+  const job = _compileJobId ? getJob(_compileJobId) : listJobs({ limit: 1 }).find(item => item.kind === 'compile') ?? null;
   json(res, 200, {
+    jobId: job?.id ?? null,
+    state: job?.state ?? (running ? 'running' : 'idle'),
     running,
-    phase: _compilePhase || (running ? 'running' : 'idle'),
-    recentLog: _compileLog.slice(-20),
-    exitCode: running ? null : _compileExitCode,
+    phase: job?.progress ?? (_compilePhase || (running ? 'running' : 'idle')),
+    recentLog: (job?.recentLog ?? _compileLog).slice(-20),
+    exitCode: running ? null : job?.exitCode ?? _compileExitCode,
   });
+}
+
+// ─── Jobs /api/jobs ──────────────────────────────────────────────────────────
+
+function handleJobs(req: http.IncomingMessage, res: http.ServerResponse): void {
+  const url = new URL(req.url ?? '/', 'http://localhost');
+  const limitRaw = parseInt(url.searchParams.get('limit') ?? '20', 10);
+  const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 100) : 20;
+  json(res, 200, { jobs: listJobs({ limit }) });
+}
+
+function handleActiveJobs(_req: http.IncomingMessage, res: http.ServerResponse): void {
+  json(res, 200, { jobs: listActiveJobs({ localOnly: true }) });
+}
+
+function handleJob(_req: http.IncomingMessage, res: http.ServerResponse, id: string): void {
+  const job = getJob(id);
+  if (!job) return err(res, 404, `Job not found: ${id}`);
+  json(res, 200, { job });
+}
+
+function handleJobCancel(_req: http.IncomingMessage, res: http.ServerResponse, id: string): void {
+  const result = cancelJob(id);
+  json(res, result.ok ? 200 : result.job ? 409 : 404, result);
+}
+
+// ─── Doctor / Repairs ───────────────────────────────────────────────────────
+
+function parseDoctorScope(value: unknown): HookInstallScope | null {
+  if (value === undefined) return 'project';
+  return value === 'project' || value === 'global' ? value : null;
+}
+
+function runDoctorJob(
+  scope: HookInstallScope,
+  dryRun: boolean,
+  graph: Graph,
+  config: UserConfig,
+): { status: number; body: Record<string, unknown> } {
+  const job = createJob('doctor', { progress: dryRun ? `diagnose ${scope}` : `fix ${scope}` });
+  updateJob(job.id, {
+    state: 'running',
+    startedAt: new Date().toISOString(),
+    progress: dryRun ? `diagnosing ${scope}` : `fixing ${scope}`,
+  });
+  try {
+    const report = runHookDoctor(scope, !dryRun, config);
+    appendJobLog(job.id, [
+      dryRun
+        ? `doctor diagnosed ${scope}`
+        : `doctor repaired ${scope}: ${report.repairs.join(', ') || 'none'}`,
+    ]);
+    updateJob(job.id, {
+      state: 'succeeded',
+      progress: 'completed',
+      exitCode: 0,
+      result: report,
+    });
+    const status = buildStatusReport(graph, config);
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        scope,
+        dryRun,
+        jobId: job.id,
+        repairs: report.repairs,
+        readiness: status.readiness,
+        backup: report.backup ?? null,
+        doctor: report,
+      },
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    updateJob(job.id, { state: 'failed', progress: 'failed', exitCode: 1, error: message });
+    return { status: 500, body: { ok: false, scope, dryRun, jobId: job.id, error: message } };
+  }
+}
+
+async function handleDoctorFix(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  graph: Graph,
+  config: UserConfig,
+): Promise<void> {
+  if (!isLocalRequest(req)) return json(res, 403, { ok: false, error: 'Forbidden: doctor writes only allowed from localhost' });
+  let body: { scope?: unknown; dryRun?: unknown } = {};
+  try {
+    body = await readJsonBody(req, {}) ?? {};
+  } catch {
+    return err(res, 400, 'Invalid JSON body');
+  }
+  const scope = parseDoctorScope(body.scope);
+  if (!scope) return err(res, 400, 'Invalid scope. Use project or global.');
+  const dryRun = body.dryRun !== false;
+  const result = runDoctorJob(scope, dryRun, graph, config);
+  json(res, result.status, result.body);
+}
+
+type RepairAction = {
+  id: string;
+  title: string;
+  titleZh: string;
+  severity: 'info' | 'warning' | 'blocker';
+  available: boolean;
+  requiresConfirmation: boolean;
+  commandPreview: string;
+  reason?: string;
+};
+
+function buildRepairActions(graph: Graph, config: UserConfig): { actions: RepairAction[]; history: BackendJob[] } {
+  const status = buildStatusReport(graph, config);
+  const hookScopes = ((status.hook as { scopes?: Array<Record<string, unknown>> }).scopes ?? []);
+  const globalHook = hookScopes.find(scope => scope.scope === 'global');
+  const projectHook = hookScopes.find(scope => scope.scope === 'project');
+  const embedding = getEmbeddingCacheStatus(graph.getAllNodes());
+  const hasGraphCompileIssue = status.ok === false && JSON.stringify(status.readiness).includes('Graph');
+
+  const actions: RepairAction[] = [
+    {
+      id: 'doctor_global_hooks',
+      title: 'Normalize global LazyBrain hook registrations',
+      titleZh: '修复全局 LazyBrain hook 重复注册',
+      severity: globalHook?.duplicateUserPromptSubmit === true ? 'blocker' : 'info',
+      available: true,
+      requiresConfirmation: true,
+      commandPreview: 'lazybrain doctor --fix --global',
+      reason: globalHook?.duplicateUserPromptSubmit === true ? undefined : 'global hook has no duplicate LazyBrain registration',
+    },
+    {
+      id: 'doctor_project_hooks',
+      title: 'Normalize project LazyBrain hook registrations',
+      titleZh: '修复项目 LazyBrain hook 注册',
+      severity: projectHook?.duplicateUserPromptSubmit === true ? 'blocker' : 'info',
+      available: true,
+      requiresConfirmation: true,
+      commandPreview: 'lazybrain doctor --fix',
+      reason: projectHook?.duplicateUserPromptSubmit === true ? undefined : 'project hook has no duplicate LazyBrain registration',
+    },
+    {
+      id: 'compile_graph',
+      title: 'Compile LazyBrain graph',
+      titleZh: '编译 LazyBrain 图谱',
+      severity: hasGraphCompileIssue ? 'blocker' : 'info',
+      available: true,
+      requiresConfirmation: true,
+      commandPreview: 'lazybrain compile',
+      reason: hasGraphCompileIssue ? undefined : 'graph has no compile blocker',
+    },
+    {
+      id: 'rebuild_embeddings',
+      title: 'Rebuild embedding cache',
+      titleZh: '重建 embedding 缓存',
+      severity: embedding.state === 'ok' ? 'info' : 'warning',
+      available: true,
+      requiresConfirmation: true,
+      commandPreview: 'lazybrain embeddings rebuild',
+      reason: embedding.state === 'ok' ? 'embedding cache is already ok' : embedding.message,
+    },
+  ];
+
+  return {
+    actions,
+    history: listJobs({ limit: 20 }).filter(job => ['doctor', 'compile', 'embedding', 'cache', 'gitnexus'].includes(job.kind)),
+  };
+}
+
+function handleRepairs(_req: http.IncomingMessage, res: http.ServerResponse, graph: Graph, config: UserConfig): void {
+  json(res, 200, buildRepairActions(graph, config));
+}
+
+async function handleRepairsRun(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  graph: Graph,
+  config: UserConfig,
+  onReload: () => void,
+): Promise<void> {
+  if (!isLocalRequest(req)) return json(res, 403, { ok: false, error: 'Forbidden: repairs only allowed from localhost' });
+  let body: { ids?: unknown; confirm?: unknown } = {};
+  try {
+    body = await readJsonBody(req, {}) ?? {};
+  } catch {
+    return err(res, 400, 'Invalid JSON body');
+  }
+  const ids = Array.isArray(body.ids) ? body.ids.filter((id): id is string => typeof id === 'string') : [];
+  if (ids.length === 0) return err(res, 400, 'Missing required field: ids');
+  const actions = new Map(buildRepairActions(graph, config).actions.map(action => [action.id, action]));
+  const results: Array<Record<string, unknown>> = [];
+
+  for (const id of ids) {
+    const action = actions.get(id);
+    if (!action) {
+      results.push({ id, ok: false, reason: 'unknown repair action' });
+      continue;
+    }
+    if (action.requiresConfirmation && body.confirm !== true) {
+      results.push({ id, ok: false, reason: 'confirmation required' });
+      continue;
+    }
+    if (id === 'doctor_global_hooks') {
+      const result = runDoctorJob('global', false, graph, config);
+      results.push({ id, ...result.body });
+    } else if (id === 'doctor_project_hooks') {
+      const result = runDoctorJob('project', false, graph, config);
+      results.push({ id, ...result.body });
+    } else if (id === 'compile_graph') {
+      const result = startCompileJob(config, onReload, false);
+      results.push({ id, ...result.body });
+    } else if (id === 'rebuild_embeddings') {
+      const result = startEmbeddingJob(graph, config, false);
+      results.push({ id, ...result.body });
+    }
+  }
+
+  json(res, 200, { ok: results.every(result => result.ok !== false), results });
 }
 
 
@@ -739,22 +1263,13 @@ function handleDiagnostics(
   res: http.ServerResponse,
   graph: Graph,
   config: UserConfig,
+  routeEventsPath?: string,
 ): void {
   // Hook runtime stats
   const runtime = getHookRuntimeSnapshot({ config });
   const runtimeStats = getHookRuntimeStats(runtime);
 
-  // Recent events from route-events.jsonl (last 10 lines)
-  let recentEvents: unknown[] = [];
-  if (existsSync(ROUTE_EVENTS_PATH)) {
-    try {
-      const content = readFileSync(ROUTE_EVENTS_PATH, 'utf-8');
-      const lines = content.trim().split('\n').filter(Boolean);
-      recentEvents = lines.slice(-10).map(line => {
-        try { return JSON.parse(line) as unknown; } catch { return line; }
-      });
-    } catch {}
-  }
+  const recentEvents = readRecentRouteEvents({ limit: 10, path: routeEventsPath });
 
   // Recent matches from last-match.json
   const lastMatchPath = join(LAZYBRAIN_DIR, 'last-match.json');
@@ -790,6 +1305,7 @@ function handleDiagnostics(
       nodes: graph.getAllNodes().length,
       lastCompiled,
     },
+    gitNexus: getGitNexusStatus(),
     embeddingStatus: embedding.state,
   });
 }
@@ -802,6 +1318,8 @@ export interface RouterOptions {
   version: string;
   onReload: () => void;
   choicePreferencesPath?: string;
+  routeEventsPath?: string;
+  routeRegressionPath?: string;
 }
 
 
@@ -861,7 +1379,16 @@ export function createRouter(opts: RouterOptions): http.RequestListener {
       return handleMatch(req, res, graph, opts.config);
     }
     if (method === 'POST' && (pathname === '/route' || pathname === '/api/route')) {
-      return handleRoute(req, res, graph, opts.config, opts.choicePreferencesPath);
+      return handleRoute(req, res, graph, opts.config, opts.choicePreferencesPath, opts.routeEventsPath);
+    }
+    if (method === 'GET' && (pathname === '/route-events' || pathname === '/api/route-events')) {
+      return handleRouteEvents(req, res, opts.routeEventsPath);
+    }
+    if (method === 'POST' && (pathname === '/route-events/adopt' || pathname === '/api/route-events/adopt')) {
+      return handleRouteEventAdopt(req, res, opts.routeEventsPath);
+    }
+    if (method === 'POST' && (pathname === '/route-events/regression' || pathname === '/api/route-events/regression')) {
+      return handleRouteEventRegression(req, res, opts.routeEventsPath, opts.routeRegressionPath);
     }
     if (method === 'GET' && (pathname === '/choices' || pathname === '/api/choices')) {
       return handleChoices(req, res, opts.choicePreferencesPath);
@@ -905,7 +1432,33 @@ export function createRouter(opts: RouterOptions): http.RequestListener {
       return handleStatus(req, res, graph, opts.config);
     }
     if (method === 'GET' && pathname === '/api/diagnostics') {
-      return handleDiagnostics(req, res, graph, opts.config);
+      return handleDiagnostics(req, res, graph, opts.config, opts.routeEventsPath);
+    }
+    if (method === 'GET' && pathname === '/api/jobs') {
+      return handleJobs(req, res);
+    }
+    if (method === 'GET' && pathname === '/api/jobs/active') {
+      return handleActiveJobs(req, res);
+    }
+    const jobMatch = pathname.match(/^\/api\/jobs\/([a-z][a-z0-9-]{2,120})$/i);
+    if (method === 'GET' && jobMatch) {
+      return handleJob(req, res, decodeURIComponent(jobMatch[1]));
+    }
+    if (method === 'POST' && jobMatch && pathname.endsWith('/cancel') === false) {
+      return err(res, 404, `Not found: ${method} ${pathname}`);
+    }
+    const jobCancelMatch = pathname.match(/^\/api\/jobs\/([a-z][a-z0-9-]{2,120})\/cancel$/i);
+    if (method === 'POST' && jobCancelMatch) {
+      return handleJobCancel(req, res, decodeURIComponent(jobCancelMatch[1]));
+    }
+    if (method === 'POST' && pathname === '/api/doctor/fix') {
+      return handleDoctorFix(req, res, graph, opts.config);
+    }
+    if (method === 'GET' && pathname === '/api/repairs') {
+      return handleRepairs(req, res, graph, opts.config);
+    }
+    if (method === 'POST' && pathname === '/api/repairs/run') {
+      return handleRepairsRun(req, res, graph, opts.config, opts.onReload);
     }
     if (method === 'POST' && pathname === '/api/compile') {
       return handleCompileStart(req, res, opts.config, opts.onReload);
@@ -916,8 +1469,17 @@ export function createRouter(opts: RouterOptions): http.RequestListener {
     if (method === 'GET' && pathname === '/api/compile/status') {
       return handleCompileStatus(req, res);
     }
+    if (method === 'GET' && pathname === '/api/config') {
+      return handleGetConfig(req, res, opts.config);
+    }
+    if (method === 'GET' && pathname === '/api/config/schema') {
+      return handleConfigSchema(req, res, opts.config);
+    }
     if (method === 'POST' && pathname === '/api/config') {
       return handleUpdateConfig(req, res, opts.config);
+    }
+    if (method === 'POST' && pathname === '/api/config/test') {
+      return handleConfigTest(req, res, opts.config);
     }
     if (method === 'POST' && pathname === '/api/test') {
       return handleApiTest(req, res, opts.config);

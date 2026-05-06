@@ -11,6 +11,7 @@
 
 import { readFileSync, appendFileSync, existsSync } from 'node:fs';
 import { LAZYBRAIN_DIR } from '../constants.js';
+import { sanitizePromptRecord } from '../privacy/prompts.js';
 
 export const RECOMMENDATIONS_PATH = `${LAZYBRAIN_DIR}/recommendations.jsonl`;
 
@@ -26,7 +27,9 @@ export interface ToolUseEvent {
 export interface RecommendationEntry {
   sessionId: string;
   timestamp: string;
+  /** Privacy-preserving display label, not the raw user prompt. */
   query: string;
+  queryHash?: string;
   recommended: string[]; // tools recommended by hook
   transcriptPath?: string;
 }
@@ -132,7 +135,7 @@ export function extractUsedTools(events: ToolUseEvent[]): string[] {
  * Called from hook.ts when a match produces results.
  */
 export function writeRecommendation(entry: RecommendationEntry): void {
-  const line = JSON.stringify(entry);
+  const line = JSON.stringify(sanitizePromptRecord(entry));
   appendFileSync(RECOMMENDATIONS_PATH, line + '\n');
 }
 
@@ -143,7 +146,7 @@ export function loadRecommendations(): RecommendationEntry[] {
   if (!existsSync(RECOMMENDATIONS_PATH)) return [];
   try {
     const raw = readFileSync(RECOMMENDATIONS_PATH, 'utf-8');
-    return raw.trim().split('\n').filter(Boolean).map(l => JSON.parse(l) as RecommendationEntry);
+    return raw.trim().split('\n').filter(Boolean).map(l => sanitizePromptRecord(JSON.parse(l) as RecommendationEntry) as RecommendationEntry);
   } catch {
     return [];
   }

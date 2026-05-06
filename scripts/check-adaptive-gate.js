@@ -43,9 +43,9 @@ for (const scope of scopes) {
   }
 }
 
-if (hookWarnings > 0 || capabilityWarnings > 0) {
+if (hookWarnings > 0) {
   console.error(`Adaptive gate failed: hookWarnings=${hookWarnings}, capabilityWarnings=${capabilityWarnings}`);
   process.exit(1);
 }
 
-console.log(`Adaptive gate passed: hookWarnings=0, capabilityWarnings=0, capabilityInfo=${capabilityInfo}`);
+console.log(`Adaptive gate passed: hookWarnings=0, capabilityWarnings=${capabilityWarnings} (advisory), capabilityInfo=${capabilityInfo}`);

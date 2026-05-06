@@ -15,6 +15,20 @@ describe('classifyRouteNeed', () => {
     expect(decision.category).toBe('high_risk');
   });
 
+  it('routes explicit council and tradeoff prompts', () => {
+    const decision = classifyRouteNeed('升级议会裁决这个架构取舍');
+    expect(decision.mode).toBe('route_plan');
+    expect(decision.shouldCallLazyBrain).toBe(true);
+    expect(decision.category).toBe('complex');
+  });
+
+  it('treats irreversible decisions as high risk', () => {
+    const decision = classifyRouteNeed('irreversible architecture decision tradeoff');
+    expect(decision.mode).toBe('route_plan');
+    expect(decision.shouldCallLazyBrain).toBe(true);
+    expect(decision.category).toBe('high_risk');
+  });
+
   it('clarifies vague voice-like prompts', () => {
     const decision = classifyRouteNeed('这个项目有点乱，你看怎么安排');
     expect(decision.mode).toBe('needs_clarification');

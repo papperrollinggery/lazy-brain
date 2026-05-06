@@ -36,6 +36,8 @@ describe('runApiTests', () => {
 
     expect(report.ok).toBe(true);
     expect(report.results.find(result => result.target === 'embedding')?.dim).toBe(3);
+    expect(report.results.every(result => typeof result.latencyMs === 'number')).toBe(true);
+    expect(report.results.every(result => typeof result.lastCheckedAt === 'string')).toBe(true);
     expect(JSON.stringify(report)).not.toContain('private-compile-key');
     expect(JSON.stringify(report)).not.toContain('private-secretary-key');
     expect(JSON.stringify(report)).not.toContain('private-embedding-key');
@@ -53,6 +55,22 @@ describe('runApiTests', () => {
     expect(report.ok).toBe(false);
     expect(report.results[0].status).toBe(401);
     expect(report.results[0].error).toContain('unauthorized');
+  });
+
+  it('redacts secrets echoed by provider errors', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: false,
+      status: 401,
+      text: async () => 'Bearer sk-leaked123456 api_key=very-secret token: also-secret',
+    })));
+
+    const report = await runApiTests({ ...DEFAULT_CONFIG, compileApiKey: 'fake-key' }, ['compile']);
+    const serialized = JSON.stringify(report);
+
+    expect(serialized).not.toContain('sk-leaked123456');
+    expect(serialized).not.toContain('very-secret');
+    expect(serialized).not.toContain('also-secret');
+    expect(serialized).toContain('[redacted]');
   });
 
   it('reports timeout-style fetch errors', async () => {

@@ -14,7 +14,6 @@ import type {
   GuardrailRule,
   HistoryEntry,
   Recommendation,
-  RouteAdapterPayload,
   RouteSkillRef,
   RouteSpec,
   RouteTarget,
@@ -31,6 +30,7 @@ import { findCombo, formatComboEntryCommand, type ComboTemplate } from '../combo
 import { getVerificationBundle } from '../verification/catalog.js';
 import { classifyRouteNeed, type RouteGateDecision } from './route-gate.js';
 import { applyChoicePreferences, type ChoicePreferenceProfile } from './choice-preferences.js';
+import { getEmbeddingCacheStatus } from '../embeddings/cache.js';
 
 export interface BuildRouteSpecOptions {
   graph: Graph;
@@ -61,6 +61,23 @@ function unique<T>(items: T[], key: (item: T) => string): T[] {
     const k = key(item).trim().toLowerCase();
     if (!k || seen.has(k)) continue;
     seen.add(k);
+    out.push(item);
+  }
+  return out;
+}
+
+function uniquePreferLast<T>(items: T[], key: (item: T) => string): T[] {
+  const indexes = new Map<string, number>();
+  const out: T[] = [];
+  for (const item of items) {
+    const k = key(item).trim().toLowerCase();
+    if (!k) continue;
+    const existing = indexes.get(k);
+    if (existing !== undefined) {
+      out[existing] = item;
+      continue;
+    }
+    indexes.set(k, out.length);
     out.push(item);
   }
   return out;
@@ -133,7 +150,23 @@ function missingSkillRef(name: string, category: string, reason: string): RouteS
   };
 }
 
-function buildSkillRefs(graph: Graph, rec: Recommendation, combo?: ComboTemplate): RouteSkillRef[] {
+function explicitSkillRef(
+  cap: Capability,
+  result: Recommendation['matches'][number] | undefined,
+): RouteSkillRef {
+  const ref = toSkillRef(
+    cap,
+    result,
+    result?.explanation ?? 'Explicitly named in the query; keep it visible even before embedding coverage catches up.',
+  );
+  if (!result) {
+    ref.score = 0.92;
+    ref.layer = 'alias';
+  }
+  return ref;
+}
+
+function buildSkillRefs(graph: Graph, rec: Recommendation, combo: ComboTemplate | undefined, query: string): RouteSkillRef[] {
   const refs: RouteSkillRef[] = [];
   const resultById = new Map(rec.matches.map(result => [result.capability.id, result]));
 
@@ -150,17 +183,36 @@ function buildSkillRefs(graph: Graph, rec: Recommendation, combo?: ComboTemplate
     refs.push(toSkillRef(result.capability, result));
   }
 
-  return unique(refs, item => item.id);
+  const explicitlyNamed = graph.getAllNodes()
+    .filter(cap => cap.status !== 'disabled' && queryMentionsCapability(query, cap))
+    .slice(0, 8);
+  for (const cap of explicitlyNamed) {
+    refs.push(explicitSkillRef(cap, resultById.get(cap.id)));
+  }
+
+  return unique(refs, item => item.name);
+}
+
+function routeUnlockWarnings(graph: Graph): string[] {
+  const embedding = getEmbeddingCacheStatus(graph.getAllNodes());
+  if (embedding.state === 'ok') return [];
+  if (embedding.state === 'stale') {
+    const missing = embedding.missingIds.length > 0 ? ` Missing embeddings: ${embedding.missingIds.slice(0, 3).join(', ')}${embedding.missingIds.length > 3 ? ', ...' : ''}.` : '';
+    return [`Embedding cache is partial (${embedding.covered}/${embedding.active}, ${embedding.coveragePercent}%). Tag/combo routing stays active; semantic matches are down-weighted.${missing}`];
+  }
+  if (embedding.state === 'missing') return ['Embedding cache is missing. Tag/combo routing stays active; run lazybrain embeddings rebuild --yes to enable semantic boost.'];
+  return ['Embedding cache is invalid. Tag/combo routing stays active; rebuild embeddings to restore semantic boost.'];
 }
 
 function fallbackWorkflow(query: string, rec: Recommendation): WorkflowStep[] {
   const top = rec.matches[0]?.capability;
+  const detail = compactReason(top?.scenario ?? top?.description ?? query);
   return [
     { id: 'clarify-task-surface', title: 'Confirm the target surface and expected output', source: 'fallback' },
     {
       id: 'apply-primary-capability',
       title: top ? `Use ${top.name} for the main task` : 'Use the best matched capability for the main task',
-      detail: top?.scenario ?? top?.description ?? query,
+      detail,
       source: 'fallback',
     },
     { id: 'verify-result', title: 'Run the relevant verification before calling the task done', source: 'fallback' },
@@ -193,7 +245,7 @@ function mergeGuardrails(...groups: Array<GuardrailRule[] | undefined>): Guardra
 }
 
 function mergeVerification(...groups: Array<VerificationRequirement[] | undefined>): VerificationRequirement[] {
-  return unique(groups.flatMap(group => group ?? []), item => item.id ?? item.title);
+  return uniquePreferLast(groups.flatMap(group => group ?? []), item => item.command ?? item.id ?? item.title);
 }
 
 function adapterPrompt(spec: Omit<RouteSpec, 'adapters'>, target: RouteTarget): string {
@@ -234,9 +286,10 @@ function adapterPrompt(spec: Omit<RouteSpec, 'adapters'>, target: RouteTarget): 
   lines.push(`- Full skill body: ${spec.tokenStrategy.includeFullSkillBody ? 'yes' : 'no'}`);
   lines.push(`- Context budget: ${spec.tokenStrategy.contextBudget}`);
 
-  if (spec.skills.length > 0) {
+  const promptSkills = primaryRouteSkills(spec);
+  if (promptSkills.length > 0) {
     lines.push('', 'Use:');
-    for (const skill of spec.skills) {
+    for (const skill of promptSkills) {
       lines.push(`- ${skill.name}${skill.available ? '' : ' (missing: use a generic prompt)'}`);
     }
   }
@@ -279,13 +332,12 @@ function adapterPrompt(spec: Omit<RouteSpec, 'adapters'>, target: RouteTarget): 
 }
 
 function buildAdapters(spec: Omit<RouteSpec, 'adapters'>): RouteSpec['adapters'] {
-  const adapters: RouteSpec['adapters'] = {
+  return {
     generic: { target: 'generic', prompt: adapterPrompt(spec, 'generic') },
+    claude: { target: 'claude', prompt: adapterPrompt(spec, 'claude') },
+    codex: { target: 'codex', prompt: adapterPrompt(spec, 'codex') },
+    cursor: { target: 'cursor', prompt: adapterPrompt(spec, 'cursor') },
   };
-  if (spec.target !== 'generic') {
-    adapters[spec.target] = { target: spec.target, prompt: adapterPrompt(spec, spec.target) } as RouteAdapterPayload;
-  }
-  return adapters;
 }
 
 function needsClarification(query: string, rec: Recommendation, combo?: ComboTemplate): boolean {
@@ -297,9 +349,10 @@ function needsClarification(query: string, rec: Recommendation, combo?: ComboTem
 }
 
 function shouldSuggestSubagents(query: string, combo?: ComboTemplate): boolean {
-  return /\b(team|subagent|multi-agent|parallel|agents?)\b|智能体|子智能体|团队|并行|审查|评审/iu.test(query) ||
+  return /\b(team|subagent|multi-agent|parallel|agents?|council|escalation)\b|智能体|子智能体|团队|并行|审查|评审|议会|議會|裁决|裁決|取舍|取捨/iu.test(query) ||
     combo?.id === 'code_review_regression' ||
-    combo?.id === 'release_public_audit';
+    combo?.id === 'release_public_audit' ||
+    combo?.id === 'council_escalation';
 }
 
 function tokenStrategyFor(input: {
@@ -512,9 +565,25 @@ function wantsMode(query: string, pattern: RegExp): boolean {
   return pattern.test(query);
 }
 
+function wantsCouncil(query: string, combo?: string): boolean {
+  return combo === 'council_escalation' ||
+    /\b(council|council mode|escalation|tradeoff|trade-off|irreversible|architecture decision|cost decision)\b|议会|議會|议会模式|議會模式|取舍|取捨|裁决|裁決|不可逆|架构决策|架構決策|成本决策|成本決策/iu.test(query);
+}
+
 function rankedModeChoices(draft: RouteSpecDraft, highRisk: boolean): ChoiceOption[] {
   const q = draft.query;
   const base = modeChoice(draft.mode, draft.mode === 'route_plan' ? 0.76 : 0.9, draft.whyRoute);
+  const councilWanted = wantsCouncil(q, draft.combo);
+  const council: ChoiceOption = {
+    id: 'mode:council',
+    kind: 'mode',
+    label: 'Council mode',
+    confidence: councilWanted ? 0.84 : 0.38,
+    cost: 'high',
+    latency: 'slow',
+    risk: councilWanted || highRisk ? 'medium' : 'low',
+    reason: 'Use this for architecture, cost, product, or irreversible tradeoffs that need multi-perspective review before a decision.',
+  };
   const review: ChoiceOption = {
     id: 'mode:review',
     kind: 'mode',
@@ -575,7 +644,7 @@ function rankedModeChoices(draft: RouteSpecDraft, highRisk: boolean): ChoiceOpti
   if (draft.mode === 'needs_clarification') {
     return uniqueChoices([
       base,
-      ...[autopilot, team].filter(choice => choice.confidence >= 0.7),
+      ...[council, autopilot, team].filter(choice => choice.confidence >= 0.7),
       {
         id: 'mode:route-plan-after-clarification',
         kind: 'mode',
@@ -589,7 +658,7 @@ function rankedModeChoices(draft: RouteSpecDraft, highRisk: boolean): ChoiceOpti
     ]);
   }
 
-  return uniqueChoices([base, review, qa, autopilot, team])
+  return uniqueChoices([base, ...(councilWanted ? [council] : []), review, qa, autopilot, team])
     .sort((a, b) => b.confidence - a.confidence);
 }
 
@@ -757,6 +826,7 @@ export async function buildRouteSpec(query: string, options: BuildRouteSpecOptio
       doneWhen: ['The direct answer or tiny edit is complete.'],
       tokenStrategy: tokenStrategyFor({ mode: 'no_route_needed', skills: [], query }),
       warnings: [],
+      unlockWarnings: routeUnlockWarnings(options.graph),
     };
     return finalizeRouteSpec(draft, options.graph, { gate, preferences: options.choicePreferences });
   }
@@ -769,13 +839,15 @@ export async function buildRouteSpec(query: string, options: BuildRouteSpecOptio
   });
   const categories = rec.matches.map(result => result.capability.category);
   const combo = findCombo(query, categories);
-  const skills = buildSkillRefs(options.graph, rec, combo);
+  const skills = buildSkillRefs(options.graph, rec, combo, query);
   const schemas = collectSchemas(skills, options.graph);
   const catalog = getVerificationBundle({ query, category: categories[0], comboId: combo?.id });
   const schemaWarnings = schemas.flatMap(schema => schema.warnings ?? []);
   const warnings = unique([...(rec.warnings ?? []), ...schemaWarnings], item => item);
+  const unlockWarnings = routeUnlockWarnings(options.graph);
 
   if (needsClarification(query, rec, combo)) {
+    const visibleNamedSkills = skills.filter(skill => queryMentionsSkill(query, skill));
     const draft: RouteSpecDraft = {
       schemaVersion: ROUTE_SPEC_SCHEMA_VERSION,
       query,
@@ -785,7 +857,7 @@ export async function buildRouteSpec(query: string, options: BuildRouteSpecOptio
       scenario: 'The request is too broad or low-confidence for a reliable skill chain.',
       whyRoute: gate.reason,
       mustCallLazyBrainReason: 'Clarification should happen before the main model spends context on a guessed skill chain.',
-      skills: [],
+      skills: visibleNamedSkills,
       executionPlan: [],
       contextNeeded: [],
       guardrails: [
@@ -795,12 +867,16 @@ export async function buildRouteSpec(query: string, options: BuildRouteSpecOptio
       doneWhen: ['The user or main model has clarified the target output and verification method.'],
       tokenStrategy: tokenStrategyFor({ mode: 'needs_clarification', skills: [], query, combo }),
       warnings,
+      unlockWarnings,
       clarificationQuestions: clarificationQuestions(query),
     };
     return finalizeRouteSpec(draft, options.graph, { gate, preferences: options.choicePreferences });
   }
 
   const top = rec.matches[0]?.capability;
+  const fallbackScenario = top
+    ? compactReason(top.scenario ?? top.description, 260)
+    : undefined;
   const workflow = mergeWorkflow(query, rec, combo, schemas);
   const contextNeeded = mergeStrings(
     combo?.contextNeeded,
@@ -830,7 +906,7 @@ export async function buildRouteSpec(query: string, options: BuildRouteSpecOptio
     target,
     mode: 'route_plan',
     intent: combo?.title ?? top?.name ?? 'Route task',
-    scenario: combo?.description ?? top?.scenario ?? top?.description ?? 'Advisory route plan',
+    scenario: combo?.description ?? fallbackScenario ?? 'Advisory route plan',
     whyRoute: combo
       ? `Matched built-in combo ${combo.id}; compact routing can reduce context and attach verification.`
       : gate.reason,
@@ -847,6 +923,7 @@ export async function buildRouteSpec(query: string, options: BuildRouteSpecOptio
     doneWhen,
     tokenStrategy: tokenStrategyFor({ mode: 'route_plan', skills, query, combo }),
     warnings,
+    unlockWarnings,
   };
 
   return finalizeRouteSpec(draft, options.graph, { gate, preferences: options.choicePreferences });
@@ -891,6 +968,10 @@ export function formatRouteSpec(spec: RouteSpec): string {
   if (spec.warnings.length > 0) {
     lines.push('', 'Warnings:');
     for (const warning of spec.warnings) lines.push(`  - ${warning}`);
+  }
+  if (spec.unlockWarnings?.length) {
+    lines.push('', 'Unlock warnings:');
+    for (const warning of spec.unlockWarnings) lines.push(`  - ${warning}`);
   }
 
   if (spec.clarificationQuestions?.length) {
@@ -941,5 +1022,113 @@ export function formatRouteSpec(spec: RouteSpec): string {
     lines.push(spec.adapters[spec.target]?.prompt ?? spec.adapters.generic.prompt);
   }
 
+  return lines.join('\n');
+}
+
+function quoteCliArg(value: string): string {
+  return `"${value.replace(/(["\\$`])/g, '\\$1')}"`;
+}
+
+function formatChoiceConfidence(confidence: number): string {
+  return `${Math.round(confidence * 100)}%`;
+}
+
+const GENERIC_SKILL_TOKENS = new Set([
+  'agent',
+  'code',
+  'coding',
+  'command',
+  'create',
+  'debug',
+  'docs',
+  'guide',
+  'impact',
+  'ops',
+  'plan',
+  'pr',
+  'plugin',
+  'review',
+  'router',
+  'skill',
+  'test',
+  'testing',
+  'workflow',
+]);
+
+function normalizedMention(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/gi, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function significantNameTokens(value: string): string[] {
+  return value
+    .split(/[^a-z0-9\u4e00-\u9fff]+/i)
+    .map(token => token.trim().toLowerCase())
+    .filter(token => token.length >= 4 && !GENERIC_SKILL_TOKENS.has(token));
+}
+
+function queryMentionsCapability(query: string, cap: Pick<Capability, 'id' | 'name' | 'aliases'>): boolean {
+  const normalizedQuery = normalizedMention(query);
+  if (!normalizedQuery) return false;
+  const compactQuery = normalizedQuery.replace(/\s+/g, '');
+  const names = unique([
+    cap.name,
+    cap.id,
+    ...(cap.aliases ?? []),
+  ], item => item);
+
+  for (const name of names) {
+    const normalizedName = normalizedMention(name);
+    const nameParts = normalizedName.split(/\s+/).filter(Boolean);
+    const onlyGenericName = nameParts.length === 1 && GENERIC_SKILL_TOKENS.has(nameParts[0]);
+    if (!onlyGenericName && normalizedName.length >= 4 && (normalizedQuery.includes(normalizedName) || compactQuery.includes(normalizedName.replace(/\s+/g, '')))) {
+      return true;
+    }
+    for (const token of significantNameTokens(name)) {
+      if (normalizedQuery.includes(token)) return true;
+    }
+  }
+  return false;
+}
+
+function queryMentionsSkill(query: string, skill: RouteSkillRef): boolean {
+  return queryMentionsCapability(query, { id: skill.id, name: skill.name });
+}
+
+function primaryRouteSkills(spec: Pick<RouteSpec, 'skills' | 'combo' | 'query'>): RouteSkillRef[] {
+  if (!spec.combo) return spec.skills;
+  const comboSkills = spec.skills.filter(skill => skill.origin === 'combo' || skill.reason?.startsWith('Combo '));
+  const explicitMatchedSkills = spec.skills.filter(skill =>
+    skill.available &&
+    !(skill.origin === 'combo' || skill.reason?.startsWith('Combo ')) &&
+    (queryMentionsSkill(spec.query, skill) || skill.reason?.startsWith('GitNexus ')));
+  return comboSkills.length > 0
+    ? unique([...comboSkills, ...explicitMatchedSkills], skill => skill.name)
+    : spec.skills;
+}
+
+export function formatRouteSpecBrief(spec: RouteSpec): string {
+  const choices = [spec.choices.recommended, ...spec.choices.alternatives];
+  const modelChoice = choices.find(choice => choice.kind === 'model');
+  const councilChoice = choices.find(choice => choice.id === 'mode:council');
+  const primarySkills = primaryRouteSkills(spec);
+  const availableSkillNames = primarySkills.filter(skill => skill.available).slice(0, 4).map(skill => skill.name);
+  const missingSkillNames = primarySkills.filter(skill => !skill.available).slice(0, 3).map(skill => skill.name);
+  const mode = `${spec.mode}${spec.executionMode ? `/${spec.executionMode}` : ''}`;
+  const detailParts: string[] = [];
+  if (modelChoice) detailParts.push(`Model: ${modelChoice.label} (${formatChoiceConfidence(modelChoice.confidence)})`);
+  if (councilChoice) detailParts.push(`Council: ${councilChoice.label} (${formatChoiceConfidence(councilChoice.confidence)})`);
+  if (availableSkillNames.length > 0) detailParts.push(`Use: ${availableSkillNames.join(', ')}`);
+  if (missingSkillNames.length > 0) detailParts.push(`Missing: ${missingSkillNames.join(', ')} (generic prompt)`);
+  if (spec.warnings.length > 0) detailParts.push(`Warnings: ${spec.warnings.length}`);
+  if (spec.unlockWarnings?.length) detailParts.push(`Unlock: ${spec.unlockWarnings.length}`);
+  if (spec.clarificationQuestions?.length) {
+    detailParts.push(`Clarify: ${spec.clarificationQuestions[0]}`);
+  }
+
+  const lines = [
+    `Route: ${spec.combo ?? spec.mode} | Intent: ${spec.intent} | Mode: ${mode} | Recommended: ${spec.choices.recommended.id} (${formatChoiceConfidence(spec.choices.recommended.confidence)})`,
+  ];
+  if (detailParts.length > 0) lines.push(detailParts.join(' | '));
+  lines.push(`Prompt: lazybrain prompt ${quoteCliArg(spec.query)} --target ${spec.target} --copy`);
   return lines.join('\n');
 }

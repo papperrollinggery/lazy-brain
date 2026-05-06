@@ -388,6 +388,7 @@ export interface RouteSpec {
     cursor?: RouteAdapterPayload;
   };
   warnings: string[];
+  unlockWarnings?: string[];
   clarificationQuestions?: string[];
 }
 
@@ -562,7 +563,10 @@ export interface UserConfig {
 
 export interface HistoryEntry {
   timestamp: string;
+  /** Privacy-preserving display label, not the raw user prompt. */
   query: string;
+  /** Hash of the raw prompt when available. */
+  queryHash?: string;
   matched: string;
   id?: string;
   accepted: boolean;

@@ -7,8 +7,8 @@
 #   2. npm ci && npm run build
 #   3. lazybrain scan && lazybrain compile --offline
 #   4. lazybrain ready && lazybrain hook plan
-#   5. lazybrain hook install → modifies project .claude/settings.json
-#   6. Send a test prompt via stdin to the hook → verify tiny route reminder
+#   5. lazybrain hook install → writes project .claude/hooks/hooks.json
+#   6. Send a test prompt via stdin to the hook → verify route context injection
 #   7. Cleanup (rollback hook + remove temp dir)
 #
 # Usage: ./scripts/smoke-test.sh
@@ -19,6 +19,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 TEMP_DIR=""
 HOOK_INSTALLED=0
+HOOK_HEALTH_PATH="${HOME}/.lazybrain/hook-health.json"
+HOOK_HEALTH_BACKUP=""
+HOOK_HEALTH_HAD_FILE=0
+CONFIG_PATH="${HOME}/.lazybrain/config.json"
+CONFIG_BACKUP=""
+CONFIG_HAD_FILE=0
 
 # Colors
 RED='\033[0;31m'
@@ -38,6 +44,26 @@ cleanup() {
     (cd "$TEMP_DIR" && "$TEMP_DIR/dist/bin/lazybrain.js" hook rollback 2>/dev/null) || \
       (cd "$TEMP_DIR" && "$TEMP_DIR/dist/bin/lazybrain.js" hook uninstall 2>/dev/null) || true
     log_info "Rolled back lazybrain hook"
+  fi
+
+  if [[ -n "$HOOK_HEALTH_BACKUP" ]]; then
+    if [[ "$HOOK_HEALTH_HAD_FILE" -eq 1 && -f "$HOOK_HEALTH_BACKUP" ]]; then
+      mkdir -p "$(dirname "$HOOK_HEALTH_PATH")"
+      mv "$HOOK_HEALTH_BACKUP" "$HOOK_HEALTH_PATH"
+      log_info "Restored hook runtime health"
+    elif [[ "$HOOK_HEALTH_HAD_FILE" -eq 0 ]]; then
+      rm -f "$HOOK_HEALTH_PATH" "$HOOK_HEALTH_BACKUP"
+    fi
+  fi
+
+  if [[ -n "$CONFIG_BACKUP" ]]; then
+    if [[ "$CONFIG_HAD_FILE" -eq 1 && -f "$CONFIG_BACKUP" ]]; then
+      mkdir -p "$(dirname "$CONFIG_PATH")"
+      mv "$CONFIG_BACKUP" "$CONFIG_PATH"
+      log_info "Restored LazyBrain config"
+    elif [[ "$CONFIG_HAD_FILE" -eq 0 ]]; then
+      rm -f "$CONFIG_PATH" "$CONFIG_BACKUP"
+    fi
   fi
 
   if [[ -n "$TEMP_DIR" && -d "$TEMP_DIR" ]]; then
@@ -158,9 +184,9 @@ fi
 log_pass "hook plan output"
 echo
 
-# Step 10: Install hook into project settings
+# Step 10: Install hook into project hooks file
 log_info "Step 10: Install LazyBrain hook"
-SETTINGS_PATH="$TEMP_DIR/.claude/settings.json"
+HOOKS_PATH="$TEMP_DIR/.claude/hooks/hooks.json"
 if ! "$TEMP_DIR/dist/bin/lazybrain.js" hook install; then
   log_error "lazybrain hook install failed"
   exit 1
@@ -169,17 +195,34 @@ HOOK_INSTALLED=1
 log_pass "Hook installed"
 echo
 
-# Step 11: Verify settings.json was modified
-log_info "Step 11: Verify project settings.json contains LazyBrain hook"
-if ! grep -q "lazybrain" "$SETTINGS_PATH"; then
-  log_error "project settings.json does not contain lazybrain hook"
+# Step 11: Verify hooks.json was modified
+log_info "Step 11: Verify project hooks.json contains LazyBrain hook"
+if ! grep -q "lazybrain" "$HOOKS_PATH"; then
+  log_error "project hooks.json does not contain lazybrain hook"
   exit 1
 fi
-log_pass "project settings.json modified"
+log_pass "project hooks.json modified"
 echo
 
 # Step 12: Send test prompt to hook via stdin and verify response
 log_info "Step 12: Test hook with UserPromptSubmit event"
+
+# Keep this E2E assertion independent from the developer machine's prior hook
+# runtime health. A recently slow hook run can legitimately skip injection.
+HOOK_HEALTH_BACKUP="$TEMP_DIR/hook-health.before-smoke.json"
+if [[ -f "$HOOK_HEALTH_PATH" ]]; then
+  HOOK_HEALTH_HAD_FILE=1
+  cp "$HOOK_HEALTH_PATH" "$HOOK_HEALTH_BACKUP"
+fi
+rm -f "$HOOK_HEALTH_PATH"
+
+CONFIG_BACKUP="$TEMP_DIR/config.before-smoke.json"
+if [[ -f "$CONFIG_PATH" ]]; then
+  CONFIG_HAD_FILE=1
+  cp "$CONFIG_PATH" "$CONFIG_BACKUP"
+fi
+mkdir -p "$(dirname "$CONFIG_PATH")"
+node -e "const fs=require('fs'); const p=process.argv[1]; let c={}; try { c=JSON.parse(fs.readFileSync(p,'utf8')); } catch {} c.hookSafety={...(c.hookSafety||{}), loadAvgBreaker: 9999, avgDurationBreakerMs: 999999}; fs.writeFileSync(p, JSON.stringify(c,null,2)+'\n');" "$CONFIG_PATH"
 
 # Build the stdin payload matching Claude Code hook protocol
 TEST_PROMPT="帮我审查这段代码"
@@ -205,18 +248,19 @@ if ! echo "$OUTPUT" | grep -q '"continue":true'; then
   exit 1
 fi
 
-# Verify the tiny gate injected the short route reminder.
+# Verify the hook injected route context. Depending on the graph, this can be
+# a concrete match result, a combo route, or the generic tiny route reminder.
 ADDL_PROMPT=$(echo "$OUTPUT" | grep -o '"additionalContext":"[^"]*"' || true)
 if [[ -z "$ADDL_PROMPT" ]]; then
   ADDL_PROMPT=$(echo "$OUTPUT" | grep -o '"additionalContext":[^,}]*' || true)
 fi
 
-if [[ -z "$ADDL_PROMPT" ]] || ! echo "$OUTPUT" | grep -q 'Consider calling lazybrain.route'; then
-  log_error "Hook did not inject the tiny route reminder"
+if [[ -z "$ADDL_PROMPT" ]]; then
+  log_error "Hook did not inject route context"
   exit 1
 fi
 
-log_pass "Hook returned tiny route reminder"
+log_pass "Hook returned route context"
 echo
 
 # Step 13: Test non-UserPromptSubmit events fail closed
@@ -253,8 +297,8 @@ log_info "  • graph.json:       Created at ~/.lazybrain/"
 log_info "  • lazybrain ready: OK"
 log_info "  • hook plan:       OK"
 log_info "  • hook install:    OK"
-log_info "  • project settings: Modified correctly"
-log_info "  • UserPromptSubmit: Tiny route reminder"
+log_info "  • project hooks:   Modified correctly"
+log_info "  • UserPromptSubmit: Route context"
 log_info "  • Other hook events: Fail closed"
 log_info "  • hook rollback:    OK"
 log_info ""
