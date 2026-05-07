@@ -147,6 +147,8 @@ describe('GUI routes', () => {
     const { status, body } = await req('GET', '/api/status');
     expect(status).toBe(200);
     expect(body).toHaveProperty('version');
+    expect(body).toHaveProperty('product');
+    expect(body.product).toHaveProperty('state');
     expect(body).toHaveProperty('readiness');
     expect(body).toHaveProperty('graph');
     expect(body).toHaveProperty('gitNexus');
@@ -173,6 +175,8 @@ describe('GUI routes', () => {
       const { status, body } = await req('GET', '/api/status');
       expect(status).toBe(200);
       expect(body.ok).toBe(false);
+      expect(body.product.state).toBe('NOT_READY');
+      expect(body.product.blockers.join('\n')).toContain('Graph has 1 compile errors');
       expect(body.readiness.blockers.join('\n')).toContain('Graph has 1 compile errors');
     } finally {
       graph.setCompileInfo('test-model', []);
@@ -391,6 +395,7 @@ describe('UI HTML', () => {
 
   it('renders the compact workbench without unfinished provider branding', () => {
     expect(UI_HTML).toContain('LazyBrain Workbench');
+    expect(UI_HTML).toContain('status.product');
     expect(UI_HTML).toContain('/api/status');
     expect(UI_HTML).toContain('/api/diagnostics');
     expect(UI_HTML).not.toContain('GitNexus 索引');

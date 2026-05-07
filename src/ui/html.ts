@@ -206,13 +206,14 @@ export const UI_HTML = `<!doctype html>
       node.className = 'state ' + (tone || '');
     }
     function summarizeReady(status) {
+      var product = status.product || {};
       var ready = status.readiness || {};
-      var ok = status.ok === true || ready.state === 'READY';
-      setState('productState', ok ? 'READY' : 'NOT READY', ok ? 'ok' : 'warn');
+      var productOk = product.state === 'READY' || (status.ok === true && ready.state === 'READY');
+      setState('productState', productOk ? 'READY' : 'NOT READY', productOk ? 'ok' : 'warn');
       byId('productDetail').textContent = [
         'Graph nodes: ' + text(status.graph && status.graph.nodes, '0'),
         'Embedding: ' + text(status.embedding && status.embedding.state, 'unknown'),
-        'MCP/route use this same graph.'
+        product.blockers && product.blockers.length ? 'Blockers: ' + product.blockers.slice(0, 2).join('; ') : 'Route/MCP usable.'
       ].join('\\n');
 
       var hook = status.hook || {};

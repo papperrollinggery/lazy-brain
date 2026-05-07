@@ -121,8 +121,40 @@ function publicRuntimeStatus(status: Record<string, unknown> | null): Record<str
   return out;
 }
 
+function buildProductReadiness(
+  graphExists: boolean,
+  nodes: ReturnType<Graph['getAllNodes']>,
+  compileErrors: string[],
+  embedding: ReturnType<typeof getEmbeddingCacheStatus>,
+  config: UserConfig,
+  apiState: ReturnType<typeof apiConfigured>,
+): Record<string, unknown> {
+  const blockers: string[] = [];
+  const warnings: string[] = [];
+  if (!graphExists) blockers.push(`Graph is missing: ${GRAPH_PATH}`);
+  if (nodes.length === 0) blockers.push('Graph has no capabilities.');
+  if (compileErrors.length > 0) blockers.push(`Graph has ${compileErrors.length} compile errors.`);
+  if ((config.engine === 'semantic' || config.engine === 'hybrid') && (embedding.state === 'missing' || embedding.state === 'invalid')) {
+    blockers.push(`Embedding cache is ${embedding.state}.`);
+  } else if (embedding.state === 'stale') {
+    warnings.push(embedding.message);
+  }
+  if (!apiState.compile) warnings.push('Compile API is not fully configured.');
+  if (!apiState.secretary) warnings.push('Secretary API is not fully configured.');
+  if ((config.engine === 'semantic' || config.engine === 'hybrid') && !apiState.embedding) {
+    warnings.push('Embedding API is not fully configured.');
+  }
+  return {
+    state: blockers.length === 0 ? 'READY' : 'NOT_READY',
+    blockers,
+    warnings,
+  };
+}
+
 export function buildStatusReport(graph: Graph, config: UserConfig): Record<string, unknown> {
   const nodes = graph.getAllNodes();
+  const graphExists = existsSync(GRAPH_PATH);
+  const compileErrors = graph.getCompileErrors();
   const runtime = getHookRuntimeSnapshot({ config });
   const status = readJson(STATUS_PATH);
   const runtimeStatus = publicRuntimeStatus(status);
@@ -143,8 +175,8 @@ export function buildStatusReport(graph: Graph, config: UserConfig): Record<stri
     installState,
   }));
   const ready = evaluateReady({
-    graphExists: existsSync(GRAPH_PATH),
-    compileErrors: graph.getCompileErrors(),
+    graphExists,
+    compileErrors,
     status: statusForReady,
     runtime,
     scopes: readyScopes,
@@ -156,6 +188,8 @@ export function buildStatusReport(graph: Graph, config: UserConfig): Record<stri
   });
   const runtimeStats = getHookRuntimeStats(runtime);
   const embedding = getEmbeddingCacheStatus(nodes);
+  const apiState = apiConfigured(config);
+  const product = buildProductReadiness(graphExists, nodes, compileErrors, embedding, config, apiState);
   const agents = scanAgentInventory();
   const unlock = buildUnlockHealth(graph);
   const modelHealth = buildModelHealth(config, graph);
@@ -165,9 +199,10 @@ export function buildStatusReport(graph: Graph, config: UserConfig): Record<stri
   return {
     ok: ready.state === 'READY',
     version: getPackageVersion(),
+    product,
     readiness: ready,
     graph: {
-      exists: existsSync(GRAPH_PATH),
+      exists: graphExists,
       nodes: nodes.length,
       byKind: nodes.reduce<Record<string, number>>((acc, node) => {
         acc[node.kind] = (acc[node.kind] ?? 0) + 1;
@@ -184,7 +219,7 @@ export function buildStatusReport(graph: Graph, config: UserConfig): Record<stri
       mode: config.mode,
       strategy: config.strategy,
       autoThreshold: config.autoThreshold,
-      apiConfigured: apiConfigured(config),
+      apiConfigured: apiState,
     },
     embedding,
     unlock,
