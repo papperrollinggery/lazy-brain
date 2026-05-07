@@ -36,6 +36,7 @@ lazybrain ui --no-open
 稳定本地 API：
 
 - `GET /api/status`
+- `GET /api/routes`
 - `GET /api/diagnostics`
 - `POST /api/route`
 - `GET /api/route-events`
@@ -53,7 +54,7 @@ lazybrain ui --no-open
 
 ## MCP
 
-`lazybrain mcp --stdio` 暴露只读工具，用于本地能力搜索、路由、状态和诊断。
+`lazybrain mcp --stdio` 暴露只读工具，用于路由规划、能力搜索、技能卡片和组合模板。
 
 ```bash
 lazybrain mcp status

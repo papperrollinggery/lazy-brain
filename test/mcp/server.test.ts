@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { Graph } from '../../src/graph/graph.js';
 import { DEFAULT_CONFIG } from '../../src/constants.js';
 import { handleMcpRequest } from '../../src/mcp/server.js';
+import { MCP_TOOL_DEFINITIONS } from '../../src/mcp/tools.js';
 import type { Capability } from '../../src/types.js';
 
 function cap(overrides: Partial<Capability> & Pick<Capability, 'id' | 'name'>): Capability {
@@ -56,6 +57,15 @@ describe('MCP server', () => {
     const list = resultOf(await handleMcpRequest({ jsonrpc: '2.0', id: 2, method: 'tools/list' }, ctx()));
     expect(JSON.stringify(list)).toContain('lazybrain.route');
     expect(JSON.stringify(list)).toContain('Call lazybrain.route before non-trivial coding');
+    expect((list.result as { tools: unknown[] }).tools).toEqual(MCP_TOOL_DEFINITIONS.map(tool => ({
+      name: tool.name,
+      description: tool.description,
+      inputSchema: {
+        type: tool.inputSchema.type,
+        properties: { ...tool.inputSchema.properties },
+        ...(tool.inputSchema.required ? { required: [...tool.inputSchema.required] } : {}),
+      },
+    })));
   });
 
   it('returns RouteSpec through lazybrain.route', async () => {

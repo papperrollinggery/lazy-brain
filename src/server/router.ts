@@ -42,6 +42,7 @@ import { loadProfile } from '../history/profile.js';
 import { readRecentRouteEvents, recordRouteSpec } from '../orchestrator/route-events.js';
 import { mergeRuntimeStatus } from '../runtime/status.js';
 import { getGitNexusStatus } from '../integrations/gitnexus.js';
+import { cloneHttpRoutes, defineHttpRoutes } from './routes.js';
 import {
   appendJobLog,
   clearJobCanceller,
@@ -63,6 +64,51 @@ const LAZYBRAIN_CLI_CANDIDATES = [
   join(ROUTER_DIR, '..', 'dist', 'bin', 'lazybrain.js'),
   join(ROUTER_DIR, '..', '..', 'dist', 'bin', 'lazybrain.js'),
 ];
+
+export const HTTP_ROUTES = defineHttpRoutes((router) => {
+  router.get('/', 'handleUiPage', 'Serve the local Workbench UI.', 'ui');
+  router.get('/ui', 'handleUiPage', 'Serve the local Workbench UI.', 'ui');
+  router.get('/health', 'handleHealth', 'Return liveness and graph size.');
+  router.get('/api/health', 'handleHealth', 'Return liveness and graph size.', 'api');
+  router.get('/api/status', 'handleStatus', 'Return product, runtime, hook, graph, embedding, and GitNexus status.', 'api');
+  router.get('/api/diagnostics', 'handleDiagnostics', 'Return privacy-preserving local diagnostics.', 'api');
+  router.get('/api/routes', 'handleRoutesMetadata', 'Return the active HTTP route registry.', 'api');
+  router.post('/api/route', 'handleRoute', 'Build a RouteSpec for a user task.', 'api');
+  router.get('/api/route-events', 'handleRouteEvents', 'Return recent privacy-preserving route events.', 'api');
+  router.post('/api/compile', 'handleCompileStart', 'Start a compile job.', 'api');
+  router.get('/api/compile/status', 'handleCompileStatus', 'Return compile job status.', 'api');
+  router.get('/api/embedding/discover', 'handleEmbeddingDiscover', 'Probe local embedding services.', 'api');
+  router.get('/api/embeddings/status', 'handleEmbeddingStatus', 'Return embedding cache status.', 'api');
+  router.post('/api/embeddings/rebuild', 'handleEmbeddingRebuild', 'Start an embedding rebuild job.', 'api');
+  router.get('/api/config', 'handleGetConfig', 'Return redacted local config.', 'api');
+  router.post('/api/config', 'handleUpdateConfig', 'Persist validated local config.', 'api');
+  router.post('/api/test', 'handleApiTest', 'Run explicitly requested local API checks.', 'api');
+  router.get('/api/search', 'handleSearch', 'Search the local capability graph.', 'api');
+  router.post('/api/match', 'handleMatch', 'Return capability matches for a query.', 'api');
+  router.post('/api/team', 'handleTeam', 'Recommend a capability team for a query.', 'api');
+  router.get('/api/stats', 'handleStats', 'Return graph statistics.', 'api');
+  router.get('/api/graph', 'handleGraphView', 'Return graph view data.', 'api');
+  router.get('/route-events', 'handleRouteEvents', 'Legacy alias for route events.');
+  router.post('/route', 'handleRoute', 'Legacy alias for route planning.');
+  router.post('/match', 'handleMatch', 'Legacy alias for capability matching.');
+  router.post('/team', 'handleTeam', 'Legacy alias for team recommendation.');
+  router.get('/stats', 'handleStats', 'Legacy alias for graph statistics.');
+  router.get('/graph', 'handleGraphView', 'Legacy alias for graph view data.');
+  router.get('/dups', 'handleDups', 'Return duplicate capability candidates.');
+  router.get('/search', 'handleSearch', 'Legacy alias for capability search.');
+  router.get('/capability/:id', 'handleCapability', 'Return one capability card.');
+  router.get('/lab', 'handleLabPage', 'Serve the route evaluation lab.', 'lab');
+  router.get('/lab/fixtures', 'handleLabFixtures', 'Return built-in lab fixtures.', 'lab');
+  router.get('/api/lab/fixtures', 'handleLabFixtures', 'Return built-in lab fixtures.', 'api');
+  router.get('/lab/agents', 'handleLabAgents', 'Return sanitized agent inventory metadata.', 'lab');
+  router.get('/api/lab/agents', 'handleLabAgents', 'Return sanitized agent inventory metadata.', 'api');
+  router.post('/lab/evaluate', 'handleLabEvaluate', 'Evaluate lab queries.', 'lab');
+  router.post('/api/lab/evaluate', 'handleLabEvaluate', 'Evaluate lab queries.', 'api');
+  router.post('/reload', 'handleReload', 'Reload the local graph.');
+  router.get('/report/summary', 'handleReportSummary', 'Return local recommendation summary.', 'report');
+  router.get('/report/sessions', 'handleReportSessions', 'Return local session report index.', 'report');
+  router.get('/report/session/:id', 'handleReportSession', 'Return one local session report.', 'report');
+});
 
 function isRateLimited(ip: string): boolean {
   const now = Date.now();
@@ -353,6 +399,13 @@ function handleStatus(
   config: UserConfig,
 ): void {
   json(res, 200, buildStatusReport(graph, config));
+}
+
+function handleRoutesMetadata(
+  _req: http.IncomingMessage,
+  res: http.ServerResponse,
+): void {
+  json(res, 200, { routes: cloneHttpRoutes(HTTP_ROUTES) });
 }
 
 async function handleApiTest(
@@ -979,6 +1032,9 @@ export function createRouter(opts: RouterOptions): http.RequestListener {
     }
     if (method === 'GET' && pathname === '/api/status') {
       return handleStatus(req, res, graph, opts.config);
+    }
+    if (method === 'GET' && pathname === '/api/routes') {
+      return handleRoutesMetadata(req, res);
     }
     if (method === 'GET' && pathname === '/api/diagnostics') {
       return handleDiagnostics(req, res, graph, opts.config, opts.routeEventsPath);

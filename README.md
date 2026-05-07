@@ -36,6 +36,7 @@ lazybrain ui --no-open
 Stable local API:
 
 - `GET /api/status`
+- `GET /api/routes`
 - `GET /api/diagnostics`
 - `POST /api/route`
 - `GET /api/route-events`
@@ -53,7 +54,7 @@ Stable local API:
 
 ## MCP
 
-`lazybrain mcp --stdio` exposes read-only tools for local capability search, routing, status, and diagnostics. Check readiness with:
+`lazybrain mcp --stdio` exposes read-only tools for route planning, capability search, skill cards, and combo templates. Check readiness with:
 
 ```bash
 lazybrain mcp status

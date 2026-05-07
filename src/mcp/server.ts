@@ -5,6 +5,12 @@ import { listCombos } from '../combos/registry.js';
 import { loadRecentHistory } from '../history/history.js';
 import { loadProfile } from '../history/profile.js';
 import { getPackageVersion } from '../version.js';
+import {
+  listMcpToolDefinitions,
+  listMcpToolNames,
+  MAX_MCP_LIMIT,
+  MAX_MCP_QUERY_LENGTH,
+} from './tools.js';
 
 type JsonRpcRequest = {
   jsonrpc?: string;
@@ -18,11 +24,6 @@ type McpContext = {
   config: UserConfig;
 };
 
-const TOOL_DESCRIPTION_ROUTE =
-  'Call lazybrain.route before non-trivial coding, review, debugging, UI, docs, release, hook, testing, or multi-agent tasks. Call it when the request is vague or when routing skills/agents can reduce context. Do not call it for simple factual answers or tiny edits.';
-
-const MAX_QUERY_LENGTH = 2000;
-const MAX_LIMIT = 20;
 type ToolStatus = 'success' | 'warning' | 'error';
 
 interface ToolObservation<T = unknown> {
@@ -166,10 +167,10 @@ function invalidQueryObservation(toolName: string, value: unknown): ReturnType<t
       'Stop retrying if there is no concrete user task to route or search.',
     ), true);
   }
-  if (value.length > MAX_QUERY_LENGTH) {
+  if (value.length > MAX_MCP_QUERY_LENGTH) {
     return toolText(errorObservation(
       `${toolName} could not run: query too long`,
-      `Query is too long. Limit: ${MAX_QUERY_LENGTH} characters.`,
+      `Query is too long. Limit: ${MAX_MCP_QUERY_LENGTH} characters.`,
       'The request exceeds the MCP tool input budget.',
       'Retry with a shorter task summary and put large context in file references.',
       'Stop retrying if reducing the query would remove the task objective.',
@@ -179,51 +180,7 @@ function invalidQueryObservation(toolName: string, value: unknown): ReturnType<t
 }
 
 function toolsList() {
-  return {
-    tools: [
-      {
-        name: 'lazybrain.route',
-        description: TOOL_DESCRIPTION_ROUTE,
-        inputSchema: {
-          type: 'object',
-          properties: {
-            query: { type: 'string', maxLength: MAX_QUERY_LENGTH },
-            target: { type: 'string', enum: ['generic', 'claude', 'codex', 'cursor'] },
-          },
-          required: ['query'],
-        },
-      },
-      {
-        name: 'lazybrain.search',
-        description: 'Search the LazyBrain capability database without loading full skill bodies.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            query: { type: 'string', maxLength: MAX_QUERY_LENGTH },
-            limit: { type: 'number', minimum: 1, maximum: MAX_LIMIT },
-          },
-          required: ['query'],
-        },
-      },
-      {
-        name: 'lazybrain.skill_card',
-        description: 'Return compact public metadata for one skill or capability. Does not return the full skill body.',
-        inputSchema: {
-          type: 'object',
-          properties: { name: { type: 'string', maxLength: 200 } },
-          required: ['name'],
-        },
-      },
-      {
-        name: 'lazybrain.combos',
-        description: 'List built-in advisory route combo templates by optional category.',
-        inputSchema: {
-          type: 'object',
-          properties: { category: { type: 'string', maxLength: 100 } },
-        },
-      },
-    ],
-  };
+  return { tools: listMcpToolDefinitions() };
 }
 
 async function callTool(name: string, args: Record<string, unknown>, ctx: McpContext): Promise<unknown> {
@@ -251,7 +208,7 @@ async function callTool(name: string, args: Record<string, unknown>, ctx: McpCon
     }
     case 'lazybrain.search': {
       const query = args.query;
-      const limit = Math.min(MAX_LIMIT, Math.max(1, Number(args.limit ?? 8)));
+      const limit = Math.min(MAX_MCP_LIMIT, Math.max(1, Number(args.limit ?? 8)));
       const invalid = invalidQueryObservation('lazybrain.search', query);
       if (invalid) return invalid;
       const queryText = (query as string).trim();
@@ -399,5 +356,5 @@ export function runMcpStdioServer(ctx: McpContext): void {
 }
 
 export function getMcpToolNames(): string[] {
-  return toolsList().tools.map((tool) => tool.name);
+  return listMcpToolNames();
 }

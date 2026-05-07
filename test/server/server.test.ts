@@ -7,7 +7,7 @@ import * as http from 'node:http';
 import { homedir, tmpdir } from 'node:os';
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { buildCompileArgs, createRouter } from '../../src/server/router.js';
+import { buildCompileArgs, createRouter, HTTP_ROUTES } from '../../src/server/router.js';
 import { sanitizeConfigUpdate } from '../../src/config/schema.js';
 import { getJob } from '../../src/runtime/jobs.js';
 import { Graph } from '../../src/graph/graph.js';
@@ -167,6 +167,24 @@ describe('GUI routes', () => {
     expect(body.config).not.toHaveProperty('compileApiKey');
     expect(JSON.stringify(body.modelHealth)).not.toContain('ApiKey');
     expect(JSON.stringify(body.runtimeStatus)).not.toContain('ApiKey');
+  });
+
+  it('exposes the active route registry', async () => {
+    const { status, body } = await req('GET', '/api/routes');
+    expect(status).toBe(200);
+    expect(body.routes).toEqual(HTTP_ROUTES.map(route => ({ ...route })));
+    expect(body.routes).toContainEqual(expect.objectContaining({
+      method: 'POST',
+      path: '/api/route',
+      handler: 'handleRoute',
+      surface: 'api',
+    }));
+    expect(body.routes).toContainEqual(expect.objectContaining({
+      method: 'GET',
+      path: '/api/status',
+      handler: 'handleStatus',
+      surface: 'api',
+    }));
   });
 
   it('reports persisted graph compile errors through /api/status', async () => {
