@@ -118,4 +118,52 @@ describe('statusline route activity', () => {
       rmSync(tempDir, { recursive: true, force: true });
     }
   });
+
+  it('preserves upstream HUD when Claude still calls standalone statusline', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'lazybrain-statusline-upstream-'));
+    const chainPath = join(tempDir, '.claude', 'lazybrain-statusline-chain.json');
+
+    try {
+      mkdirSync(join(tempDir, '.claude'), { recursive: true });
+      writeFileSync(chainPath, JSON.stringify({ upstreamCommand: 'printf UPSTREAM_HUD' }), 'utf-8');
+
+      const output = execFileSync(process.execPath, [resolve(process.cwd(), 'dist/bin/statusline.js')], {
+        cwd: process.cwd(),
+        encoding: 'utf-8',
+        env: {
+          ...process.env,
+          HOME: tempDir,
+        },
+      });
+
+      expect(output.trim()).toBe('UPSTREAM_HUD');
+      expect(output).not.toContain('待机中');
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps combined HUD from duplicating upstream via standalone fallback', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'lazybrain-statusline-combined-'));
+    const chainPath = join(tempDir, '.claude', 'lazybrain-statusline-chain.json');
+
+    try {
+      mkdirSync(join(tempDir, '.claude'), { recursive: true });
+      writeFileSync(chainPath, JSON.stringify({ upstreamCommand: 'printf UPSTREAM_HUD' }), 'utf-8');
+
+      const output = execFileSync(process.execPath, [resolve(process.cwd(), 'dist/bin/statusline-combined.js')], {
+        cwd: process.cwd(),
+        encoding: 'utf-8',
+        env: {
+          ...process.env,
+          HOME: tempDir,
+          LAZYBRAIN_STATUSLINE_CHAIN: chainPath,
+        },
+      });
+
+      expect(output.trim()).toBe('UPSTREAM_HUD');
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
 });

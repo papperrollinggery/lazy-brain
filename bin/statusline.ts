@@ -15,9 +15,11 @@
  */
 
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 import { join } from 'node:path';
-import { LAZYBRAIN_DIR, STATUS_PATH, HOOK_ACTIVE_PATH, HOOK_RUNS_DIR } from '../src/constants.js';
+import { LAZYBRAIN_DIR, STATUS_PATH, HOOK_ACTIVE_PATH, HOOK_RUNS_DIR, getStatuslineChainPath } from '../src/constants.js';
 import { readOmcMode } from '../src/utils/omc-state.js';
+import { simplifyUpstreamHud, isLowSignalLazyBrainLabel } from '../src/utils/hud-normalizer.js';
 
 // ─── ANSI styling ───────────────────────────────────────────────────────────────
 
@@ -30,7 +32,50 @@ function dormant(label: string): string { return `${DIM}${label}${RST}`; }
 
 const lastMatchPath = join(LAZYBRAIN_DIR, 'last-match.json');
 
+interface ChainConfig {
+  upstreamCommand?: string;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function readStdin(): string {
+  try {
+    return readFileSync(0, 'utf-8');
+  } catch {
+    return '';
+  }
+}
+
+function readChainConfig(): ChainConfig {
+  const explicitChainPath = process.env.LAZYBRAIN_STATUSLINE_CHAIN;
+  const candidates = explicitChainPath
+    ? [explicitChainPath]
+    : [getStatuslineChainPath(), `${process.env.HOME ?? ''}/.lazybrain/statusline-chain.json`];
+
+  for (const chainPath of candidates) {
+    try {
+      if (!chainPath || !existsSync(chainPath)) continue;
+      return JSON.parse(readFileSync(chainPath, 'utf-8')) as ChainConfig;
+    } catch {}
+  }
+
+  return {};
+}
+
+function runCommand(command: string, stdin: string): string {
+  if (command.includes('statusline.js') || command.includes('statusline-combined.js')) return '';
+  try {
+    return execSync(command, {
+      input: stdin,
+      encoding: 'utf-8',
+      stdio: ['pipe', 'pipe', 'ignore'],
+      timeout: 5000,
+      env: process.env,
+    }).trim();
+  } catch {
+    return '';
+  }
+}
 
 /** Check if hook is currently running (PID file exists + process alive) */
 function isHookRunning(): boolean {
@@ -152,12 +197,23 @@ function getLabel(): string {
 }
 
 function render() {
+  const stdin = readStdin();
   const label = getLabel();
   if (process.argv.includes('--json')) {
     process.stdout.write(JSON.stringify({ label }) + '\n');
-  } else {
-    process.stdout.write(label + '\n');
+    return;
   }
+
+  if (process.env.LAZYBRAIN_STATUSLINE_LABEL_ONLY !== '1') {
+    const upstreamCommand = readChainConfig().upstreamCommand?.trim();
+    const upstream = upstreamCommand ? simplifyUpstreamHud(runCommand(upstreamCommand, stdin)) : '';
+    if (upstream) {
+      process.stdout.write(isLowSignalLazyBrainLabel(label) ? `${upstream}\n` : `${upstream}  ${label}\n`);
+      return;
+    }
+  }
+
+  process.stdout.write(label + '\n');
 }
 
 render();
