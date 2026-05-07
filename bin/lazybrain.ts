@@ -76,7 +76,7 @@ import { getEmbeddingCacheStatus } from '../src/embeddings/cache.js';
 import { rebuildEmbeddingCache } from '../src/embeddings/rebuild.js';
 import { buildStatusReport } from '../src/server/status.js';
 import { buildRouteSpec, formatRouteSpec, formatRouteSpecBrief, isRouteTarget } from '../src/orchestrator/route.js';
-import { readRouteStats, recordRouteEvent, recordRouteSpec } from '../src/orchestrator/route-events.js';
+import { readRouteStats, recordRouteSpec } from '../src/orchestrator/route-events.js';
 import { DOGFOOD_ROUTE_CASES } from '../src/orchestrator/route-dogfood-cases.js';
 import { formatComboList, listCombos } from '../src/combos/registry.js';
 import { getMcpToolNames, runMcpStdioServer } from '../src/mcp/server.js';
@@ -1165,16 +1165,6 @@ async function cmdRouteDogfood() {
   }
 
   const passed = rows.filter(row => row.pass).length;
-  recordRouteEvent({
-    query: 'lazybrain route dogfood',
-    source: 'cli',
-    target,
-    mode: 'route_plan',
-    intent: 'Route dogfood acceptance',
-    combo: 'route_dogfood',
-    skillIds: rows.map(row => row.combo ?? row.expectedCombo),
-    warnings: rows.filter(row => !row.pass).map(row => `${row.label}: expected ${row.expectedCombo}, got ${row.combo ?? '-'}`),
-  });
   if (!verbose) {
     const status = passed === rows.length ? 'PASS' : 'FAIL';
     const failed = rows.filter(row => !row.pass).map(row => `${row.label}:${row.combo ?? '-'}!=${row.expectedCombo}`);

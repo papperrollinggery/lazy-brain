@@ -39,7 +39,6 @@ lazybrain ui --no-open
 - `GET /api/routes`
 - `GET /api/diagnostics`
 - `POST /api/route`
-- `GET /api/route-events`
 - `POST /api/compile`
 - `GET /api/compile/status`
 - `GET /api/embeddings/status`
@@ -62,7 +61,7 @@ lazybrain mcp status
 
 ## Ready
 
-`lazybrain ready` 区分产品可用状态和本机 hook/runtime 临时状态。过期 runtime status 会标记为 stale，不覆盖新的 route event。
+`lazybrain ready` 区分产品可用状态和本机 hook/runtime 临时状态。过期 runtime status 会标记为 stale，不阻塞产品可用状态。
 
 ## 公开包范围
 

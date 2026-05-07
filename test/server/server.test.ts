@@ -364,7 +364,7 @@ describe('POST /api/route', () => {
     expect(body).toHaveProperty('verification');
     expect(body).toHaveProperty('doneWhen');
     expect(body).toHaveProperty('adapters');
-    expect(body).toHaveProperty('routeEventId');
+    expect(body).not.toHaveProperty('routeEventId');
     expect(body).toHaveProperty('unlockWarnings');
     expect(body.adapters.codex.prompt).toContain('Codex advisory route plan');
     expect(JSON.stringify(body)).not.toContain(homedir());
@@ -381,21 +381,19 @@ describe('POST /api/route', () => {
     expect(status).toBe(413);
     expect(body.error).toContain('too long');
   });
-});
+  it('does not persist public route telemetry', async () => {
+    const routeEventsPath = join(tempDir, 'route-events.jsonl');
+    if (existsSync(routeEventsPath)) unlinkSync(routeEventsPath);
 
-describe('GET/POST /api/route-events', () => {
-  it('returns privacy-preserving route events', async () => {
     const route = await req('POST', '/api/route', { query: 'review code for regressions', target: 'claude' });
     expect(route.status).toBe(200);
-    expect(route.body.routeEventId).toBeTruthy();
+    expect(route.body).not.toHaveProperty('routeEventId');
+    expect(existsSync(routeEventsPath)).toBe(false);
+  });
 
+  it('does not expose the legacy route-events API', async () => {
     const events = await req('GET', '/api/route-events?limit=5');
-    expect(events.status).toBe(200);
-    expect(events.body.events[0]).toHaveProperty('queryHash');
-    expect(events.body.events[0]).toHaveProperty('recommendedChoice');
-    expect(events.body.events[0]).toHaveProperty('topModelChoice');
-    expect(events.body.events[0]).not.toHaveProperty('query');
-    expect(JSON.stringify(events.body)).not.toContain('review code for regressions');
+    expect(events.status).toBe(404);
   });
 });
 
@@ -416,6 +414,8 @@ describe('UI HTML', () => {
     expect(UI_HTML).toContain('status.product');
     expect(UI_HTML).toContain('/api/status');
     expect(UI_HTML).toContain('/api/diagnostics');
+    expect(UI_HTML).not.toContain('/api/route-events');
+    expect(UI_HTML).not.toContain('routeEventId');
     expect(UI_HTML).not.toContain('GitNexus 索引');
   });
 });
@@ -423,9 +423,7 @@ describe('UI HTML', () => {
 describe('GET /api/diagnostics privacy', () => {
   it('returns sanitized route events from the configured event store', async () => {
     const routeEventsPath = join(tempDir, 'route-events.jsonl');
-    const route = await req('POST', '/api/route', { query: 'private route query should not leak', target: 'claude' });
-    expect(route.status).toBe(200);
-    expect(readFileSync(routeEventsPath, 'utf-8')).not.toContain('private route query should not leak');
+    if (existsSync(routeEventsPath)) unlinkSync(routeEventsPath);
     appendFileSync(routeEventsPath, JSON.stringify({
       timestamp: new Date().toISOString(),
       source: 'api',
@@ -441,7 +439,6 @@ describe('GET /api/diagnostics privacy', () => {
     expect(diagnostics.body).toHaveProperty('gitNexus');
     expect(diagnostics.body.gitNexus).toHaveProperty('mcpRequired', false);
     expect(diagnostics.body.recentEvents[0]).toHaveProperty('queryHash');
-    expect(JSON.stringify(diagnostics.body)).not.toContain('private route query should not leak');
     expect(JSON.stringify(diagnostics.body)).not.toContain('legacy raw query should not leak');
   });
 });

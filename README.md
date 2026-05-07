@@ -39,7 +39,6 @@ Stable local API:
 - `GET /api/routes`
 - `GET /api/diagnostics`
 - `POST /api/route`
-- `GET /api/route-events`
 - `POST /api/compile`
 - `GET /api/compile/status`
 - `GET /api/embeddings/status`
@@ -62,7 +61,7 @@ lazybrain mcp status
 
 ## Readiness
 
-`lazybrain ready` separates product readiness from transient local hook/runtime state. Stale persisted runtime status is reported as stale and does not hide fresh route events.
+`lazybrain ready` separates product readiness from transient local hook/runtime state. Stale persisted runtime status is reported as stale without blocking product readiness.
 
 ## Public Package
 

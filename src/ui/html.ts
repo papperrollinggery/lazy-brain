@@ -175,11 +175,7 @@ export const UI_HTML = `<!doctype html>
       </div>
     </section>
 
-    <section class="grid">
-      <div class="panel">
-        <h2>Recent Route Events</h2>
-        <div id="events" class="mono">Loading</div>
-      </div>
+    <section>
       <div class="panel">
         <h2>Diagnostics</h2>
         <div id="diagnostics" class="mono">Loading</div>
@@ -250,16 +246,6 @@ export const UI_HTML = `<!doctype html>
       byId('diagnosticsText').textContent = diagnostics.error || ('hook active ' + text(diagnostics.hook && diagnostics.hook.activeRuns, '0'));
       byId('diagnosticsBadge').textContent = diagnostics.error ? 'error' : 'ok';
       byId('diagnostics').textContent = JSON.stringify(diagnostics, null, 2);
-
-      var events = await api('/api/route-events?limit=8').catch(function(err) { return { error: err.message, events: [] }; });
-      byId('events').textContent = events.error || (events.events && events.events.length ? events.events.map(function(ev) {
-        return [
-          text(ev.createdAt || ev.ts, '-'),
-          text(ev.source, 'route'),
-          text(ev.combo || ev.mode, '-'),
-          text(ev.intent, '-')
-        ].join(' | ');
-      }).join('\\n') : 'No route events yet.');
     }
     async function runRoute() {
       var query = byId('query').value.trim();
@@ -280,7 +266,6 @@ export const UI_HTML = `<!doctype html>
           intent: route.intent,
           combo: route.combo || null,
           recommended: route.choices && route.choices.recommended,
-          routeEventId: route.routeEventId || null,
           warnings: route.warnings || [],
           unlockWarnings: route.unlockWarnings || []
         }, null, 2);

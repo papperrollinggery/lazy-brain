@@ -39,7 +39,7 @@ import { EMBEDDINGS_INDEX_PATH, GRAPH_PATH, LAZYBRAIN_DIR } from '../constants.j
 import { buildRouteSpec, isRouteTarget } from '../orchestrator/route.js';
 import { loadRecentHistory } from '../history/history.js';
 import { loadProfile } from '../history/profile.js';
-import { readRecentRouteEvents, recordRouteSpec } from '../orchestrator/route-events.js';
+import { readRecentRouteEvents } from '../orchestrator/route-events.js';
 import { mergeRuntimeStatus } from '../runtime/status.js';
 import { getGitNexusStatus } from '../integrations/gitnexus.js';
 import { cloneHttpRoutes, defineHttpRoutes } from './routes.js';
@@ -74,7 +74,6 @@ export const HTTP_ROUTES = defineHttpRoutes((router) => {
   router.get('/api/diagnostics', 'handleDiagnostics', 'Return privacy-preserving local diagnostics.', 'api');
   router.get('/api/routes', 'handleRoutesMetadata', 'Return the active HTTP route registry.', 'api');
   router.post('/api/route', 'handleRoute', 'Build a RouteSpec for a user task.', 'api');
-  router.get('/api/route-events', 'handleRouteEvents', 'Return recent privacy-preserving route events.', 'api');
   router.post('/api/compile', 'handleCompileStart', 'Start a compile job.', 'api');
   router.get('/api/compile/status', 'handleCompileStatus', 'Return compile job status.', 'api');
   router.get('/api/embedding/discover', 'handleEmbeddingDiscover', 'Probe local embedding services.', 'api');
@@ -88,7 +87,6 @@ export const HTTP_ROUTES = defineHttpRoutes((router) => {
   router.post('/api/team', 'handleTeam', 'Recommend a capability team for a query.', 'api');
   router.get('/api/stats', 'handleStats', 'Return graph statistics.', 'api');
   router.get('/api/graph', 'handleGraphView', 'Return graph view data.', 'api');
-  router.get('/route-events', 'handleRouteEvents', 'Legacy alias for route events.');
   router.post('/route', 'handleRoute', 'Legacy alias for route planning.');
   router.post('/match', 'handleMatch', 'Legacy alias for capability matching.');
   router.post('/team', 'handleTeam', 'Legacy alias for team recommendation.');
@@ -206,7 +204,6 @@ async function handleRoute(
   res: http.ServerResponse,
   graph: Graph,
   config: UserConfig,
-  routeEventsPath?: string,
 ): Promise<void> {
   let body: { query?: string; target?: RouteTarget };
   try {
@@ -230,15 +227,7 @@ async function handleRoute(
     profile: loadProfile() ?? undefined,
     target: body.target ?? 'generic',
   });
-  const event = recordRouteSpec(result, 'api', routeEventsPath);
-  json(res, 200, event ? { ...result, routeEventId: event.eventId } : result);
-}
-
-function handleRouteEvents(req: http.IncomingMessage, res: http.ServerResponse, routeEventsPath?: string): void {
-  const url = new URL(req.url ?? '/', 'http://localhost');
-  const limitRaw = parseInt(url.searchParams.get('limit') ?? '20', 10);
-  const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 100) : 20;
-  json(res, 200, { events: readRecentRouteEvents({ limit, path: routeEventsPath }) });
+  json(res, 200, result);
 }
 
 async function handleTeam(
@@ -996,10 +985,7 @@ export function createRouter(opts: RouterOptions): http.RequestListener {
       return handleMatch(req, res, graph, opts.config);
     }
     if (method === 'POST' && (pathname === '/route' || pathname === '/api/route')) {
-      return handleRoute(req, res, graph, opts.config, opts.routeEventsPath);
-    }
-    if (method === 'GET' && (pathname === '/route-events' || pathname === '/api/route-events')) {
-      return handleRouteEvents(req, res, opts.routeEventsPath);
+      return handleRoute(req, res, graph, opts.config);
     }
     // POST /team
     if (method === 'POST' && (pathname === '/team' || pathname === '/api/team')) {

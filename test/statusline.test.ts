@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 describe('statusline route activity', () => {
-  it('shows recent CLI route events instead of staying idle', () => {
+  it('hides fresh route internals instead of turning routing into HUD state', () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'lazybrain-statusline-'));
     const routeEventsPath = join(tempDir, 'route-events.jsonl');
 
@@ -39,10 +39,11 @@ describe('statusline route activity', () => {
         },
       });
 
-      expect(output).toContain('路由 Test repair and PR handoff [86%]');
+      expect(output).toContain('待机中');
+      expect(output).not.toContain('路由 Test repair and PR handoff [86%]');
+      expect(output).not.toContain('上次');
       expect(output).not.toContain('cli ');
       expect(output).not.toContain('test_pr_repair');
-      expect(output).not.toContain('待机中');
       expect(output).not.toContain('图谱');
       expect(output).not.toContain('GNX');
     } finally {
