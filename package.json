@@ -18,7 +18,6 @@
   },
   "files": [
     "dist",
-    "src/ui/cytoscape.min.js",
     "README_CN.md",
     "CHANGELOG.md"
   ],
@@ -28,7 +27,6 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "tsc --noEmit",
-    "gate:adaptive": "node scripts/check-adaptive-gate.js",
     "audit:public": "node scripts/audit-public.js",
     "prepublishOnly": "npm run build"
   },

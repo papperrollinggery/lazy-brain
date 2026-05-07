@@ -12,7 +12,7 @@ import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import type { Graph } from '../graph/graph.js';
-import type { ChoiceOptionKind, Platform, RouteTarget, UserConfig } from '../types.js';
+import type { Platform, RouteTarget, UserConfig } from '../types.js';
 import { buildGraphView, formatGraphMermaid } from '../graph/graph-view.js';
 import { match } from '../matcher/matcher.js';
 import { recommendTeam } from '../matcher/team-recommender.js';
@@ -29,32 +29,21 @@ import { redactConfig } from '../config/redaction.js';
 import { loadConfig, saveConfig } from '../config/config.js';
 import {
   CONFIG_ALLOWED_KEYS,
-  SECRET_CONFIG_KEYS,
-  VALID_EMBEDDING_SOURCES,
-  VALID_ENGINES,
-  VALID_LANGUAGES,
-  VALID_MODES,
-  VALID_STRATEGIES,
   validateConfigUpdate,
 } from '../config/schema.js';
 import { getHookRuntimeSnapshot, getHookRuntimeStats } from '../hook/runtime.js';
 import { runApiTests, type ApiTestTarget } from '../health/api-test.js';
 import { getEmbeddingCacheStatus } from '../embeddings/cache.js';
 import { rebuildEmbeddingCache } from '../embeddings/rebuild.js';
-import { DEFAULT_CONFIG, EMBEDDINGS_INDEX_PATH, GRAPH_PATH, LAZYBRAIN_DIR } from '../constants.js';
+import { EMBEDDINGS_INDEX_PATH, GRAPH_PATH, LAZYBRAIN_DIR } from '../constants.js';
 import { buildRouteSpec, isRouteTarget } from '../orchestrator/route.js';
-import { clearChoicePreferences, loadChoicePreferences, recordChoiceFeedback } from '../orchestrator/choice-preferences.js';
 import { loadRecentHistory } from '../history/history.js';
 import { loadProfile } from '../history/profile.js';
-import { isRouteEventFeedbackReason, readRecentRouteEvents, recordRouteAdoption, recordRouteSpec } from '../orchestrator/route-events.js';
-import { recordRouteRegressionCase, RouteRegressionError } from '../orchestrator/route-regressions.js';
+import { readRecentRouteEvents, recordRouteSpec } from '../orchestrator/route-events.js';
 import { mergeRuntimeStatus } from '../runtime/status.js';
 import { getGitNexusStatus } from '../integrations/gitnexus.js';
-import { runHookDoctor } from '../hook/doctor.js';
-import type { HookInstallScope } from '../hook/types.js';
 import {
   appendJobLog,
-  cancelJob,
   clearJobCanceller,
   createJob,
   getJob,
@@ -62,7 +51,6 @@ import {
   listJobs,
   registerJobCanceller,
   updateJob,
-  type BackendJob,
 } from '../runtime/jobs.js';
 
 // ─── Rate Limiter ────────────────────────────────────────────────────────────
@@ -70,17 +58,11 @@ import {
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
 const RATE_LIMIT = 100; // per second per IP
 const ROUTER_DIR = dirname(fileURLToPath(import.meta.url));
-const CYTOSCAPE_ASSET_CANDIDATES = [
-  join(ROUTER_DIR, '..', 'ui', 'cytoscape.min.js'),
-  join(ROUTER_DIR, '..', 'src', 'ui', 'cytoscape.min.js'),
-  join(ROUTER_DIR, '..', '..', 'src', 'ui', 'cytoscape.min.js'),
-];
 const LAZYBRAIN_CLI_CANDIDATES = [
   join(ROUTER_DIR, 'bin', 'lazybrain.js'),
   join(ROUTER_DIR, '..', 'dist', 'bin', 'lazybrain.js'),
   join(ROUTER_DIR, '..', '..', 'dist', 'bin', 'lazybrain.js'),
 ];
-const ROUTE_FEEDBACK_REASON_ERROR = 'Invalid reason. Use wrong_skill, wrong_model, too_broad, missed_council, bad_copy_prompt, or other.';
 
 function isRateLimited(ip: string): boolean {
   const now = Date.now();
@@ -114,16 +96,6 @@ function html(res: http.ServerResponse, status: number, body: string): void {
 
 function err(res: http.ServerResponse, code: number, message: string): void {
   json(res, code, { error: message, code });
-}
-
-function readCytoscapeAsset(): Buffer | null {
-  for (const path of CYTOSCAPE_ASSET_CANDIDATES) {
-    if (!existsSync(path)) continue;
-    try {
-      return readFileSync(path);
-    } catch {}
-  }
-  return null;
 }
 
 function resolveLazyBrainCliPath(): string | null {
@@ -162,17 +134,6 @@ function isLocalRequest(req: http.IncomingMessage): boolean {
   return !origin || origin.startsWith('http://127.0.0.1') || origin.startsWith('http://localhost');
 }
 
-async function readJsonBody<T extends Record<string, unknown>>(
-  req: http.IncomingMessage,
-  empty: T,
-): Promise<T | null> {
-  const raw = await readBody(req);
-  if (!raw.trim()) return empty;
-  const parsed = JSON.parse(raw) as unknown;
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
-  return parsed as T;
-}
-
 // ─── Route Handlers ──────────────────────────────────────────────────────────
 
 async function handleMatch(
@@ -199,7 +160,6 @@ async function handleRoute(
   res: http.ServerResponse,
   graph: Graph,
   config: UserConfig,
-  choicePreferencesPath?: string,
   routeEventsPath?: string,
 ): Promise<void> {
   let body: { query?: string; target?: RouteTarget };
@@ -222,7 +182,6 @@ async function handleRoute(
     config,
     history: loadRecentHistory(50),
     profile: loadProfile() ?? undefined,
-    choicePreferences: loadChoicePreferences(choicePreferencesPath),
     target: body.target ?? 'generic',
   });
   const event = recordRouteSpec(result, 'api', routeEventsPath);
@@ -234,148 +193,6 @@ function handleRouteEvents(req: http.IncomingMessage, res: http.ServerResponse, 
   const limitRaw = parseInt(url.searchParams.get('limit') ?? '20', 10);
   const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 100) : 20;
   json(res, 200, { events: readRecentRouteEvents({ limit, path: routeEventsPath }) });
-}
-
-async function handleRouteEventAdopt(
-  req: http.IncomingMessage,
-  res: http.ServerResponse,
-  routeEventsPath?: string,
-): Promise<void> {
-  let body: { eventId?: string; target?: RouteTarget; choiceId?: string; action?: string; outcome?: string; reason?: string };
-  try {
-    body = JSON.parse(await readBody(req));
-  } catch {
-    return err(res, 400, 'Invalid JSON body');
-  }
-  if (!body.eventId || typeof body.eventId !== 'string') {
-    return err(res, 400, 'Missing required field: eventId');
-  }
-  if (body.target !== undefined && (typeof body.target !== 'string' || !isRouteTarget(body.target))) {
-    return err(res, 400, 'Invalid target. Use generic, claude, codex, or cursor.');
-  }
-  const action = body.action === 'feedback' ? 'feedback' : body.action === 'copy_prompt' || body.action === undefined ? 'copy_prompt' : null;
-  if (!action) return err(res, 400, 'Invalid action. Use copy_prompt or feedback.');
-  const outcome = body.outcome === 'accepted' || body.outcome === 'rejected' ? body.outcome : undefined;
-  if (body.outcome !== undefined && !outcome) return err(res, 400, 'Invalid outcome. Use accepted or rejected.');
-  const reason = isRouteEventFeedbackReason(body.reason) ? body.reason : undefined;
-  if (body.reason !== undefined && !reason) {
-    return err(res, 400, ROUTE_FEEDBACK_REASON_ERROR);
-  }
-  const event = recordRouteAdoption({
-    eventId: body.eventId,
-    target: body.target,
-    choiceId: typeof body.choiceId === 'string' ? body.choiceId : undefined,
-    action,
-    outcome,
-    reason,
-    path: routeEventsPath,
-  });
-  if (!event) return err(res, 404, `Route event not found: ${body.eventId}`);
-  json(res, 200, { event });
-}
-
-async function handleRouteEventRegression(
-  req: http.IncomingMessage,
-  res: http.ServerResponse,
-  routeEventsPath?: string,
-  routeRegressionPath?: string,
-): Promise<void> {
-  let body: { eventId?: string; query?: string; expectedChoiceId?: string; reason?: string };
-  try {
-    body = JSON.parse(await readBody(req));
-  } catch {
-    return err(res, 400, 'Invalid JSON body');
-  }
-  if (!body.eventId || typeof body.eventId !== 'string') {
-    return err(res, 400, 'Missing required field: eventId');
-  }
-  if (body.query !== undefined && typeof body.query !== 'string') {
-    return err(res, 400, 'query must be a string when provided.');
-  }
-  if (body.query && body.query.length > 2000) {
-    return err(res, 413, 'Query is too long. Limit: 2000 characters.');
-  }
-  if (body.expectedChoiceId !== undefined && typeof body.expectedChoiceId !== 'string') {
-    return err(res, 400, 'expectedChoiceId must be a string when provided.');
-  }
-  const reason = isRouteEventFeedbackReason(body.reason) ? body.reason : undefined;
-  if (body.reason !== undefined && !reason) {
-    return err(res, 400, ROUTE_FEEDBACK_REASON_ERROR);
-  }
-
-  try {
-    const regressionCase = recordRouteRegressionCase({
-      eventId: body.eventId,
-      query: body.query,
-      expectedChoiceId: body.expectedChoiceId,
-      reason,
-      routeEventsPath,
-      path: routeRegressionPath,
-    });
-    json(res, 200, { regressionCase });
-  } catch (error) {
-    if (error instanceof RouteRegressionError) return err(res, error.statusCode, error.message);
-    return err(res, 500, 'Failed to record route regression case.');
-  }
-}
-
-function handleChoices(
-  _req: http.IncomingMessage,
-  res: http.ServerResponse,
-  choicePreferencesPath?: string,
-): void {
-  json(res, 200, loadChoicePreferences(choicePreferencesPath));
-}
-
-async function handleChoiceFeedback(
-  req: http.IncomingMessage,
-  res: http.ServerResponse,
-  choicePreferencesPath?: string,
-): Promise<void> {
-  let body: { choiceId?: string; outcome?: string; accepted?: boolean; rejected?: boolean; kind?: string };
-  try {
-    body = JSON.parse(await readBody(req));
-  } catch {
-    return err(res, 400, 'Invalid JSON body');
-  }
-  if (!body.choiceId || typeof body.choiceId !== 'string') {
-    return err(res, 400, 'Missing required field: choiceId');
-  }
-  const accepted = body.outcome === 'accepted' || body.accepted === true;
-  const rejected = body.outcome === 'rejected' || body.rejected === true;
-  if (accepted === rejected) {
-    return err(res, 400, 'Set exactly one feedback outcome: accepted or rejected.');
-  }
-  const validKinds = ['mode', 'model', 'skill', 'plugin', 'workflow'];
-  if (body.kind !== undefined && (typeof body.kind !== 'string' || !validKinds.includes(body.kind))) {
-    return err(res, 400, 'Invalid kind. Use mode, model, skill, plugin, or workflow.');
-  }
-  const preferences = recordChoiceFeedback({
-    choiceId: body.choiceId,
-    outcome: accepted ? 'accepted' : 'rejected',
-    kind: body.kind as ChoiceOptionKind | undefined,
-    path: choicePreferencesPath,
-  });
-  json(res, 200, { choiceId: body.choiceId, stats: preferences.choices[body.choiceId], preferences });
-}
-
-async function handleChoiceClear(
-  req: http.IncomingMessage,
-  res: http.ServerResponse,
-  choicePreferencesPath?: string,
-): Promise<void> {
-  let body: { choiceId?: string } = {};
-  try {
-    const raw = await readBody(req);
-    body = raw.trim() ? JSON.parse(raw) as { choiceId?: string } : {};
-  } catch {
-    return err(res, 400, 'Invalid JSON body');
-  }
-  if (body.choiceId !== undefined && typeof body.choiceId !== 'string') {
-    return err(res, 400, 'choiceId must be a string when provided.');
-  }
-  const preferences = clearChoicePreferences({ choiceId: body.choiceId, path: choicePreferencesPath });
-  json(res, 200, { cleared: body.choiceId ?? 'all', preferences });
 }
 
 async function handleTeam(
@@ -756,47 +573,12 @@ function handleReportSession(
 
 // ─── Config /api/config ───────────────────────────────────────────────────────
 
-function enumValues(values: Set<string>): string[] {
-  return [...values];
-}
-
-function configFieldSchema(key: string, currentConfig: UserConfig): Record<string, unknown> {
-  const enumByKey: Record<string, string[] | undefined> = {
-    engine: enumValues(VALID_ENGINES),
-    strategy: enumValues(VALID_STRATEGIES),
-    mode: enumValues(VALID_MODES),
-    language: enumValues(VALID_LANGUAGES),
-    embeddingSource: enumValues(VALID_EMBEDDING_SOURCES),
-  };
-  return {
-    key,
-    type: key === 'autoThreshold' ? 'number' : 'string',
-    secret: SECRET_CONFIG_KEYS.has(key),
-    editable: true,
-    defaultValue: (DEFAULT_CONFIG as unknown as Record<string, unknown>)[key] ?? null,
-    value: SECRET_CONFIG_KEYS.has(key)
-      ? ((currentConfig as unknown as Record<string, unknown>)[key] ? '<redacted>' : '')
-      : (currentConfig as unknown as Record<string, unknown>)[key] ?? null,
-    ...(enumByKey[key] ? { enum: enumByKey[key] } : {}),
-  };
-}
-
 function handleGetConfig(
   _req: http.IncomingMessage,
   res: http.ServerResponse,
   liveConfig: UserConfig,
 ): void {
   json(res, 200, { ok: true, config: redactConfig({ ...loadConfig(), ...liveConfig }) });
-}
-
-function handleConfigSchema(
-  _req: http.IncomingMessage,
-  res: http.ServerResponse,
-  liveConfig: UserConfig,
-): void {
-  const currentConfig = { ...loadConfig(), ...liveConfig };
-  const fields = [...CONFIG_ALLOWED_KEYS].map(key => configFieldSchema(key, currentConfig));
-  json(res, 200, { ok: true, fields });
 }
 
 function configFieldError(message: string): Record<string, string> {
@@ -845,24 +627,6 @@ async function handleUpdateConfig(
       error: error instanceof Error ? error.message : 'Failed to save config',
     });
   }
-}
-
-async function handleConfigTest(
-  req: http.IncomingMessage,
-  res: http.ServerResponse,
-  config: UserConfig,
-): Promise<void> {
-  let body: { target?: ApiTestTarget; targets?: ApiTestTarget[] } = {};
-  try {
-    body = await readJsonBody(req, {}) ?? {};
-  } catch {
-    return err(res, 400, 'Invalid JSON body');
-  }
-  const allowed = new Set<ApiTestTarget>(['compile', 'secretary', 'embedding']);
-  const targets = Array.isArray(body.targets)
-    ? body.targets.filter((target): target is ApiTestTarget => allowed.has(target))
-    : body.target && allowed.has(body.target) ? [body.target] : undefined;
-  json(res, 200, await runApiTests(config, targets));
 }
 
 // ─── Compile /api/compile ────────────────────────────────────────────────────
@@ -1058,236 +822,6 @@ function handleCompileStatus(
   });
 }
 
-// ─── Jobs /api/jobs ──────────────────────────────────────────────────────────
-
-function handleJobs(req: http.IncomingMessage, res: http.ServerResponse): void {
-  const url = new URL(req.url ?? '/', 'http://localhost');
-  const limitRaw = parseInt(url.searchParams.get('limit') ?? '20', 10);
-  const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 100) : 20;
-  json(res, 200, { jobs: listJobs({ limit }) });
-}
-
-function handleActiveJobs(_req: http.IncomingMessage, res: http.ServerResponse): void {
-  json(res, 200, { jobs: listActiveJobs({ localOnly: true }) });
-}
-
-function handleJob(_req: http.IncomingMessage, res: http.ServerResponse, id: string): void {
-  const job = getJob(id);
-  if (!job) return err(res, 404, `Job not found: ${id}`);
-  json(res, 200, { job });
-}
-
-function handleJobCancel(_req: http.IncomingMessage, res: http.ServerResponse, id: string): void {
-  const result = cancelJob(id);
-  json(res, result.ok ? 200 : result.job ? 409 : 404, result);
-}
-
-// ─── Doctor / Repairs ───────────────────────────────────────────────────────
-
-function parseDoctorScope(value: unknown): HookInstallScope | null {
-  if (value === undefined) return 'project';
-  return value === 'project' || value === 'global' ? value : null;
-}
-
-function runDoctorJob(
-  scope: HookInstallScope,
-  dryRun: boolean,
-  graph: Graph,
-  config: UserConfig,
-): { status: number; body: Record<string, unknown> } {
-  const job = createJob('doctor', { progress: dryRun ? `diagnose ${scope}` : `fix ${scope}` });
-  updateJob(job.id, {
-    state: 'running',
-    startedAt: new Date().toISOString(),
-    progress: dryRun ? `diagnosing ${scope}` : `fixing ${scope}`,
-  });
-  try {
-    const report = runHookDoctor(scope, !dryRun, config);
-    appendJobLog(job.id, [
-      dryRun
-        ? `doctor diagnosed ${scope}`
-        : `doctor repaired ${scope}: ${report.repairs.join(', ') || 'none'}`,
-    ]);
-    updateJob(job.id, {
-      state: 'succeeded',
-      progress: 'completed',
-      exitCode: 0,
-      result: report,
-    });
-    const status = buildStatusReport(graph, config);
-    return {
-      status: 200,
-      body: {
-        ok: true,
-        scope,
-        dryRun,
-        jobId: job.id,
-        repairs: report.repairs,
-        readiness: status.readiness,
-        backup: report.backup ?? null,
-        doctor: report,
-      },
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    updateJob(job.id, { state: 'failed', progress: 'failed', exitCode: 1, error: message });
-    return { status: 500, body: { ok: false, scope, dryRun, jobId: job.id, error: message } };
-  }
-}
-
-async function handleDoctorFix(
-  req: http.IncomingMessage,
-  res: http.ServerResponse,
-  graph: Graph,
-  config: UserConfig,
-): Promise<void> {
-  if (!isLocalRequest(req)) return json(res, 403, { ok: false, error: 'Forbidden: doctor writes only allowed from localhost' });
-  let body: { scope?: unknown; dryRun?: unknown } = {};
-  try {
-    body = await readJsonBody(req, {}) ?? {};
-  } catch {
-    return err(res, 400, 'Invalid JSON body');
-  }
-  const scope = parseDoctorScope(body.scope);
-  if (!scope) return err(res, 400, 'Invalid scope. Use project or global.');
-  const dryRun = body.dryRun !== false;
-  const result = runDoctorJob(scope, dryRun, graph, config);
-  json(res, result.status, result.body);
-}
-
-type RepairAction = {
-  id: string;
-  title: string;
-  titleZh: string;
-  severity: 'info' | 'warning' | 'blocker';
-  available: boolean;
-  requiresConfirmation: boolean;
-  commandPreview: string;
-  reason?: string;
-};
-
-function buildRepairActions(graph: Graph, config: UserConfig): { actions: RepairAction[]; history: BackendJob[] } {
-  const status = buildStatusReport(graph, config);
-  const hookScopes = ((status.hook as { scopes?: Array<Record<string, unknown>> }).scopes ?? []);
-  const globalHook = hookScopes.find(scope => scope.scope === 'global');
-  const projectHook = hookScopes.find(scope => scope.scope === 'project');
-  const embedding = getEmbeddingCacheStatus(graph.getAllNodes());
-  const hasGraphCompileIssue = status.ok === false && JSON.stringify(status.readiness).includes('Graph');
-
-  const actions: RepairAction[] = [
-    {
-      id: 'doctor_global_hooks',
-      title: 'Normalize global LazyBrain hook registrations',
-      titleZh: '修复全局 LazyBrain hook 重复注册',
-      severity: globalHook?.duplicateUserPromptSubmit === true ? 'blocker' : 'info',
-      available: true,
-      requiresConfirmation: true,
-      commandPreview: 'lazybrain doctor --fix --global',
-      reason: globalHook?.duplicateUserPromptSubmit === true ? undefined : 'global hook has no duplicate LazyBrain registration',
-    },
-    {
-      id: 'doctor_project_hooks',
-      title: 'Normalize project LazyBrain hook registrations',
-      titleZh: '修复项目 LazyBrain hook 注册',
-      severity: projectHook?.duplicateUserPromptSubmit === true ? 'blocker' : 'info',
-      available: true,
-      requiresConfirmation: true,
-      commandPreview: 'lazybrain doctor --fix',
-      reason: projectHook?.duplicateUserPromptSubmit === true ? undefined : 'project hook has no duplicate LazyBrain registration',
-    },
-    {
-      id: 'compile_graph',
-      title: 'Fast compile LazyBrain graph',
-      titleZh: '快速编译 LazyBrain 图谱',
-      severity: hasGraphCompileIssue ? 'blocker' : 'info',
-      available: true,
-      requiresConfirmation: true,
-      commandPreview: 'lazybrain compile',
-      reason: hasGraphCompileIssue ? undefined : 'graph has no compile blocker',
-    },
-    {
-      id: 'compile_relations',
-      title: 'Rebuild graph relations',
-      titleZh: '重建图谱关系',
-      severity: 'info',
-      available: true,
-      requiresConfirmation: true,
-      commandPreview: 'lazybrain compile --with-relations --force-relations',
-      reason: 'optional LLM relation enrichment; not required for fast compile',
-    },
-    {
-      id: 'rebuild_embeddings',
-      title: 'Rebuild embedding cache',
-      titleZh: '重建 embedding 缓存',
-      severity: embedding.state === 'ok' ? 'info' : 'warning',
-      available: true,
-      requiresConfirmation: true,
-      commandPreview: 'lazybrain embeddings rebuild',
-      reason: embedding.state === 'ok' ? 'embedding cache is already ok' : embedding.message,
-    },
-  ];
-
-  return {
-    actions,
-    history: listJobs({ limit: 20 }).filter(job => ['doctor', 'compile', 'embedding', 'cache', 'gitnexus'].includes(job.kind)),
-  };
-}
-
-function handleRepairs(_req: http.IncomingMessage, res: http.ServerResponse, graph: Graph, config: UserConfig): void {
-  json(res, 200, buildRepairActions(graph, config));
-}
-
-async function handleRepairsRun(
-  req: http.IncomingMessage,
-  res: http.ServerResponse,
-  graph: Graph,
-  config: UserConfig,
-  onReload: () => void,
-): Promise<void> {
-  if (!isLocalRequest(req)) return json(res, 403, { ok: false, error: 'Forbidden: repairs only allowed from localhost' });
-  let body: { ids?: unknown; confirm?: unknown } = {};
-  try {
-    body = await readJsonBody(req, {}) ?? {};
-  } catch {
-    return err(res, 400, 'Invalid JSON body');
-  }
-  const ids = Array.isArray(body.ids) ? body.ids.filter((id): id is string => typeof id === 'string') : [];
-  if (ids.length === 0) return err(res, 400, 'Missing required field: ids');
-  const actions = new Map(buildRepairActions(graph, config).actions.map(action => [action.id, action]));
-  const results: Array<Record<string, unknown>> = [];
-
-  for (const id of ids) {
-    const action = actions.get(id);
-    if (!action) {
-      results.push({ id, ok: false, reason: 'unknown repair action' });
-      continue;
-    }
-    if (action.requiresConfirmation && body.confirm !== true) {
-      results.push({ id, ok: false, reason: 'confirmation required' });
-      continue;
-    }
-    if (id === 'doctor_global_hooks') {
-      const result = runDoctorJob('global', false, graph, config);
-      results.push({ id, ...result.body });
-    } else if (id === 'doctor_project_hooks') {
-      const result = runDoctorJob('project', false, graph, config);
-      results.push({ id, ...result.body });
-    } else if (id === 'compile_graph') {
-      const result = startCompileJob(onReload, { scanFirst: false });
-      results.push({ id, ...result.body });
-    } else if (id === 'compile_relations') {
-      const result = startCompileJob(onReload, { scanFirst: false, withRelations: true, forceRelations: true });
-      results.push({ id, ...result.body });
-    } else if (id === 'rebuild_embeddings') {
-      const result = startEmbeddingJob(graph, config, false);
-      results.push({ id, ...result.body });
-    }
-  }
-
-  json(res, 200, { ok: results.every(result => result.ok !== false), results });
-}
-
-
 // ─── Diagnostics /api/diagnostics ────────────────────────────────────────────
 
 function handleDiagnostics(
@@ -1349,9 +883,7 @@ export interface RouterOptions {
   config: UserConfig;
   version: string;
   onReload: () => void;
-  choicePreferencesPath?: string;
   routeEventsPath?: string;
-  routeRegressionPath?: string;
 }
 
 
@@ -1411,25 +943,10 @@ export function createRouter(opts: RouterOptions): http.RequestListener {
       return handleMatch(req, res, graph, opts.config);
     }
     if (method === 'POST' && (pathname === '/route' || pathname === '/api/route')) {
-      return handleRoute(req, res, graph, opts.config, opts.choicePreferencesPath, opts.routeEventsPath);
+      return handleRoute(req, res, graph, opts.config, opts.routeEventsPath);
     }
     if (method === 'GET' && (pathname === '/route-events' || pathname === '/api/route-events')) {
       return handleRouteEvents(req, res, opts.routeEventsPath);
-    }
-    if (method === 'POST' && (pathname === '/route-events/adopt' || pathname === '/api/route-events/adopt')) {
-      return handleRouteEventAdopt(req, res, opts.routeEventsPath);
-    }
-    if (method === 'POST' && (pathname === '/route-events/regression' || pathname === '/api/route-events/regression')) {
-      return handleRouteEventRegression(req, res, opts.routeEventsPath, opts.routeRegressionPath);
-    }
-    if (method === 'GET' && (pathname === '/choices' || pathname === '/api/choices')) {
-      return handleChoices(req, res, opts.choicePreferencesPath);
-    }
-    if (method === 'POST' && (pathname === '/choices/feedback' || pathname === '/api/choices/feedback')) {
-      return handleChoiceFeedback(req, res, opts.choicePreferencesPath);
-    }
-    if (method === 'POST' && (pathname === '/choices/clear' || pathname === '/api/choices/clear')) {
-      return handleChoiceClear(req, res, opts.choicePreferencesPath);
     }
     // POST /team
     if (method === 'POST' && (pathname === '/team' || pathname === '/api/team')) {
@@ -1466,32 +983,6 @@ export function createRouter(opts: RouterOptions): http.RequestListener {
     if (method === 'GET' && pathname === '/api/diagnostics') {
       return handleDiagnostics(req, res, graph, opts.config, opts.routeEventsPath);
     }
-    if (method === 'GET' && pathname === '/api/jobs') {
-      return handleJobs(req, res);
-    }
-    if (method === 'GET' && pathname === '/api/jobs/active') {
-      return handleActiveJobs(req, res);
-    }
-    const jobMatch = pathname.match(/^\/api\/jobs\/([a-z][a-z0-9-]{2,120})$/i);
-    if (method === 'GET' && jobMatch) {
-      return handleJob(req, res, decodeURIComponent(jobMatch[1]));
-    }
-    if (method === 'POST' && jobMatch && pathname.endsWith('/cancel') === false) {
-      return err(res, 404, `Not found: ${method} ${pathname}`);
-    }
-    const jobCancelMatch = pathname.match(/^\/api\/jobs\/([a-z][a-z0-9-]{2,120})\/cancel$/i);
-    if (method === 'POST' && jobCancelMatch) {
-      return handleJobCancel(req, res, decodeURIComponent(jobCancelMatch[1]));
-    }
-    if (method === 'POST' && pathname === '/api/doctor/fix') {
-      return handleDoctorFix(req, res, graph, opts.config);
-    }
-    if (method === 'GET' && pathname === '/api/repairs') {
-      return handleRepairs(req, res, graph, opts.config);
-    }
-    if (method === 'POST' && pathname === '/api/repairs/run') {
-      return handleRepairsRun(req, res, graph, opts.config, opts.onReload);
-    }
     if (method === 'POST' && pathname === '/api/compile') {
       return handleCompileStart(req, res, opts.onReload);
     }
@@ -1504,14 +995,8 @@ export function createRouter(opts: RouterOptions): http.RequestListener {
     if (method === 'GET' && pathname === '/api/config') {
       return handleGetConfig(req, res, opts.config);
     }
-    if (method === 'GET' && pathname === '/api/config/schema') {
-      return handleConfigSchema(req, res, opts.config);
-    }
     if (method === 'POST' && pathname === '/api/config') {
       return handleUpdateConfig(req, res, opts.config);
-    }
-    if (method === 'POST' && pathname === '/api/config/test') {
-      return handleConfigTest(req, res, opts.config);
     }
     if (method === 'POST' && pathname === '/api/test') {
       return handleApiTest(req, res, opts.config);
@@ -1521,12 +1006,6 @@ export function createRouter(opts: RouterOptions): http.RequestListener {
     }
     if (method === 'POST' && pathname === '/api/embeddings/rebuild') {
       return handleEmbeddingRebuild(req, res, graph, opts.config);
-    }
-    if (method === 'GET' && pathname === '/cytoscape.min.js') {
-      const cy = readCytoscapeAsset();
-      if (!cy) return err(res, 404, 'Not found');
-      res.writeHead(200, { 'Content-Type': 'application/javascript', 'Cache-Control': 'public, max-age=86400' });
-      return res.end(cy);
     }
     if (method === 'GET' && pathname === '/lab') {
       return handleLabPage(req, res);

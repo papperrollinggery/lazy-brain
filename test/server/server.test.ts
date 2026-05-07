@@ -9,6 +9,7 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSyn
 import { dirname, join } from 'node:path';
 import { buildCompileArgs, createRouter } from '../../src/server/router.js';
 import { sanitizeConfigUpdate } from '../../src/config/schema.js';
+import { getJob } from '../../src/runtime/jobs.js';
 import { Graph } from '../../src/graph/graph.js';
 import type { UserConfig } from '../../src/types.js';
 import { DEFAULT_CONFIG, STATUS_PATH } from '../../src/constants.js';
@@ -53,7 +54,7 @@ let graph: Graph;
 let tempDir: string;
 
 beforeAll(async () => {
-  tempDir = mkdtempSync(join(tmpdir(), 'lazybrain-server-choices-'));
+  tempDir = mkdtempSync(join(tmpdir(), 'lazybrain-server-'));
   graph = makeMockGraph();
   const config: UserConfig = { ...DEFAULT_CONFIG };
 
@@ -62,9 +63,7 @@ beforeAll(async () => {
     config,
     version: '0.1.0-test',
     onReload: () => { graph = makeMockGraph(); },
-    choicePreferencesPath: join(tempDir, 'choice-preferences.json'),
     routeEventsPath: join(tempDir, 'route-events.jsonl'),
-    routeRegressionPath: join(tempDir, 'route-regressions.jsonl'),
   });
 
   server = http.createServer(router);
@@ -94,8 +93,7 @@ async function req(method: string, path: string, body?: unknown) {
 
 async function waitForJobTerminal(jobId: string): Promise<void> {
   for (let i = 0; i < 30; i++) {
-    const job = await req('GET', `/api/jobs/${jobId}`);
-    const state = job.body.job?.state;
+    const state = getJob(jobId)?.state;
     if (state && state !== 'queued' && state !== 'running') return;
     await new Promise(resolve => setTimeout(resolve, 25));
   }
@@ -128,26 +126,21 @@ describe('compile job options', () => {
 });
 
 describe('GUI routes', () => {
-  it('serves the Overview UI at / and /ui', async () => {
+  it('serves the Workbench UI at / and /ui', async () => {
     for (const path of ['/', '/ui']) {
       const res = await fetch(`${baseUrl}${path}`);
       const text = await res.text();
       expect(res.status).toBe(200);
       expect(res.headers.get('content-type')).toContain('text/html');
       expect(text).toContain('LazyBrain');
-      expect(text).toContain('Try Router');
-      expect(text).toContain('/cytoscape.min.js');
-      expect(text).toContain("/api/compile?scan=1");
-      expect(text).not.toContain('unpkg.com/cytoscape');
+      expect(text).toContain('LazyBrain Workbench');
+      expect(text).toContain('/api/route');
+      expect(text).toContain('/api/compile/status');
+      expect(text).not.toContain('cytoscape');
+      expect(text).not.toContain('/api/choices');
+      expect(text).not.toContain('/api/jobs');
+      expect(text).not.toContain('/api/repairs');
     }
-  });
-
-  it('serves the local Cytoscape asset', async () => {
-    const res = await fetch(`${baseUrl}/cytoscape.min.js`);
-    const text = await res.text();
-    expect(res.status).toBe(200);
-    expect(res.headers.get('content-type')).toContain('application/javascript');
-    expect(text).toContain('cytoscape');
   });
 
   it('returns stable /api/status schema', async () => {
@@ -227,9 +220,7 @@ describe('GUI routes', () => {
       expect(first.status).toBe(200);
       expect(first.body).toHaveProperty('jobId');
 
-      const job = await req('GET', `/api/jobs/${first.body.jobId}`);
-      expect(job.status).toBe(200);
-      expect(job.body.job.kind).toBe('embedding');
+      expect(getJob(first.body.jobId)?.kind).toBe('embedding');
       await waitForJobTerminal(first.body.jobId);
 
       const second = await req('POST', '/api/embeddings/rebuild', { confirm: 'rebuild' });
@@ -245,48 +236,10 @@ describe('GUI routes', () => {
     }
   });
 
-  it('serves backend job lists', async () => {
-    const { status, body } = await req('GET', '/api/jobs?limit=5');
-    expect(status).toBe(200);
-    expect(Array.isArray(body.jobs)).toBe(true);
-  });
-
-  it('serves config schema, redacted config, and config test endpoint', async () => {
-    const schema = await req('GET', '/api/config/schema');
-    expect(schema.status).toBe(200);
-    expect(schema.body.fields.some((field: { key?: string }) => field.key === 'engine')).toBe(true);
-    expect(schema.body.fields.some((field: { key?: string; secret?: boolean }) => field.key === 'compileApiKey' && field.secret === true)).toBe(true);
-
+  it('serves redacted config only', async () => {
     const configRes = await req('GET', '/api/config');
     expect(configRes.status).toBe(200);
     expect(JSON.stringify(configRes.body)).not.toContain('sk-');
-
-    const testRes = await req('POST', '/api/config/test', { targets: ['compile'] });
-    expect(testRes.status).toBe(200);
-    expect(testRes.body.results[0].target).toBe('compile');
-  });
-
-  it('exposes repair actions and requires confirmation before running them', async () => {
-    const repairs = await req('GET', '/api/repairs');
-    expect(repairs.status).toBe(200);
-    expect(repairs.body.actions.some((action: { id?: string }) => action.id === 'doctor_global_hooks')).toBe(true);
-    expect(repairs.body.actions.some((action: { id?: string; commandPreview?: string }) => action.id === 'compile_graph' && action.commandPreview === 'lazybrain compile')).toBe(true);
-    expect(repairs.body.actions.some((action: { id?: string; commandPreview?: string }) => action.id === 'compile_relations' && action.commandPreview === 'lazybrain compile --with-relations --force-relations')).toBe(true);
-
-    const run = await req('POST', '/api/repairs/run', { ids: ['doctor_global_hooks'] });
-    expect(run.status).toBe(200);
-    expect(run.body.ok).toBe(false);
-    expect(run.body.results[0].reason).toContain('confirmation');
-  });
-
-  it('runs doctor fix API in dry-run mode by default', async () => {
-    const { status, body } = await req('POST', '/api/doctor/fix', { scope: 'project' });
-    expect(status).toBe(200);
-    expect(body.ok).toBe(true);
-    expect(body.dryRun).toBe(true);
-    expect(body.scope).toBe('project');
-    expect(body).toHaveProperty('jobId');
-    expect(body).toHaveProperty('readiness');
   });
 
   it('runs API tests only when explicitly requested', async () => {
@@ -409,7 +362,7 @@ describe('POST /api/route', () => {
 });
 
 describe('GET/POST /api/route-events', () => {
-  it('returns privacy-preserving route events and records prompt adoption', async () => {
+  it('returns privacy-preserving route events', async () => {
     const route = await req('POST', '/api/route', { query: 'review code for regressions', target: 'claude' });
     expect(route.status).toBe(200);
     expect(route.body.routeEventId).toBeTruthy();
@@ -421,66 +374,6 @@ describe('GET/POST /api/route-events', () => {
     expect(events.body.events[0]).toHaveProperty('topModelChoice');
     expect(events.body.events[0]).not.toHaveProperty('query');
     expect(JSON.stringify(events.body)).not.toContain('review code for regressions');
-
-    const adopted = await req('POST', '/api/route-events/adopt', {
-      eventId: route.body.routeEventId,
-      target: 'codex',
-      choiceId: route.body.choices.recommended.id,
-      action: 'copy_prompt',
-    });
-    expect(adopted.status).toBe(200);
-    expect(adopted.body.event.adopted).toBe(true);
-    expect(adopted.body.event.adoptedTarget).toBe('codex');
-
-    const after = await req('GET', '/api/route-events?limit=1');
-    expect(after.body.events[0].adopted).toBe(true);
-    expect(after.body.events[0]).not.toHaveProperty('query');
-  });
-
-  it('records rejected feedback reasons and creates route regression fixtures', async () => {
-    const query = 'review this PR for regressions';
-    const route = await req('POST', '/api/route', { query, target: 'codex' });
-    expect(route.status).toBe(200);
-
-    const rejected = await req('POST', '/api/route-events/adopt', {
-      eventId: route.body.routeEventId,
-      choiceId: route.body.choices.recommended.id,
-      action: 'feedback',
-      outcome: 'rejected',
-      reason: 'wrong_skill',
-    });
-    expect(rejected.status).toBe(200);
-    expect(rejected.body.event.feedbackOutcome).toBe('rejected');
-    expect(rejected.body.event.feedbackReason).toBe('wrong_skill');
-
-    const ready = await req('POST', '/api/route-events/regression', {
-      eventId: route.body.routeEventId,
-      query,
-      expectedChoiceId: route.body.choices.recommended.id,
-      reason: 'wrong_skill',
-    });
-    expect(ready.status).toBe(200);
-    expect(ready.body.regressionCase.status).toBe('ready');
-    expect(ready.body.regressionCase.query).toBe(query);
-
-    const pendingRoute = await req('POST', '/api/route', { query: '帮我重新规划产品方向' });
-    const pending = await req('POST', '/api/route-events/regression', {
-      eventId: pendingRoute.body.routeEventId,
-    });
-    expect(pending.status).toBe(200);
-    expect(pending.body.regressionCase.status).toBe('pending_query');
-    expect(pending.body.regressionCase.queryPlaceholder).toMatch(/^TODO_REPLACE_QUERY_/);
-
-    const mismatch = await req('POST', '/api/route-events/regression', {
-      eventId: route.body.routeEventId,
-      query: 'different prompt',
-    });
-    expect(mismatch.status).toBe(400);
-
-    const fixture = readFileSync(join(tempDir, 'route-regressions.jsonl'), 'utf-8');
-    expect(fixture).toContain('"status":"ready"');
-    expect(fixture).toContain('"status":"pending_query"');
-    expect(fixture).not.toContain('帮我重新规划产品方向');
   });
 });
 
@@ -496,11 +389,11 @@ describe('UI HTML', () => {
     expect(() => new Function(mainScript)).not.toThrow();
   });
 
-  it('renders code graph diagnostics in the main health table without exposing provider branding', () => {
-    expect(UI_HTML).toContain('代码图谱');
-    expect(UI_HTML).toContain('Code Graph');
+  it('renders the compact workbench without unfinished provider branding', () => {
+    expect(UI_HTML).toContain('LazyBrain Workbench');
+    expect(UI_HTML).toContain('/api/status');
+    expect(UI_HTML).toContain('/api/diagnostics');
     expect(UI_HTML).not.toContain('GitNexus 索引');
-    expect(UI_HTML).toContain('gitNexusStats');
   });
 });
 
@@ -527,52 +420,6 @@ describe('GET /api/diagnostics privacy', () => {
     expect(diagnostics.body.recentEvents[0]).toHaveProperty('queryHash');
     expect(JSON.stringify(diagnostics.body)).not.toContain('private route query should not leak');
     expect(JSON.stringify(diagnostics.body)).not.toContain('legacy raw query should not leak');
-  });
-});
-
-describe('GET/POST /api/choices', () => {
-  it('returns, records, and clears local choice preferences', async () => {
-    const initial = await req('GET', '/api/choices');
-    expect(initial.status).toBe(200);
-    expect(initial.body).toHaveProperty('version', 1);
-    expect(initial.body.choices).toEqual({});
-
-    const feedback = await req('POST', '/api/choices/feedback', {
-      choiceId: 'model:strong-reasoning',
-      outcome: 'accepted',
-      kind: 'model',
-    });
-    expect(feedback.status).toBe(200);
-    expect(feedback.body.stats).toMatchObject({ accepted: 1, rejected: 0, kind: 'model' });
-    expect(JSON.stringify(feedback.body.preferences)).not.toContain('query');
-
-    const afterFeedback = await req('GET', '/api/choices');
-    expect(afterFeedback.body.choices['model:strong-reasoning'].accepted).toBe(1);
-
-    const clearOne = await req('POST', '/api/choices/clear', { choiceId: 'model:strong-reasoning' });
-    expect(clearOne.status).toBe(200);
-    expect(clearOne.body.preferences.choices['model:strong-reasoning']).toBeUndefined();
-
-    await req('POST', '/api/choices/feedback', {
-      choiceId: 'mode:review',
-      rejected: true,
-      kind: 'mode',
-    });
-    const clearAll = await req('POST', '/api/choices/clear', {});
-    expect(clearAll.status).toBe(200);
-    expect(clearAll.body.preferences.choices).toEqual({});
-  });
-
-  it('rejects invalid choice feedback', async () => {
-    const missing = await req('POST', '/api/choices/feedback', { outcome: 'accepted' });
-    expect(missing.status).toBe(400);
-
-    const ambiguous = await req('POST', '/api/choices/feedback', {
-      choiceId: 'model:balanced',
-      accepted: true,
-      rejected: true,
-    });
-    expect(ambiguous.status).toBe(400);
   });
 });
 

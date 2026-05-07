@@ -1,7 +1,6 @@
 import type { Capability, ChoiceSet, RouteSpec, RouteTarget, UserConfig } from '../types.js';
 import type { Graph } from '../graph/graph.js';
 import { buildRouteSpec, isRouteTarget } from '../orchestrator/route.js';
-import { loadChoicePreferences } from '../orchestrator/choice-preferences.js';
 import { listCombos } from '../combos/registry.js';
 import { loadRecentHistory } from '../history/history.js';
 import { loadProfile } from '../history/profile.js';
@@ -240,7 +239,6 @@ async function callTool(name: string, args: Record<string, unknown>, ctx: McpCon
         config: ctx.config,
         history: loadRecentHistory(50),
         profile: loadProfile() ?? undefined,
-        choicePreferences: loadChoicePreferences(),
         target,
       });
       return toolText(successObservation(

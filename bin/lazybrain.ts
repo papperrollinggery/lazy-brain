@@ -76,7 +76,6 @@ import { getEmbeddingCacheStatus } from '../src/embeddings/cache.js';
 import { rebuildEmbeddingCache } from '../src/embeddings/rebuild.js';
 import { buildStatusReport } from '../src/server/status.js';
 import { buildRouteSpec, formatRouteSpec, formatRouteSpecBrief, isRouteTarget } from '../src/orchestrator/route.js';
-import { clearChoicePreferences, loadChoicePreferences, recordChoiceFeedback } from '../src/orchestrator/choice-preferences.js';
 import { readRouteStats, recordRouteEvent, recordRouteSpec } from '../src/orchestrator/route-events.js';
 import { DOGFOOD_ROUTE_CASES } from '../src/orchestrator/route-dogfood-cases.js';
 import { formatComboList, listCombos } from '../src/combos/registry.js';
@@ -246,9 +245,6 @@ async function main() {
       break;
     case 'route':
       await cmdRoute();
-      break;
-    case 'choices':
-      cmdChoices();
       break;
     case 'prompt':
       await cmdPrompt();
@@ -1118,7 +1114,6 @@ async function cmdRoute() {
     config,
     history,
     profile,
-    choicePreferences: loadChoicePreferences(),
     target,
   });
   recordRouteSpec(spec, 'cli');
@@ -1151,7 +1146,6 @@ async function cmdRouteDogfood() {
       config,
       history,
       profile,
-      choicePreferences: loadChoicePreferences(),
       target,
     });
     rows.push({
@@ -1221,7 +1215,6 @@ async function cmdPrompt() {
     config,
     history,
     profile,
-    choicePreferences: loadChoicePreferences(),
     target,
   });
   recordRouteSpec(spec, 'prompt');
@@ -1242,79 +1235,6 @@ async function cmdPrompt() {
   }
   console.log(prompt);
   if (copy) console.log('\nCopied to clipboard.');
-}
-
-function cmdChoices() {
-  const sub = args[1];
-  const asJson = args.includes('--json');
-  if (!sub || sub === 'prefs') {
-    const preferences = loadChoicePreferences();
-    if (asJson) {
-      console.log(JSON.stringify(preferences, null, 2));
-      return;
-    }
-    const entries = Object.entries(preferences.choices)
-      .sort(([, a], [, b]) => (b.accepted + b.rejected) - (a.accepted + a.rejected))
-      .slice(0, 10);
-    console.log('Choice preferences');
-    console.log(`Updated: ${preferences.updatedAt}`);
-    if (entries.length === 0) {
-      console.log('  (none)');
-      return;
-    }
-    for (const [id, stats] of entries) {
-      console.log(`  - ${id}: accepted ${stats.accepted}, rejected ${stats.rejected}${stats.kind ? `, kind ${stats.kind}` : ''}`);
-    }
-    return;
-  }
-
-  if (sub === 'feedback') {
-    const choiceId = args[2];
-    const accepted = args.includes('--accepted');
-    const rejected = args.includes('--rejected');
-    const kindIndex = args.indexOf('--kind');
-    const kind = kindIndex >= 0 ? args[kindIndex + 1] : undefined;
-    if (!choiceId || accepted === rejected) {
-      console.error('Usage: lazybrain choices feedback <choice-id> --accepted|--rejected [--kind mode|model|skill|plugin|workflow]');
-      process.exit(1);
-    }
-    const validKinds = ['mode', 'model', 'skill', 'plugin', 'workflow'];
-    if (kind !== undefined && !validKinds.includes(kind)) {
-      console.error('Invalid kind. Use mode, model, skill, plugin, or workflow.');
-      process.exit(1);
-    }
-    const preferences = recordChoiceFeedback({
-      choiceId,
-      outcome: accepted ? 'accepted' : 'rejected',
-      kind: kind as undefined | 'mode' | 'model' | 'skill' | 'plugin' | 'workflow',
-    });
-    const stats = preferences.choices[choiceId];
-    if (asJson) {
-      console.log(JSON.stringify({ choiceId, stats, preferences }, null, 2));
-      return;
-    }
-    console.log(`${choiceId}: accepted ${stats.accepted}, rejected ${stats.rejected}`);
-    return;
-  }
-
-  if (sub === 'clear') {
-    const all = args.includes('--all');
-    const choiceId = args[2]?.startsWith('--') ? undefined : args[2];
-    if (!all && !choiceId) {
-      console.error('Usage: lazybrain choices clear --all | lazybrain choices clear <choice-id> [--json]');
-      process.exit(1);
-    }
-    const preferences = clearChoicePreferences({ choiceId: all ? undefined : choiceId });
-    if (asJson) {
-      console.log(JSON.stringify({ cleared: all ? 'all' : choiceId, preferences }, null, 2));
-      return;
-    }
-    console.log(all ? 'Cleared all choice preferences.' : `Cleared choice preference: ${choiceId}`);
-    return;
-  }
-
-  console.error('Usage: lazybrain choices [prefs --json] | lazybrain choices feedback <choice-id> --accepted|--rejected [--kind <kind>] | lazybrain choices clear --all|<choice-id>');
-  process.exit(1);
 }
 
 async function cmdMcp() {
@@ -3102,9 +3022,6 @@ Usage:
   lazybrain route dogfood            Run compact core route acceptance checks
   lazybrain route dogfood --verbose  Print every route acceptance case
   lazybrain route stats              Show privacy-preserving routing counters
-  lazybrain choices prefs [--json]   Show adaptive choice preferences
-  lazybrain choices feedback <id> --accepted|--rejected
-                                     Record local feedback for a route choice
   lazybrain prompt "<query>" --target claude|codex|cursor
                                      Print a copyable target-specific route prompt
   lazybrain prompt "<query>" --copy  Copy the target prompt to clipboard
