@@ -34,6 +34,7 @@ describe('statusline route activity', () => {
         encoding: 'utf-8',
         env: {
           ...process.env,
+          HOME: tempDir,
           LAZYBRAIN_ROUTE_EVENTS_PATH: routeEventsPath,
         },
       });
@@ -75,6 +76,7 @@ describe('statusline route activity', () => {
         encoding: 'utf-8',
         env: {
           ...process.env,
+          HOME: tempDir,
           LAZYBRAIN_ROUTE_EVENTS_PATH: routeEventsPath,
         },
       });

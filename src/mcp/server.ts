@@ -299,13 +299,22 @@ export async function handleMcpRequest(request: JsonRpcRequest, ctx: McpContext)
   }
 }
 
-function writeFramed(message: unknown): void {
+type McpWireMessage = {
+  body: string;
+  framed: boolean;
+};
+
+export function formatMcpWireResponse(message: unknown, framed: boolean): string {
   const payload = JSON.stringify(message);
-  process.stdout.write(`Content-Length: ${Buffer.byteLength(payload)}\r\n\r\n${payload}`);
+  return framed ? `Content-Length: ${Buffer.byteLength(payload)}\r\n\r\n${payload}` : `${payload}\n`;
 }
 
-function extractMessages(buffer: string): { messages: string[]; rest: string } {
-  const messages: string[] = [];
+function writeMessage(message: unknown, framed: boolean): void {
+  process.stdout.write(formatMcpWireResponse(message, framed));
+}
+
+function extractMessages(buffer: string): { messages: McpWireMessage[]; rest: string } {
+  const messages: McpWireMessage[] = [];
   let rest = buffer;
 
   while (rest.length > 0) {
@@ -322,7 +331,7 @@ function extractMessages(buffer: string): { messages: string[]; rest: string } {
       const length = Number(match[1]);
       const bodyStart = headerEnd + 4;
       if (rest.length < bodyStart + length) break;
-      messages.push(rest.slice(bodyStart, bodyStart + length));
+      messages.push({ body: rest.slice(bodyStart, bodyStart + length), framed: true });
       rest = rest.slice(bodyStart + length);
       continue;
     }
@@ -331,7 +340,7 @@ function extractMessages(buffer: string): { messages: string[]; rest: string } {
     if (newline === -1) break;
     const line = rest.slice(0, newline).trim();
     rest = rest.slice(newline + 1);
-    if (line) messages.push(line);
+    if (line) messages.push({ body: line, framed: false });
   }
 
   return { messages, rest };
@@ -346,10 +355,10 @@ export function runMcpStdioServer(ctx: McpContext): void {
     buffer = parsed.rest;
     for (const message of parsed.messages) {
       try {
-        const response = await handleMcpRequest(JSON.parse(message) as JsonRpcRequest, ctx);
-        if (response) writeFramed(response);
+        const response = await handleMcpRequest(JSON.parse(message.body) as JsonRpcRequest, ctx);
+        if (response) writeMessage(response, message.framed);
       } catch {
-        writeFramed(errorResponse(null, -32700, 'Parse error'));
+        writeMessage(errorResponse(null, -32700, 'Parse error'), message.framed);
       }
     }
   });

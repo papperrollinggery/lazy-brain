@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Graph } from '../../src/graph/graph.js';
 import { DEFAULT_CONFIG } from '../../src/constants.js';
-import { handleMcpRequest } from '../../src/mcp/server.js';
+import { formatMcpWireResponse, handleMcpRequest } from '../../src/mcp/server.js';
 import { MCP_TOOL_DEFINITIONS } from '../../src/mcp/tools.js';
 import type { Capability } from '../../src/types.js';
 
@@ -50,6 +50,18 @@ function toolPayload(response: Record<string, unknown>): Record<string, unknown>
 }
 
 describe('MCP server', () => {
+  it('mirrors newline JSON transport for Claude Code health checks', () => {
+    const response = formatMcpWireResponse({ jsonrpc: '2.0', id: 1, result: { ok: true } }, false);
+    expect(response).toBe('{"jsonrpc":"2.0","id":1,"result":{"ok":true}}\n');
+    expect(response).not.toContain('Content-Length');
+  });
+
+  it('keeps Content-Length framing for framed MCP clients', () => {
+    const response = formatMcpWireResponse({ jsonrpc: '2.0', id: 1, result: { ok: true } }, true);
+    expect(response).toMatch(/^Content-Length: \d+\r\n\r\n/);
+    expect(response).toContain('{"jsonrpc":"2.0","id":1,"result":{"ok":true}}');
+  });
+
   it('initializes and lists LazyBrain tools', async () => {
     const init = resultOf(await handleMcpRequest({ jsonrpc: '2.0', id: 1, method: 'initialize' }, ctx()));
     expect(JSON.stringify(init)).toContain('lazybrain');
