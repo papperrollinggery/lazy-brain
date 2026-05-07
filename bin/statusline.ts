@@ -6,8 +6,8 @@
  * Status priority (highest first):
  *   1. compile/scan in progress  → 编译中 / 扫描中
  *   2. hook running              → 思考中
- *   3. recent route event         → route combo [score%] with timeAgo
- *   4. stale route event          → 上次 route combo with timeAgo
+ *   3. recent route event         → route intent [score%] with timeAgo
+ *   4. stale route event          → hidden; stale routing is not current state
  *   5. last-match available       → /tool [score%] with timeAgo
  *   6. no history / idle          → 待机中
  *
@@ -133,14 +133,6 @@ function parseRouteEvent(line: string): RouteEvent | null {
   }
 }
 
-function routeSourceLabel(source: RouteEventSource | undefined): string {
-  if (source === 'hook-gate') return 'hook';
-  if (source === 'prompt') return 'prompt';
-  if (source === 'api') return 'api';
-  if (source === 'mcp') return 'mcp';
-  return 'cli';
-}
-
 function routeEventName(event: RouteEvent): string {
   return event.combo ?? event.recommendedChoice?.label ?? event.intent ?? 'route';
 }
@@ -153,7 +145,9 @@ function routeEventScore(event: RouteEvent): string {
 }
 
 function routeEventLabel(event: RouteEvent): string {
-  return `${routeSourceLabel(event.source)} ${routeEventName(event)}${routeEventScore(event)}`;
+  const intent = event.intent?.trim();
+  const name = intent || routeEventName(event).replace(/_/g, ' ');
+  return `路由 ${name}${routeEventScore(event)}`;
 }
 
 function readRecentRouteEvent(): { event: RouteEvent; age: number } | null {
@@ -202,15 +196,16 @@ function getLabel(): string {
     if (recentRouteEvent.age <= RECENT_STATUS_WINDOW_MS) {
       return active(`\u{1F9E0} ${timeAgo(recentRouteEvent.age)} ${routeEventLabel(event)}${omcSuffix}`);
     }
-    return dormant(`\u{1F9E0} 上次 ${timeAgo(recentRouteEvent.age)} ${routeEventLabel(event)}${omcSuffix}`);
   }
   if (recentRouteEvent?.event.mode === 'needs_clarification') {
-    if (recentRouteEvent.age > RECENT_STATUS_WINDOW_MS) return dormant(`\u{1F9E0} 上次 ${timeAgo(recentRouteEvent.age)} 需澄清${omcSuffix}`);
-    return active(`\u{1F9E0} ${timeAgo(recentRouteEvent.age)} 需澄清${omcSuffix}`);
+    if (recentRouteEvent.age <= RECENT_STATUS_WINDOW_MS) {
+      return active(`\u{1F9E0} ${timeAgo(recentRouteEvent.age)} 需澄清${omcSuffix}`);
+    }
   }
   if (recentRouteEvent?.event.mode === 'no_route_needed') {
-    if (recentRouteEvent.age > RECENT_STATUS_WINDOW_MS) return dormant(`\u{1F9E0} 上次 ${timeAgo(recentRouteEvent.age)} 直达${omcSuffix}`);
-    return active(`\u{1F9E0} ${timeAgo(recentRouteEvent.age)} 直达${omcSuffix}`);
+    if (recentRouteEvent.age <= RECENT_STATUS_WINDOW_MS) {
+      return active(`\u{1F9E0} ${timeAgo(recentRouteEvent.age)} 直达${omcSuffix}`);
+    }
   }
 
   // (5) last-match data

@@ -18,13 +18,15 @@ describe('simplifyUpstreamHud', () => {
 });
 
 describe('isLowSignalLazyBrainLabel', () => {
-  it('always returns false so dormant labels remain visible in combined HUD', () => {
-    expect(isLowSignalLazyBrainLabel('🧠 0秒前 已跳过')).toBe(false);
-    expect(isLowSignalLazyBrainLabel('🧠 待机中')).toBe(false);
+  it('hides dormant LazyBrain labels in combined HUD', () => {
+    expect(isLowSignalLazyBrainLabel('🧠 0秒前 已跳过')).toBe(true);
+    expect(isLowSignalLazyBrainLabel('\u001b[2m🧠 待机中\u001b[0m')).toBe(true);
+    expect(isLowSignalLazyBrainLabel('🧠 上次 36分前 api code_review_regression [86%]')).toBe(true);
   });
 
   it('keeps active labels visible', () => {
     expect(isLowSignalLazyBrainLabel('🧠 /review-pr [43%]')).toBe(false);
     expect(isLowSignalLazyBrainLabel('🧠 思考中')).toBe(false);
+    expect(isLowSignalLazyBrainLabel('🧠 3秒前 api 路由 Regression code review [86%]')).toBe(false);
   });
 });
