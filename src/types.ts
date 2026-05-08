@@ -360,6 +360,115 @@ export interface ChoiceSet {
   policy: DecisionPolicy;
 }
 
+export type RecommendationDegradeLevel = 'none' | 'light' | 'blocked';
+
+export interface RecommendationLane {
+  title: string;
+  summary: string;
+  primaryAction: string;
+  details: string[];
+}
+
+export interface RecommendationFreshness {
+  state: 'fresh' | 'stale' | 'unknown';
+  source: string;
+  message: string;
+  updatedAt?: string;
+}
+
+export interface RecommendationAnalysis {
+  objective: string;
+  taskType: string;
+  executionMode: string;
+  contextReadiness: 'ready' | 'partial' | 'missing' | 'unknown';
+  contextGaps: string[];
+  reasoning: string[];
+  userNextStep: string;
+  agentNextStep: string;
+  risks: string[];
+  verification: string[];
+  doneWhen: string[];
+}
+
+export type WorkRole = 'scout' | 'judge' | 'worker' | 'pm';
+export type WorkflowPhase = 'before_worker' | 'after_worker' | 'final_audit' | 'blocked_task' | 'publish_handoff';
+export type ReceiptOutcome =
+  | 'recommendation_shown'
+  | 'copied'
+  | 'accepted'
+  | 'executed'
+  | 'verified'
+  | 'blocked'
+  | 'wrong'
+  | 'ignored';
+
+export type RecommendationWorkRole = WorkRole;
+
+export interface RecommendationWorkPlan {
+  role: WorkRole;
+  roleReason: string;
+  activeStep: string;
+  objective: string;
+  allowedScope: string[];
+  verify: string[];
+  stopIf: string[];
+  nextAction: string;
+  completionProof: string;
+}
+
+export interface RecommendationReceiptPolicy {
+  requiredFields: string[];
+  recordWhen: string[];
+  proofSignals: string[];
+}
+
+export interface WorkEnvelope extends RecommendationWorkPlan {
+  schemaVersion: '1.0.0';
+  eventId?: string;
+  target: RouteTarget;
+  intent: string;
+  phase: WorkflowPhase;
+  receiptPolicy: RecommendationReceiptPolicy;
+  degraded?: boolean;
+  degradeReason?: string;
+  recoveryAction?: string;
+}
+
+export interface ReceiptEvent {
+  eventType: 'receipt';
+  receiptId: string;
+  eventId: string;
+  timestamp: string;
+  outcome: ReceiptOutcome;
+  role?: WorkRole;
+  phase?: WorkflowPhase;
+  target?: RouteTarget;
+  choiceId?: string;
+  summary?: string;
+  proofSignals: string[];
+  verification: string[];
+}
+
+export interface RecommendationEnvelope {
+  schemaVersion: '1.0.0';
+  eventId?: string;
+  target: RouteTarget;
+  intent: string;
+  analysis: RecommendationAnalysis;
+  workPlan: RecommendationWorkPlan;
+  workEnvelope: WorkEnvelope;
+  receiptPolicy: RecommendationReceiptPolicy;
+  userLane: RecommendationLane;
+  agentLane: RecommendationLane;
+  alternatives: ChoiceOption[];
+  confidence: number;
+  freshness: RecommendationFreshness;
+  degradeLevel: RecommendationDegradeLevel;
+  degradeReason?: string;
+  recoveryAction?: string;
+  copyablePrompt: string;
+}
+
 export interface RouteSpec {
   schemaVersion: string;
   query: string;

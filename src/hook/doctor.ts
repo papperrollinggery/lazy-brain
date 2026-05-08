@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import type { UserConfig } from '../types.js';
 import {
+  DEFAULT_HOOK_RUNTIME_CONFIG,
   HOOK_INSTALL_STATE_MAP_PATH,
   HOOK_INSTALL_STATE_PATH,
   getClaudeConfigDir,
@@ -213,9 +214,16 @@ export function runHookDoctor(
     if (cleaned.staleRuns.length > 0) repairs.push(`cleaned_stale_runs:${cleaned.staleRuns.length}`);
 
     const runtimeBeforeReset = getHookRuntimeSnapshot({ config });
-    if (runtimeBeforeReset.health.breakerUntil || runtimeBeforeReset.health.lastSkipReason === 'breaker_open') {
-      clearHookBreaker();
-      repairs.push('cleared_breaker');
+    const avgDurationBreakerMs = config.hookSafety?.avgDurationBreakerMs ?? DEFAULT_HOOK_RUNTIME_CONFIG.avgDurationBreakerMs;
+    const shouldClearSlowWindow = runtimeBeforeReset.health.lastSkipReason === 'slow_recent_avg' ||
+      runtimeBeforeReset.health.recentDurationsMs.some(duration => duration > avgDurationBreakerMs);
+    if (
+      runtimeBeforeReset.health.breakerUntil ||
+      runtimeBeforeReset.health.lastSkipReason === 'breaker_open' ||
+      shouldClearSlowWindow
+    ) {
+      clearHookBreaker({ clearRecentDurations: shouldClearSlowWindow });
+      repairs.push(shouldClearSlowWindow ? 'cleared_breaker_and_slow_window' : 'cleared_breaker');
     }
   }
 

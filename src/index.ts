@@ -26,6 +26,16 @@ export type {
   Platform,
   RawCapability,
   Recommendation,
+  RecommendationAnalysis,
+  RecommendationDegradeLevel,
+  RecommendationEnvelope,
+  RecommendationFreshness,
+  RecommendationLane,
+  RecommendationReceiptPolicy,
+  RecommendationWorkPlan,
+  RecommendationWorkRole,
+  ReceiptEvent,
+  ReceiptOutcome,
   RouteAdapterPayload,
   RouteMode,
   RouteSkillRef,
@@ -36,6 +46,9 @@ export type {
   SkillSchema,
   TaskChain,
   VerificationRequirement,
+  WorkEnvelope,
+  WorkflowPhase,
+  WorkRole,
   WorkflowStep,
   GuardrailRule,
   ToolAffinity,
@@ -49,6 +62,9 @@ export type { ApiTestReport, ApiTestResult, ApiTestTarget } from './health/api-t
 export type { EmbeddingCacheState, EmbeddingCacheStatus } from './embeddings/cache.js';
 export type { EmbeddingRebuildResult } from './embeddings/rebuild.js';
 export { buildRouteSpec, formatRouteSpec } from './orchestrator/route.js';
+export { buildRecommendationEnvelope, formatRecommendationEnvelope } from './orchestrator/recommendation-envelope.js';
+export { buildWorkEnvelope, buildDegradedWorkEnvelope, formatWorkEnvelopeForAgent } from './orchestrator/work-envelope.js';
+export { buildFastWorkEnvelope, formatFastWorkEnvelopeForHook } from './orchestrator/fast-work-envelope.js';
 export { COMBOS, findCombo, listCombos } from './combos/registry.js';
 export type {
   AgentMapping,

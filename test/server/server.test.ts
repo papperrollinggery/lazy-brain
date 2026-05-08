@@ -134,6 +134,13 @@ describe('GUI routes', () => {
       expect(res.headers.get('content-type')).toContain('text/html');
       expect(text).toContain('LazyBrain');
       expect(text).toContain('LazyBrain Workbench');
+      expect(text).toContain('Agent Workbench');
+      expect(text).toContain('Hook automatic');
+      expect(text).toContain('data-example=');
+      expect(text).toContain('Agent Analysis');
+      expect(text).toContain('Receipt required');
+      expect(text).toContain('Adoption Review');
+      expect(text).toContain('Capability Map');
       expect(text).toContain('/api/route');
       expect(text).toContain('/api/compile/status');
       expect(text).not.toContain('cytoscape');
@@ -157,6 +164,17 @@ describe('GUI routes', () => {
     expect(body.gitNexus).toHaveProperty('state');
     expect(body.gitNexus).toHaveProperty('artifactWarnings');
     expect(body).toHaveProperty('routing');
+    expect(body).toHaveProperty('recommendationQuality');
+    expect(body.recommendationQuality).toHaveProperty('freshness');
+    expect(body.recommendationQuality).toHaveProperty('delivery');
+    expect(body.recommendationQuality).toHaveProperty('adoption');
+    expect(body.recommendationQuality).toHaveProperty('execution');
+    expect(body.recommendationQuality.execution).toHaveProperty('lastWorkRole');
+    expect(body.recommendationQuality.execution).toHaveProperty('lastReceiptOutcome');
+    expect(body.recommendationQuality.execution).toHaveProperty('verifiedCount');
+    expect(body.recommendationQuality.execution).toHaveProperty('blockedCount');
+    expect(body.recommendationQuality.execution).toHaveProperty('wrongCount');
+    expect(body.recommendationQuality.execution).toHaveProperty('executionRate');
     expect(body).toHaveProperty('embedding');
     expect(body).toHaveProperty('unlock');
     expect(body).toHaveProperty('modelHealth');
@@ -177,6 +195,18 @@ describe('GUI routes', () => {
       method: 'POST',
       path: '/api/route',
       handler: 'handleRoute',
+      surface: 'api',
+    }));
+    expect(body.routes).toContainEqual(expect.objectContaining({
+      method: 'POST',
+      path: '/api/route/adoption',
+      handler: 'handleRouteAdoption',
+      surface: 'api',
+    }));
+    expect(body.routes).toContainEqual(expect.objectContaining({
+      method: 'POST',
+      path: '/api/route/receipt',
+      handler: 'handleRouteReceipt',
       surface: 'api',
     }));
     expect(body.routes).toContainEqual(expect.objectContaining({
@@ -355,6 +385,29 @@ describe('POST /api/route', () => {
     expect(body).toHaveProperty('choices');
     expect(body.choices).toHaveProperty('recommended');
     expect(body.choices.alternatives.some((choice: { kind: string }) => choice.kind === 'model')).toBe(true);
+    expect(body).toHaveProperty('recommendation');
+    expect(body.recommendation).toHaveProperty('analysis');
+    expect(body.recommendation.analysis).toHaveProperty('contextReadiness');
+    expect(body.recommendation.analysis).toHaveProperty('userNextStep');
+    expect(body.recommendation.analysis).toHaveProperty('agentNextStep');
+    expect(body.recommendation).toHaveProperty('workPlan');
+    expect(body.recommendation.workPlan).toHaveProperty('role');
+    expect(body.recommendation.workPlan).toHaveProperty('allowedScope');
+    expect(body.recommendation.workPlan).toHaveProperty('verify');
+    expect(body.recommendation.workPlan).toHaveProperty('stopIf');
+    expect(body.recommendation).toHaveProperty('workEnvelope');
+    expect(body.recommendation.workEnvelope).toHaveProperty('role');
+    expect(body.recommendation.workEnvelope).toHaveProperty('phase');
+    expect(body.recommendation.workEnvelope).toHaveProperty('receiptPolicy');
+    expect(body).toHaveProperty('workEnvelope');
+    expect(body.eventId).toBe(body.recommendation.eventId);
+    expect(body.recommendation).toHaveProperty('receiptPolicy');
+    expect(body.recommendation.receiptPolicy).toHaveProperty('requiredFields');
+    expect(body.recommendation.receiptPolicy).toHaveProperty('proofSignals');
+    expect(body.recommendation).toHaveProperty('userLane');
+    expect(body.recommendation).toHaveProperty('agentLane');
+    expect(body.recommendation).toHaveProperty('copyablePrompt');
+    expect(body.recommendation.eventId).toBeTruthy();
     expect(body).toHaveProperty('skills');
     expect(body).toHaveProperty('tokenStrategy');
     expect(body.tokenStrategy.includeFullSkillBody).toBe(false);
@@ -370,6 +423,43 @@ describe('POST /api/route', () => {
     expect(JSON.stringify(body)).not.toContain(homedir());
   });
 
+  it('records route recommendation adoption feedback', async () => {
+    const route = await req('POST', '/api/route', { query: 'review code for regressions', target: 'codex' });
+    expect(route.status).toBe(200);
+    const eventId = route.body.eventId;
+    const { status, body } = await req('POST', '/api/route/adoption', {
+      eventId,
+      action: 'wrong',
+      target: 'codex',
+      choiceId: route.body.choices.recommended.id,
+      reason: 'wrong_skill',
+    });
+    expect(status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(body.event.feedbackReason).toBe('wrong_skill');
+    expect(body.event.adoptionAction).toBe('mark_wrong');
+  });
+
+  it('records route receipt execution feedback', async () => {
+    const route = await req('POST', '/api/route', { query: 'review code for regressions', target: 'codex' });
+    expect(route.status).toBe(200);
+    const eventId = route.body.eventId;
+    const { status, body } = await req('POST', '/api/route/receipt', {
+      eventId,
+      outcome: 'verified',
+      role: route.body.workEnvelope.role,
+      phase: route.body.workEnvelope.phase,
+      target: 'codex',
+      choiceId: route.body.choices.recommended.id,
+      verification: route.body.workEnvelope.verify,
+      proofSignals: route.body.workEnvelope.receiptPolicy.proofSignals,
+    });
+    expect(status).toBe(200);
+    expect(body.ok).toBe(true);
+    expect(body.event.receiptOutcome).toBe('verified');
+    expect(body.event.workRole).toBe(route.body.workEnvelope.role);
+  });
+
   it('rejects invalid route target', async () => {
     const { status, body } = await req('POST', '/api/route', { query: 'review code', target: 'bad' });
     expect(status).toBe(400);
@@ -381,14 +471,18 @@ describe('POST /api/route', () => {
     expect(status).toBe(413);
     expect(body.error).toContain('too long');
   });
-  it('does not persist public route telemetry', async () => {
+  it('persists sanitized public route telemetry for adoption feedback', async () => {
     const routeEventsPath = join(tempDir, 'route-events.jsonl');
     if (existsSync(routeEventsPath)) unlinkSync(routeEventsPath);
 
     const route = await req('POST', '/api/route', { query: 'review code for regressions', target: 'claude' });
     expect(route.status).toBe(200);
     expect(route.body).not.toHaveProperty('routeEventId');
-    expect(existsSync(routeEventsPath)).toBe(false);
+    expect(route.body.recommendation.eventId).toBeTruthy();
+    expect(existsSync(routeEventsPath)).toBe(true);
+    const raw = readFileSync(routeEventsPath, 'utf-8');
+    expect(raw).toContain('"source":"api"');
+    expect(raw).not.toContain('review code for regressions');
   });
 
   it('does not expose the legacy route-events API', async () => {
@@ -411,9 +505,13 @@ describe('UI HTML', () => {
 
   it('renders the compact workbench without unfinished provider branding', () => {
     expect(UI_HTML).toContain('LazyBrain Workbench');
+    expect(UI_HTML).toContain('Hook automatic');
     expect(UI_HTML).toContain('status.product');
     expect(UI_HTML).toContain('/api/status');
     expect(UI_HTML).toContain('/api/diagnostics');
+    expect(UI_HTML).toContain('/api/graph?limit=24');
+    expect(UI_HTML).toContain('data-page-button="adoption"');
+    expect(UI_HTML).toContain('data-page-button="capability"');
     expect(UI_HTML).not.toContain('/api/route-events');
     expect(UI_HTML).not.toContain('routeEventId');
     expect(UI_HTML).not.toContain('GitNexus 索引');

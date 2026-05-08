@@ -17,6 +17,7 @@ import { buildModelHealth, buildUnlockHealth } from '../unlock/health.js';
 import { getGitNexusStatus } from '../integrations/gitnexus.js';
 import { hasLocalActiveJob } from '../runtime/jobs.js';
 import { getServerRuntimeState } from './liveness.js';
+import { readRouteStats } from '../orchestrator/route-events.js';
 
 function readJson(path: string): Record<string, unknown> | null {
   if (!existsSync(path)) return null;
@@ -151,6 +152,76 @@ function buildProductReadiness(
   };
 }
 
+function hookRecoveryAction(reason: string | undefined): string | null {
+  switch (reason) {
+    case 'slow_recent_avg':
+      return 'Run `lazybrain hook doctor --fix` to clear stale slow hook samples.';
+    case 'host_overload':
+      return 'Wait for host load to drop or run `lazybrain route "<task>" --brief` manually.';
+    case 'breaker_open':
+      return 'Wait for breaker cooldown or run `lazybrain hook doctor --fix` if stale.';
+    case 'concurrency_limit':
+      return 'Wait for the active hook run to finish.';
+    default:
+      return null;
+  }
+}
+
+function buildRecommendationQuality(input: {
+  embedding: ReturnType<typeof getEmbeddingCacheStatus>;
+  runtimeStatus: Record<string, unknown>;
+  runtimeStats: ReturnType<typeof getHookRuntimeStats>;
+  lastSkipReason?: string;
+}): Record<string, unknown> {
+  const stats = readRouteStats();
+  const adoptionRate = stats.total > 0 ? Math.round((stats.adoptedCount / stats.total) * 100) : 0;
+  const compileState = typeof input.runtimeStatus.state === 'string' ? input.runtimeStatus.state : 'idle';
+  const freshnessState = input.embedding.state === 'ok' && compileState !== 'compiling' && compileState !== 'embedding'
+    ? 'fresh'
+    : 'stale';
+  return {
+    freshness: {
+      state: freshnessState,
+      compile: {
+        state: compileState,
+        lastCompileAt: input.runtimeStatus.lastCompileAt ?? null,
+      },
+      embedding: {
+        state: input.embedding.state,
+        coveragePercent: input.embedding.coveragePercent,
+        updatedAt: input.embedding.updatedAt ?? null,
+      },
+    },
+    delivery: {
+      state: input.runtimeStats.breakerOpen ? 'degraded' : 'ready',
+      lastSkipReason: input.lastSkipReason ?? null,
+      recoveryAction: hookRecoveryAction(input.lastSkipReason),
+      avgDurationMs: input.runtimeStats.avgDurationMs,
+      p95DurationMs: input.runtimeStats.p95DurationMs,
+    },
+    adoption: {
+      total: stats.total,
+      adoptedCount: stats.adoptedCount,
+      adoptionRate,
+      actions: stats.adoptionActions,
+      feedbackReasons: stats.feedbackReasons,
+      lastEventAt: stats.lastEventAt ?? null,
+    },
+    execution: {
+      lastWorkRole: stats.lastWorkRole ?? null,
+      lastReceiptOutcome: stats.lastReceiptOutcome ?? null,
+      lastReceiptAt: stats.lastReceiptAt ?? null,
+      receiptCount: stats.receiptCount,
+      verifiedCount: stats.verifiedCount,
+      blockedCount: stats.blockedCount,
+      wrongCount: stats.wrongCount,
+      executedCount: stats.executedCount,
+      executionRate: stats.executionRate,
+      outcomes: stats.receiptOutcomes,
+    },
+  };
+}
+
 export function buildStatusReport(graph: Graph, config: UserConfig): Record<string, unknown> {
   const nodes = graph.getAllNodes();
   const graphExists = existsSync(GRAPH_PATH);
@@ -188,6 +259,12 @@ export function buildStatusReport(graph: Graph, config: UserConfig): Record<stri
   });
   const runtimeStats = getHookRuntimeStats(runtime);
   const embedding = getEmbeddingCacheStatus(nodes);
+  const recommendationQuality = buildRecommendationQuality({
+    embedding,
+    runtimeStatus,
+    runtimeStats,
+    lastSkipReason: runtime.health.lastSkipReason,
+  });
   const apiState = apiConfigured(config);
   const product = buildProductReadiness(graphExists, nodes, compileErrors, embedding, config, apiState);
   const agents = scanAgentInventory();
@@ -221,6 +298,7 @@ export function buildStatusReport(graph: Graph, config: UserConfig): Record<stri
       autoThreshold: config.autoThreshold,
       apiConfigured: apiState,
     },
+    recommendationQuality,
     embedding,
     unlock,
     modelHealth,

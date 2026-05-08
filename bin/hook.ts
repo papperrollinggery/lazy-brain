@@ -40,7 +40,11 @@ import { isMetaPrompt } from '../src/utils/meta-prompt.js';
 import { beginHookRun, finishHookRun } from '../src/hook/runtime.js';
 import type { HookRunRecord } from '../src/hook/types.js';
 import { classifyRouteNeed } from '../src/orchestrator/route-gate.js';
-import { recordRouteEvent } from '../src/orchestrator/route-events.js';
+import { buildRouteSpec } from '../src/orchestrator/route.js';
+import { buildDegradedRecommendationEnvelope, buildRecommendationEnvelope, formatRecommendationEnvelope } from '../src/orchestrator/recommendation-envelope.js';
+import { formatWorkEnvelopeForAgent } from '../src/orchestrator/work-envelope.js';
+import { buildFastWorkEnvelope, formatFastWorkEnvelopeForHook, type FastCapabilityHint } from '../src/orchestrator/fast-work-envelope.js';
+import { recordRouteEvent, recordRouteReceipt, recordRouteSpec } from '../src/orchestrator/route-events.js';
 import { tagMatch } from '../src/matcher/tag-layer.js';
 import { findCombo, formatComboEntryCommand, type ComboTemplate } from '../src/combos/registry.js';
 import type { Capability } from '../src/types.js';
@@ -389,8 +393,10 @@ let _visibleNotice = '';
 let _currentRun: HookRunRecord | null = null;
 let _currentRunStartedAt = 0;
 let _hookConfig: ReturnType<typeof loadConfig> | null = null;
+let _workGuidance = '';
 
 const TINY_GATE_PROMPT = 'Consider calling lazybrain.route for skill routing, context reduction, and verification planning.';
+const FAIL_SOFT_REASONS = new Set(['breaker_open', 'slow_recent_avg', 'host_overload', 'concurrency_limit']);
 
 function detectLang(prompt: string): 'zh' | 'en' {
   const cjk = (prompt.match(/[一-鿿㐀-䶿]/g) || []).length;
@@ -465,7 +471,7 @@ function formatComboInjection(combo: ComboTemplate, lang: 'zh' | 'en', routeMode
 function runTinyGate(prompt: string): void {
   const decision = classifyRouteNeed(prompt);
   const combo = decision.shouldCallLazyBrain ? findCombo(prompt) : undefined;
-  recordRouteEvent({
+  const event = recordRouteEvent({
     query: prompt,
     source: 'hook-gate',
     mode: decision.mode,
@@ -478,20 +484,13 @@ function runTinyGate(prompt: string): void {
     return;
   }
 
-  if (combo) {
-    const lang = detectLang(prompt);
-    writeLastMatch(combo.id, 1, 0, 'matched');
-    output({ continue: true, additionalSystemPrompt: formatComboInjection(combo, lang, decision.mode) });
-    return;
-  }
-
-  // Try a fast tag-layer match so we can show real results
-  try {
-    if (existsSync(GRAPH_PATH)) {
-      const graph = Graph.load(GRAPH_PATH);
-      const capabilities: Capability[] = graph.getAllNodes();
-      const results = tagMatch(prompt, capabilities, undefined, 5);
-      const topMatches = results
+  let topMatches: FastCapabilityHint[] = [];
+  if (!combo) {
+    try {
+      if (existsSync(GRAPH_PATH)) {
+        const graph = Graph.load(GRAPH_PATH);
+        const capabilities: Capability[] = graph.getAllNodes();
+        topMatches = tagMatch(prompt, capabilities, undefined, 5)
         .filter(r => r.score >= 0.35)
         .slice(0, 3)
         .map(r => ({
@@ -499,28 +498,42 @@ function runTinyGate(prompt: string): void {
           score: r.score,
           reason: (r.capability.description || r.capability.category || '').slice(0, 60),
         }));
-
-      if (topMatches.length > 0) {
-        const lang = detectLang(prompt);
-        const injection = formatMatchInjection(topMatches, lang, decision.mode);
-        writeLastMatch(topMatches[0].name, topMatches[0].score, 0, 'matched');
-        output({ continue: true, additionalSystemPrompt: injection });
-        return;
       }
-      // No good matches — still record the attempt
-      writeLastMatch(null, 0, 0, 'low_score');
-    }
-  } catch (err) {
-    if (process.env.LAZYBRAIN_DEBUG_HOOK === '1') {
-      process.stderr.write(`[LazyBrain] Tiny gate match failed: ${err instanceof Error ? err.message : String(err)}\n`);
+    } catch (err) {
+      if (process.env.LAZYBRAIN_DEBUG_HOOK === '1') {
+        process.stderr.write(`[LazyBrain] Tiny gate match failed: ${err instanceof Error ? err.message : String(err)}\n`);
+      }
     }
   }
 
-  writeLastMatch(null, 0, 0, 'skipped');
-  output({
-    continue: true,
-    additionalSystemPrompt: TINY_GATE_PROMPT,
+  const workEnvelope = buildFastWorkEnvelope({
+    query: prompt,
+    target: 'claude',
+    decision,
+    combo,
+    topMatches,
+    eventId: event?.eventId,
   });
+  if (event?.eventId) {
+    recordRouteReceipt({
+      eventId: event.eventId,
+      outcome: 'recommendation_shown',
+      role: workEnvelope.role,
+      phase: workEnvelope.phase,
+      target: 'claude',
+      proofSignals: workEnvelope.receiptPolicy.proofSignals,
+      verification: workEnvelope.verify,
+    });
+  }
+
+  if (combo) {
+    writeLastMatch(combo.id, 1, 0, 'matched');
+  } else if (topMatches.length > 0) {
+    writeLastMatch(topMatches[0].name, topMatches[0].score ?? 0, 0, 'matched');
+  } else {
+    writeLastMatch(null, 0, 0, 'low_score');
+  }
+  output({ continue: true, additionalSystemPrompt: formatFastWorkEnvelopeForHook(workEnvelope) });
 }
 
 async function main() {
@@ -556,6 +569,16 @@ async function main() {
     prompt: input.prompt,
   }, { config });
   if (!runDecision.allowed) {
+    if (FAIL_SOFT_REASONS.has(runDecision.reason) && input.prompt?.trim()) {
+      const envelope = buildDegradedRecommendationEnvelope({
+        query: input.prompt.trim(),
+        target: 'claude',
+        degradeReason: runDecision.reason,
+      });
+      _visibleNotice = `LazyBrain degraded: ${runDecision.reason}. ${envelope.recoveryAction ?? ''}`.trim();
+      output({ continue: true, additionalSystemPrompt: `${formatRecommendationEnvelope(envelope)}\n\n${formatWorkEnvelopeForAgent(envelope.workEnvelope)}` });
+      return;
+    }
     output({ continue: true });
     return;
   }
@@ -640,6 +663,20 @@ async function main() {
     const history = loadRecentHistory(50);
     let profile: import('../src/types.js').UserProfile | undefined = undefined;
     try { profile = loadProfile() ?? undefined; } catch {}
+    try {
+      const routeSpec = await buildRouteSpec(prompt, {
+        graph,
+        config,
+        history,
+        profile,
+        target: 'claude',
+      });
+      const routeEvent = recordRouteSpec(routeSpec, 'hook-gate');
+      const routeRecommendation = buildRecommendationEnvelope(routeSpec, { eventId: routeEvent?.eventId });
+      _workGuidance = formatWorkEnvelopeForAgent(routeRecommendation.workEnvelope);
+    } catch {
+      _workGuidance = '';
+    }
 
     // ─── Team Composition Detection ─────────────────────────────────────────
     const TEAM_KEYWORDS = ['/team', 'team模式', '组队', '多 agent', 'multi-agent', '多agent'];
@@ -998,6 +1035,7 @@ function output(data: HookOutput) {
   }
 
   _visibleNotice = '';
+  _workGuidance = '';
   _hookConfig = null;
 
   process.stdout.write(JSON.stringify(payload) + '\n');
@@ -1086,6 +1124,11 @@ function appendTeamBridge(
   return text + '\n\n' + formatTeamBridgeContext(query, composition);
 }
 
+function appendWorkGuidance(text: string): string {
+  if (!_workGuidance) return text;
+  return `${text.trim()}\n\nLazyBrain WorkEnvelope\n${_workGuidance}`.trim();
+}
+
 /**
  * Append governance preflight injection for heavy-mode queries.
  * Non-invasive: only injects context when heavy mode is detected and preflight is enabled.
@@ -1097,17 +1140,17 @@ function appendGovernance(
   teamComposition: TeamComposition | null,
 ): string {
   const config = loadConfig();
-  if (!isHeavyModeQuery(query)) return text;
-  if (!config.governance?.enablePreflight) return text;
+  if (!isHeavyModeQuery(query)) return appendWorkGuidance(text);
+  if (!config.governance?.enablePreflight) return appendWorkGuidance(text);
 
   const budgetState = loadBudgetState();
-  if (!budgetState) return text;
+  if (!budgetState) return appendWorkGuidance(text);
 
   const decision = runPreflight({ query, recommendation, teamComposition, budgetState, config });
   const policyResult = evaluatePolicy(decision, budgetState, config);
   const injection = formatGovernanceInjection(decision, policyResult);
-  if (!injection) return text;
-  return text + '\n\n' + injection;
+  if (!injection) return appendWorkGuidance(text);
+  return appendWorkGuidance(text + '\n\n' + injection);
 }
 
 function formatSecretaryInjection(

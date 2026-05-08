@@ -2,10 +2,10 @@ import { createHash, randomUUID } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { ROUTE_EVENTS_PATH } from '../constants.js';
-import type { ChoiceOption, ChoiceOptionKind, RouteMode, RouteSpec, RouteTarget } from '../types.js';
+import type { ChoiceOption, ChoiceOptionKind, ReceiptOutcome, RouteMode, RouteSpec, RouteTarget, WorkRole, WorkflowPhase } from '../types.js';
 
 export type RouteEventSource = 'cli' | 'api' | 'hook-gate' | 'prompt' | 'mcp';
-export type RouteEventAdoptionAction = 'copy_prompt' | 'feedback';
+export type RouteEventAdoptionAction = 'copy_prompt' | 'feedback' | 'accept' | 'ignore' | 'mark_wrong';
 export type RouteEventFeedbackOutcome = 'accepted' | 'rejected';
 export type RouteEventFeedbackReason =
   | 'wrong_skill'
@@ -22,6 +22,16 @@ export const ROUTE_EVENT_FEEDBACK_REASONS: RouteEventFeedbackReason[] = [
   'missed_council',
   'bad_copy_prompt',
   'other',
+];
+export const ROUTE_RECEIPT_OUTCOMES: ReceiptOutcome[] = [
+  'recommendation_shown',
+  'copied',
+  'accepted',
+  'executed',
+  'verified',
+  'blocked',
+  'wrong',
+  'ignored',
 ];
 
 export interface RouteEventChoiceSummary {
@@ -53,6 +63,10 @@ export interface RouteEvent {
   adoptionAction?: RouteEventAdoptionAction;
   feedbackOutcome?: RouteEventFeedbackOutcome;
   feedbackReason?: RouteEventFeedbackReason;
+  receiptOutcome?: ReceiptOutcome;
+  receiptAt?: string;
+  workRole?: WorkRole;
+  workflowPhase?: WorkflowPhase;
 }
 
 interface RouteAdoptionLog {
@@ -66,6 +80,21 @@ interface RouteAdoptionLog {
   reason?: RouteEventFeedbackReason;
 }
 
+interface RouteReceiptLog {
+  eventType: 'receipt';
+  receiptId: string;
+  eventId: string;
+  timestamp: string;
+  outcome: ReceiptOutcome;
+  role?: WorkRole;
+  phase?: WorkflowPhase;
+  target?: RouteTarget;
+  choiceId?: string;
+  summary?: string;
+  proofSignals: string[];
+  verification: string[];
+}
+
 export interface RouteStats {
   total: number;
   bySource: Record<string, number>;
@@ -73,12 +102,27 @@ export interface RouteStats {
   topCombos: Array<{ combo: string; count: number }>;
   semanticWarningCount: number;
   adoptedCount: number;
+  adoptionActions: Partial<Record<RouteEventAdoptionAction, number>>;
   feedbackReasons: Partial<Record<RouteEventFeedbackReason, number>>;
+  receiptCount: number;
+  receiptOutcomes: Partial<Record<ReceiptOutcome, number>>;
+  verifiedCount: number;
+  blockedCount: number;
+  wrongCount: number;
+  executedCount: number;
+  executionRate: number;
+  lastReceiptAt?: string;
+  lastReceiptOutcome?: ReceiptOutcome;
+  lastWorkRole?: WorkRole;
   lastEventAt?: string;
 }
 
 export function isRouteEventFeedbackReason(value: unknown): value is RouteEventFeedbackReason {
   return typeof value === 'string' && ROUTE_EVENT_FEEDBACK_REASONS.includes(value as RouteEventFeedbackReason);
+}
+
+export function isReceiptOutcome(value: unknown): value is ReceiptOutcome {
+  return typeof value === 'string' && ROUTE_RECEIPT_OUTCOMES.includes(value as ReceiptOutcome);
 }
 
 export function hashQuery(query: string): string {
@@ -100,6 +144,32 @@ function choiceSummary(choice: ChoiceOption | undefined): RouteEventChoiceSummar
     label: choice.label,
     confidence: choice.confidence,
   };
+}
+
+function isWorkRole(value: unknown): value is WorkRole {
+  return value === 'scout' || value === 'judge' || value === 'worker' || value === 'pm';
+}
+
+function isWorkflowPhase(value: unknown): value is WorkflowPhase {
+  return value === 'before_worker' ||
+    value === 'after_worker' ||
+    value === 'final_audit' ||
+    value === 'blocked_task' ||
+    value === 'publish_handoff';
+}
+
+function sanitizeReceiptText(value: string): string {
+  const home = process.env.HOME;
+  const trimmed = value.replace(/\s+/g, ' ').trim().slice(0, 240);
+  return home ? trimmed.split(home).join('$HOME') : trimmed;
+}
+
+function sanitizeReceiptList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    .map(sanitizeReceiptText)
+    .slice(0, 12);
 }
 
 function topChoiceOption(spec: RouteSpec, predicate: (choice: ChoiceOption) => boolean): ChoiceOption | undefined {
@@ -190,6 +260,7 @@ function readRouteEventLines(path = ROUTE_EVENTS_PATH): RouteEvent[] {
   const lines = readFileSync(path, 'utf-8').split('\n').filter(Boolean);
   const events: RouteEvent[] = [];
   const adoptions: RouteAdoptionLog[] = [];
+  const receipts: RouteReceiptLog[] = [];
   for (const line of lines) {
     try {
       const event = JSON.parse(line) as Partial<RouteEvent> & Partial<RouteAdoptionLog>;
@@ -204,6 +275,25 @@ function readRouteEventLines(path = ROUTE_EVENTS_PATH): RouteEvent[] {
           action: event.action,
           outcome: event.outcome,
           reason: isRouteEventFeedbackReason(event.reason) ? event.reason : undefined,
+        });
+        continue;
+      }
+      if (event.eventType === 'receipt') {
+        const receipt = event as Partial<RouteReceiptLog>;
+        if (!receipt.eventId || !receipt.timestamp || !isReceiptOutcome(receipt.outcome) || !receipt.receiptId) continue;
+        receipts.push({
+          eventType: 'receipt',
+          receiptId: receipt.receiptId,
+          eventId: receipt.eventId,
+          timestamp: receipt.timestamp,
+          outcome: receipt.outcome,
+          role: isWorkRole(receipt.role) ? receipt.role : undefined,
+          phase: isWorkflowPhase(receipt.phase) ? receipt.phase : undefined,
+          target: receipt.target,
+          choiceId: receipt.choiceId,
+          summary: typeof receipt.summary === 'string' ? sanitizeReceiptText(receipt.summary) : undefined,
+          proofSignals: sanitizeReceiptList(receipt.proofSignals),
+          verification: sanitizeReceiptList(receipt.verification),
         });
         continue;
       }
@@ -230,6 +320,10 @@ function readRouteEventLines(path = ROUTE_EVENTS_PATH): RouteEvent[] {
         adoptionAction: event.adoptionAction,
         feedbackOutcome: event.feedbackOutcome,
         feedbackReason: isRouteEventFeedbackReason(event.feedbackReason) ? event.feedbackReason : undefined,
+        receiptOutcome: isReceiptOutcome(event.receiptOutcome) ? event.receiptOutcome : undefined,
+        receiptAt: event.receiptAt,
+        workRole: isWorkRole(event.workRole) ? event.workRole : undefined,
+        workflowPhase: isWorkflowPhase(event.workflowPhase) ? event.workflowPhase : undefined,
       });
     } catch {}
   }
@@ -240,7 +334,7 @@ function readRouteEventLines(path = ROUTE_EVENTS_PATH): RouteEvent[] {
     const previous = events[index];
     events[index] = {
       ...previous,
-      adopted: adoption.action === 'copy_prompt' ? true : previous.adopted,
+      adopted: adoption.action === 'copy_prompt' || adoption.action === 'accept' ? true : previous.adopted,
       adoptedAt: adoption.timestamp,
       adoptedTarget: adoption.target ?? previous.adoptedTarget,
       adoptedChoiceId: adoption.choiceId ?? previous.adoptedChoiceId,
@@ -249,7 +343,73 @@ function readRouteEventLines(path = ROUTE_EVENTS_PATH): RouteEvent[] {
       feedbackReason: adoption.reason ?? previous.feedbackReason,
     };
   }
+  for (const receipt of receipts) {
+    const index = byId.get(receipt.eventId);
+    if (index === undefined) continue;
+    const previous = events[index];
+    events[index] = {
+      ...previous,
+      adopted: receipt.outcome === 'copied' || receipt.outcome === 'accepted' || previous.adopted,
+      adoptedAt: receipt.outcome === 'copied' || receipt.outcome === 'accepted' ? receipt.timestamp : previous.adoptedAt,
+      adoptedTarget: receipt.target ?? previous.adoptedTarget,
+      adoptedChoiceId: receipt.choiceId ?? previous.adoptedChoiceId,
+      receiptOutcome: receipt.outcome,
+      receiptAt: receipt.timestamp,
+      workRole: receipt.role ?? previous.workRole,
+      workflowPhase: receipt.phase ?? previous.workflowPhase,
+    };
+  }
   return events;
+}
+
+function readRouteAdoptionLines(path = ROUTE_EVENTS_PATH): RouteAdoptionLog[] {
+  if (!existsSync(path)) return [];
+  const lines = readFileSync(path, 'utf-8').split('\n').filter(Boolean);
+  const adoptions: RouteAdoptionLog[] = [];
+  for (const line of lines) {
+    try {
+      const event = JSON.parse(line) as Partial<RouteAdoptionLog>;
+      if (event.eventType !== 'adoption' || !event.eventId || !event.timestamp || !event.action) continue;
+      adoptions.push({
+        eventType: 'adoption',
+        eventId: event.eventId,
+        timestamp: event.timestamp,
+        target: event.target,
+        choiceId: event.choiceId,
+        action: event.action,
+        outcome: event.outcome,
+        reason: isRouteEventFeedbackReason(event.reason) ? event.reason : undefined,
+      });
+    } catch {}
+  }
+  return adoptions;
+}
+
+function readRouteReceiptLines(path = ROUTE_EVENTS_PATH): RouteReceiptLog[] {
+  if (!existsSync(path)) return [];
+  const lines = readFileSync(path, 'utf-8').split('\n').filter(Boolean);
+  const receipts: RouteReceiptLog[] = [];
+  for (const line of lines) {
+    try {
+      const event = JSON.parse(line) as Partial<RouteReceiptLog>;
+      if (event.eventType !== 'receipt' || !event.eventId || !event.timestamp || !event.receiptId || !isReceiptOutcome(event.outcome)) continue;
+      receipts.push({
+        eventType: 'receipt',
+        receiptId: event.receiptId,
+        eventId: event.eventId,
+        timestamp: event.timestamp,
+        outcome: event.outcome,
+        role: isWorkRole(event.role) ? event.role : undefined,
+        phase: isWorkflowPhase(event.phase) ? event.phase : undefined,
+        target: event.target,
+        choiceId: event.choiceId,
+        summary: typeof event.summary === 'string' ? sanitizeReceiptText(event.summary) : undefined,
+        proofSignals: sanitizeReceiptList(event.proofSignals),
+        verification: sanitizeReceiptList(event.verification),
+      });
+    } catch {}
+  }
+  return receipts;
 }
 
 export function readRecentRouteEvents(input: { limit?: number; path?: string } = {}): RouteEvent[] {
@@ -289,6 +449,45 @@ export function recordRouteAdoption(input: {
   }
 }
 
+export function recordRouteReceipt(input: {
+  eventId: string;
+  outcome: ReceiptOutcome;
+  role?: WorkRole;
+  phase?: WorkflowPhase;
+  target?: RouteTarget;
+  choiceId?: string;
+  summary?: string;
+  proofSignals?: string[];
+  verification?: string[];
+  path?: string;
+}): RouteEvent | null {
+  const path = input.path ?? ROUTE_EVENTS_PATH;
+  const events = readRouteEventLines(path);
+  if (!events.some(event => event.eventId === input.eventId)) return null;
+
+  try {
+    const receipt: RouteReceiptLog = {
+      eventType: 'receipt',
+      receiptId: randomUUID(),
+      eventId: input.eventId,
+      timestamp: new Date().toISOString(),
+      outcome: input.outcome,
+      role: input.role,
+      phase: input.phase,
+      target: input.target,
+      choiceId: input.choiceId,
+      summary: typeof input.summary === 'string' ? sanitizeReceiptText(input.summary) : undefined,
+      proofSignals: sanitizeReceiptList(input.proofSignals),
+      verification: sanitizeReceiptList(input.verification),
+    };
+    ensureParent(path);
+    appendFileSync(path, JSON.stringify(receipt) + '\n', 'utf-8');
+    return readRouteEventLines(path).find(event => event.eventId === input.eventId) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export function readRouteStats(path?: string): RouteStats {
   const stats: RouteStats = {
     total: 0,
@@ -297,7 +496,15 @@ export function readRouteStats(path?: string): RouteStats {
     topCombos: [],
     semanticWarningCount: 0,
     adoptedCount: 0,
+    adoptionActions: {},
     feedbackReasons: {},
+    receiptCount: 0,
+    receiptOutcomes: {},
+    verifiedCount: 0,
+    blockedCount: 0,
+    wrongCount: 0,
+    executedCount: 0,
+    executionRate: 0,
   };
 
   const comboCounts = new Map<string, number>();
@@ -317,5 +524,22 @@ export function readRouteStats(path?: string): RouteStats {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 10)
     .map(([combo, count]) => ({ combo, count }));
+  for (const adoption of readRouteAdoptionLines(path)) {
+    stats.adoptionActions[adoption.action] = (stats.adoptionActions[adoption.action] ?? 0) + 1;
+  }
+  for (const receipt of readRouteReceiptLines(path)) {
+    stats.receiptCount++;
+    stats.receiptOutcomes[receipt.outcome] = (stats.receiptOutcomes[receipt.outcome] ?? 0) + 1;
+    if (receipt.outcome === 'verified') stats.verifiedCount++;
+    if (receipt.outcome === 'blocked') stats.blockedCount++;
+    if (receipt.outcome === 'wrong') stats.wrongCount++;
+    if (receipt.outcome === 'executed') stats.executedCount++;
+    stats.lastReceiptAt = receipt.timestamp;
+    stats.lastReceiptOutcome = receipt.outcome;
+    stats.lastWorkRole = receipt.role ?? stats.lastWorkRole;
+  }
+  stats.executionRate = stats.total > 0
+    ? Math.min(100, Math.round(((stats.executedCount + stats.verifiedCount) / stats.total) * 100))
+    : 0;
   return stats;
 }

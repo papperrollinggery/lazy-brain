@@ -98,8 +98,17 @@ describe('MCP server', () => {
     expect(payload).toHaveProperty('next_actions');
     expect(payload).toHaveProperty('artifacts');
     expect(payload).toHaveProperty('choices');
+    expect(payload).toHaveProperty('recommendation');
+    expect(payload).toHaveProperty('workEnvelope');
+    expect(payload.eventId).toBe((payload.recommendation as Record<string, unknown>).eventId);
+    expect((payload.recommendation as Record<string, unknown>).userLane).toBeTruthy();
+    expect((payload.workEnvelope as Record<string, unknown>).role).toBeTruthy();
+    expect((payload.workEnvelope as Record<string, unknown>).receiptPolicy).toBeTruthy();
     expect((payload.choices as Record<string, unknown>).recommended).toBeTruthy();
     expect((payload.data as Record<string, unknown>).schemaVersion).toBe('1.5.0');
+    expect((payload.data as Record<string, unknown>).eventId).toBe(payload.eventId);
+    expect((payload.data as Record<string, unknown>).recommendation).toBeTruthy();
+    expect((payload.data as Record<string, unknown>).workEnvelope).toBeTruthy();
   });
 
   it('returns combo entry metadata through lazybrain.route', async () => {

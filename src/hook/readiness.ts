@@ -85,6 +85,23 @@ export function evaluateReady(options: EvaluateReadyOptions): ReadyReport {
   if ((options.runtime.health.breakerUntil ?? 0) > now) {
     blockers.push('Hook breaker is open. Run `lazybrain doctor --fix` or wait for the cooldown before installing or relying on the hook.');
   }
+  const recentDurations = options.runtime.health.recentDurationsMs;
+  const avgDuration = recentDurations.length > 0
+    ? Math.round(recentDurations.reduce((sum, value) => sum + value, 0) / recentDurations.length)
+    : 0;
+  const avgDurationBreakerMs = options.config.hookSafety?.avgDurationBreakerMs;
+  if (
+    options.runtime.health.lastSkipReason === 'slow_recent_avg' ||
+    (typeof avgDurationBreakerMs === 'number' && avgDuration >= avgDurationBreakerMs && avgDuration > 0)
+  ) {
+    warnings.push(`Hook slow-duration window is degraded (${avgDuration}ms avg). Run \`lazybrain doctor --fix\` before relying on automatic hook recommendations.`);
+  }
+  if (options.runtime.health.lastSkipReason === 'host_overload') {
+    warnings.push('Last hook run skipped because host load was high. Automatic recommendations will resume when load drops.');
+  }
+  if (options.runtime.health.lastSkipReason === 'concurrency_limit') {
+    warnings.push('Last hook run skipped because another LazyBrain hook was active.');
+  }
 
   const loadAvgBreaker = options.config.hookSafety?.loadAvgBreaker;
   if (!options.ignoreLoadAverage && typeof options.loadAverage1m === 'number' && typeof loadAvgBreaker === 'number' && options.loadAverage1m > loadAvgBreaker) {

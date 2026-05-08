@@ -12,7 +12,7 @@ import { dirname, join } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import type { Graph } from '../graph/graph.js';
-import type { Platform, RouteTarget, UserConfig } from '../types.js';
+import type { Platform, RouteTarget, UserConfig, WorkRole, WorkflowPhase } from '../types.js';
 import { buildGraphView, formatGraphMermaid } from '../graph/graph-view.js';
 import { match } from '../matcher/matcher.js';
 import { recommendTeam } from '../matcher/team-recommender.js';
@@ -37,9 +37,20 @@ import { getEmbeddingCacheStatus } from '../embeddings/cache.js';
 import { rebuildEmbeddingCache } from '../embeddings/rebuild.js';
 import { EMBEDDINGS_INDEX_PATH, GRAPH_PATH, LAZYBRAIN_DIR } from '../constants.js';
 import { buildRouteSpec, isRouteTarget } from '../orchestrator/route.js';
+import { buildRecommendationEnvelope } from '../orchestrator/recommendation-envelope.js';
 import { loadRecentHistory } from '../history/history.js';
 import { loadProfile } from '../history/profile.js';
-import { readRecentRouteEvents } from '../orchestrator/route-events.js';
+import {
+  isRouteEventFeedbackReason,
+  readRecentRouteEvents,
+  recordRouteAdoption,
+  recordRouteReceipt,
+  recordRouteSpec,
+  isReceiptOutcome,
+  type RouteEventAdoptionAction,
+  type RouteEventFeedbackOutcome,
+  type RouteEventFeedbackReason,
+} from '../orchestrator/route-events.js';
 import { mergeRuntimeStatus } from '../runtime/status.js';
 import { getGitNexusStatus } from '../integrations/gitnexus.js';
 import { cloneHttpRoutes, defineHttpRoutes } from './routes.js';
@@ -74,6 +85,8 @@ export const HTTP_ROUTES = defineHttpRoutes((router) => {
   router.get('/api/diagnostics', 'handleDiagnostics', 'Return privacy-preserving local diagnostics.', 'api');
   router.get('/api/routes', 'handleRoutesMetadata', 'Return the active HTTP route registry.', 'api');
   router.post('/api/route', 'handleRoute', 'Build a RouteSpec for a user task.', 'api');
+  router.post('/api/route/adoption', 'handleRouteAdoption', 'Record route recommendation adoption or feedback.', 'api');
+  router.post('/api/route/receipt', 'handleRouteReceipt', 'Record route execution receipt evidence.', 'api');
   router.post('/api/compile', 'handleCompileStart', 'Start a compile job.', 'api');
   router.get('/api/compile/status', 'handleCompileStatus', 'Return compile job status.', 'api');
   router.get('/api/embedding/discover', 'handleEmbeddingDiscover', 'Probe local embedding services.', 'api');
@@ -204,6 +217,7 @@ async function handleRoute(
   res: http.ServerResponse,
   graph: Graph,
   config: UserConfig,
+  routeEventsPath?: string,
 ): Promise<void> {
   let body: { query?: string; target?: RouteTarget };
   try {
@@ -227,7 +241,136 @@ async function handleRoute(
     profile: loadProfile() ?? undefined,
     target: body.target ?? 'generic',
   });
-  json(res, 200, result);
+  const event = recordRouteSpec(result, 'api', routeEventsPath);
+  const recommendation = buildRecommendationEnvelope(result, { eventId: event?.eventId });
+  json(res, 200, {
+    ...result,
+    eventId: event?.eventId,
+    recommendation,
+    workEnvelope: recommendation.workEnvelope,
+  });
+}
+
+function normalizeAdoptionInput(action: unknown, reason: unknown): {
+  action: RouteEventAdoptionAction;
+  outcome?: RouteEventFeedbackOutcome;
+  reason?: RouteEventFeedbackReason;
+} | null {
+  switch (action) {
+    case 'accepted':
+    case 'accept':
+      return { action: 'accept', outcome: 'accepted' };
+    case 'copied':
+    case 'copy_prompt':
+      return { action: 'copy_prompt' };
+    case 'ignored':
+    case 'ignore':
+      return { action: 'ignore', outcome: 'rejected', reason: 'other' };
+    case 'wrong':
+    case 'mark_wrong':
+      return {
+        action: 'mark_wrong',
+        outcome: 'rejected',
+        reason: isRouteEventFeedbackReason(reason) ? reason : 'wrong_skill',
+      };
+    case 'feedback':
+      return {
+        action: 'feedback',
+        outcome: 'rejected',
+        reason: isRouteEventFeedbackReason(reason) ? reason : 'other',
+      };
+    default:
+      return null;
+  }
+}
+
+async function handleRouteAdoption(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  routeEventsPath?: string,
+): Promise<void> {
+  let body: { eventId?: unknown; action?: unknown; target?: unknown; choiceId?: unknown; reason?: unknown };
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch (error) {
+    return err(res, error instanceof Error && error.message.includes('large') ? 413 : 400, 'Invalid JSON body');
+  }
+
+  if (typeof body.eventId !== 'string' || !body.eventId.trim()) {
+    return err(res, 400, 'Missing required field: eventId');
+  }
+  const normalized = normalizeAdoptionInput(body.action, body.reason);
+  if (!normalized) {
+    return err(res, 400, 'Invalid action. Use accepted, copied, ignored, or wrong.');
+  }
+  const target = typeof body.target === 'string' && isRouteTarget(body.target) ? body.target : undefined;
+  const event = recordRouteAdoption({
+    eventId: body.eventId.trim(),
+    target,
+    choiceId: typeof body.choiceId === 'string' ? body.choiceId : undefined,
+    action: normalized.action,
+    outcome: normalized.outcome,
+    reason: normalized.reason,
+    path: routeEventsPath,
+  });
+  if (!event) return err(res, 404, 'Route event not found.');
+  json(res, 200, { ok: true, event });
+}
+
+function isWorkRoleInput(value: unknown): value is WorkRole {
+  return value === 'scout' || value === 'judge' || value === 'worker' || value === 'pm';
+}
+
+function isWorkflowPhaseInput(value: unknown): value is WorkflowPhase {
+  return value === 'before_worker' ||
+    value === 'after_worker' ||
+    value === 'final_audit' ||
+    value === 'blocked_task' ||
+    value === 'publish_handoff';
+}
+
+async function handleRouteReceipt(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  routeEventsPath?: string,
+): Promise<void> {
+  let body: {
+    eventId?: unknown;
+    outcome?: unknown;
+    role?: unknown;
+    phase?: unknown;
+    target?: unknown;
+    choiceId?: unknown;
+    summary?: unknown;
+    proofSignals?: unknown;
+    verification?: unknown;
+  };
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch (error) {
+    return err(res, error instanceof Error && error.message.includes('large') ? 413 : 400, 'Invalid JSON body');
+  }
+  if (typeof body.eventId !== 'string' || !body.eventId.trim()) {
+    return err(res, 400, 'Missing required field: eventId');
+  }
+  if (!isReceiptOutcome(body.outcome)) {
+    return err(res, 400, 'Invalid outcome. Use recommendation_shown, copied, accepted, executed, verified, blocked, wrong, or ignored.');
+  }
+  const target = typeof body.target === 'string' && isRouteTarget(body.target) ? body.target : undefined;
+  const event = recordRouteReceipt({
+    eventId: body.eventId.trim(),
+    outcome: body.outcome,
+    role: isWorkRoleInput(body.role) ? body.role : undefined,
+    phase: isWorkflowPhaseInput(body.phase) ? body.phase : undefined,
+    target,
+    choiceId: typeof body.choiceId === 'string' ? body.choiceId : undefined,
+    summary: typeof body.summary === 'string' ? body.summary : undefined,
+    proofSignals: Array.isArray(body.proofSignals) ? body.proofSignals.filter((item): item is string => typeof item === 'string') : undefined,
+    verification: Array.isArray(body.verification) ? body.verification.filter((item): item is string => typeof item === 'string') : undefined,
+    path: routeEventsPath,
+  });
+  if (!event) return err(res, 404, 'Route event not found.');
+  json(res, 200, { ok: true, event });
 }
 
 async function handleTeam(
@@ -985,7 +1128,13 @@ export function createRouter(opts: RouterOptions): http.RequestListener {
       return handleMatch(req, res, graph, opts.config);
     }
     if (method === 'POST' && (pathname === '/route' || pathname === '/api/route')) {
-      return handleRoute(req, res, graph, opts.config);
+      return handleRoute(req, res, graph, opts.config, opts.routeEventsPath);
+    }
+    if (method === 'POST' && pathname === '/api/route/adoption') {
+      return handleRouteAdoption(req, res, opts.routeEventsPath);
+    }
+    if (method === 'POST' && pathname === '/api/route/receipt') {
+      return handleRouteReceipt(req, res, opts.routeEventsPath);
     }
     // POST /team
     if (method === 'POST' && (pathname === '/team' || pathname === '/api/team')) {

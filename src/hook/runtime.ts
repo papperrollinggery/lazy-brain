@@ -384,10 +384,14 @@ export function resetHookRuntimeHealth(): void {
   } catch {}
 }
 
-export function clearHookBreaker(): void {
+export function clearHookBreaker(options: { clearRecentDurations?: boolean } = {}): void {
   const health = readHookRuntimeHealth();
   delete health.breakerUntil;
   delete health.lastSkipReason;
+  if (options.clearRecentDurations) {
+    health.recentDurationsMs = [];
+    delete health.lastDurationMs;
+  }
   health.updatedAt = Date.now();
   writeHookRuntimeHealth(health);
 }

@@ -104,6 +104,30 @@ describe('hook runtime safety', () => {
     expect(health.breakerUntil).toBeGreaterThan(2000);
   });
 
+  it('can clear poisoned slow-duration window when clearing breaker', async () => {
+    const runtime = await loadRuntimeModule();
+    writeFileSync(join(tempDir, 'hook-health.json'), JSON.stringify({
+      breakerUntil: 5000,
+      lastSkipReason: 'slow_recent_avg',
+      lastDurationMs: 124994,
+      recentDurationsMs: [100, 124994, 200],
+      updatedAt: 1000,
+    }), 'utf-8');
+
+    runtime.clearHookBreaker({ clearRecentDurations: true });
+
+    const health = JSON.parse(readFileSync(join(tempDir, 'hook-health.json'), 'utf-8')) as {
+      breakerUntil?: number;
+      lastSkipReason?: string;
+      lastDurationMs?: number;
+      recentDurationsMs: number[];
+    };
+    expect(health.breakerUntil).toBeUndefined();
+    expect(health.lastSkipReason).toBeUndefined();
+    expect(health.lastDurationMs).toBeUndefined();
+    expect(health.recentDurationsMs).toEqual([]);
+  });
+
   it('retains hung live runs instead of deleting them as stale', async () => {
     const runtime = await loadRuntimeModule();
     const begin = runtime.beginHookRun({

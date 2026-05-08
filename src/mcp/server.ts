@@ -1,10 +1,12 @@
-import type { Capability, ChoiceSet, RouteSpec, RouteTarget, UserConfig } from '../types.js';
+import type { Capability, ChoiceSet, RecommendationEnvelope, RouteSpec, RouteTarget, UserConfig, WorkEnvelope } from '../types.js';
 import type { Graph } from '../graph/graph.js';
 import { buildRouteSpec, isRouteTarget } from '../orchestrator/route.js';
+import { buildRecommendationEnvelope } from '../orchestrator/recommendation-envelope.js';
 import { listCombos } from '../combos/registry.js';
 import { loadRecentHistory } from '../history/history.js';
 import { loadProfile } from '../history/profile.js';
 import { getPackageVersion } from '../version.js';
+import { recordRouteSpec } from '../orchestrator/route-events.js';
 import {
   listMcpToolDefinitions,
   listMcpToolNames,
@@ -31,7 +33,10 @@ interface ToolObservation<T = unknown> {
   summary: string;
   next_actions: string[];
   artifacts: string[];
+  eventId?: string;
   choices?: ChoiceSet;
+  recommendation?: RecommendationEnvelope;
+  workEnvelope?: WorkEnvelope;
   data?: T;
   error?: {
     message: string;
@@ -67,14 +72,20 @@ function successObservation<T>(
   data: T,
   nextActions: string[],
   artifacts: string[] = [],
+  eventId?: string,
   choices?: ChoiceSet,
+  recommendation?: RecommendationEnvelope,
+  workEnvelope?: WorkEnvelope,
 ): ToolObservation<T> {
   return {
     status: 'success',
     summary,
     next_actions: nextActions,
     artifacts,
+    ...(eventId ? { eventId } : {}),
     ...(choices ? { choices } : {}),
+    ...(recommendation ? { recommendation } : {}),
+    ...(workEnvelope ? { workEnvelope } : {}),
     data,
   };
 }
@@ -198,12 +209,17 @@ async function callTool(name: string, args: Record<string, unknown>, ctx: McpCon
         profile: loadProfile() ?? undefined,
         target,
       });
+      const event = recordRouteSpec(spec, 'mcp');
+      const recommendation = buildRecommendationEnvelope(spec, { eventId: event?.eventId });
       return toolText(successObservation(
         `RouteSpec ${spec.mode} for target ${spec.target}`,
-        spec,
+        { ...spec, eventId: event?.eventId, recommendation, workEnvelope: recommendation.workEnvelope },
         routeNextActions(spec),
         routeArtifacts(spec),
+        event?.eventId,
         spec.choices,
+        recommendation,
+        recommendation.workEnvelope,
       ));
     }
     case 'lazybrain.search': {

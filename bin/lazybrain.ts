@@ -76,6 +76,8 @@ import { getEmbeddingCacheStatus } from '../src/embeddings/cache.js';
 import { rebuildEmbeddingCache } from '../src/embeddings/rebuild.js';
 import { buildStatusReport } from '../src/server/status.js';
 import { buildRouteSpec, formatRouteSpec, formatRouteSpecBrief, isRouteTarget } from '../src/orchestrator/route.js';
+import { buildRecommendationEnvelope, formatRecommendationEnvelope } from '../src/orchestrator/recommendation-envelope.js';
+import { formatWorkEnvelopeForAgent } from '../src/orchestrator/work-envelope.js';
 import { readRouteStats, recordRouteSpec } from '../src/orchestrator/route-events.js';
 import { DOGFOOD_ROUTE_CASES } from '../src/orchestrator/route-dogfood-cases.js';
 import { formatComboList, listCombos } from '../src/combos/registry.js';
@@ -88,7 +90,8 @@ const cmd = args[0];
 // Ensure data directory exists only for commands that may write runtime records.
 const isReadOnlyCommand = (cmd === 'hook' && args[1] === 'plan') ||
   (cmd === 'route' && args[1] === 'stats') ||
-  cmd === 'mcp';
+  cmd === 'mcp' ||
+  cmd === 'quickstart';
 if (!isReadOnlyCommand && !existsSync(LAZYBRAIN_DIR)) {
   mkdirSync(LAZYBRAIN_DIR, { recursive: true });
 }
@@ -315,6 +318,9 @@ async function main() {
     case 'home':
       cmdHome(args.includes('--json'));
       break;
+    case 'quickstart':
+      cmdQuickstart(args.includes('--json'));
+      break;
     case 'report':
       cmdReport();
       break;
@@ -474,6 +480,27 @@ async function interactiveSelect(
 // ─── Compile ──────────────────────────────────────────────────────────────
 
 async function cmdCompile() {
+  if (args[1] === '--help' || args[1] === '-h' || args.includes('--help')) {
+    console.log([
+      'Usage: lazybrain compile [options]',
+      '',
+      'Build or refresh the capability graph used by route recommendations.',
+      '',
+      'Options:',
+      '  --offline                  Compile without LLM calls',
+      '  --with-relations           Infer composes_with/depends_on/supersedes edges',
+      '  --force                    Rebuild graph nodes from scratch',
+      '  --force-relations          Re-run relation inference',
+      '  --all                      Compile all platforms',
+      '  --tier <0|1|2>             Compile one capability tier',
+      '  --platform <name>          Compile one target platform',
+      '  --select                   Interactively choose platforms',
+      '',
+      'Subcommands:',
+      '  lazybrain compile errors [--json] [--limit N]',
+    ].join('\n'));
+    return;
+  }
   if (args[1] === 'errors') {
     cmdCompileErrors();
     return;
@@ -1116,14 +1143,18 @@ async function cmdRoute() {
     profile,
     target,
   });
-  recordRouteSpec(spec, 'cli');
+  const event = recordRouteSpec(spec, 'cli');
+  const recommendation = buildRecommendationEnvelope(spec, { eventId: event?.eventId });
 
   if (asJson) {
-    console.log(JSON.stringify(spec, null, 2));
+    console.log(JSON.stringify({ ...spec, eventId: event?.eventId, recommendation, workEnvelope: recommendation.workEnvelope }, null, 2));
     return;
   }
 
-  console.log(brief ? formatRouteSpecBrief(spec) : formatRouteSpec(spec));
+  const workSummary = formatWorkEnvelopeForAgent(recommendation.workEnvelope);
+  console.log(brief
+    ? `${formatRecommendationEnvelope(recommendation)}\n\n${workSummary}`
+    : `${formatRouteSpec(spec)}\n\n${formatRecommendationEnvelope(recommendation)}\n\n${workSummary}`);
 }
 
 async function cmdRouteDogfood() {
@@ -1208,6 +1239,7 @@ async function cmdPrompt() {
     target,
   });
   recordRouteSpec(spec, 'prompt');
+  const recommendation = buildRecommendationEnvelope(spec);
   const prompt = spec.adapters[target]?.prompt ?? spec.adapters.generic.prompt;
 
   if (copy) {
@@ -1220,7 +1252,7 @@ async function cmdPrompt() {
   }
 
   if (asJson) {
-    console.log(JSON.stringify({ target, prompt, route: spec, copied: copy }, null, 2));
+    console.log(JSON.stringify({ target, prompt, route: spec, recommendation, copied: copy }, null, 2));
     return;
   }
   console.log(prompt);
@@ -2670,6 +2702,132 @@ function cmdReady() {
   }
 }
 
+function buildQuickstartReadyReport(): {
+  report: ReturnType<typeof evaluateReady>;
+  graphExists: boolean;
+  graphNodes: number;
+  runtimeStats: ReturnType<typeof getHookRuntimeStats>;
+} {
+  const config = loadConfig();
+  const status = readJsonStatus(STATUS_PATH);
+  const runtime = getHookRuntimeSnapshot({ config });
+  const runtimeStats = getHookRuntimeStats(runtime);
+  const initialBlockers: string[] = [];
+  let compileErrors: string[] = [];
+  let graphNodes = 0;
+  const graphExists = existsSync(GRAPH_PATH);
+  if (graphExists) {
+    try {
+      const graph = Graph.load(GRAPH_PATH);
+      compileErrors = graph.getCompileErrors();
+      graphNodes = graph.getAllNodes().length;
+    } catch {
+      initialBlockers.push(`Graph is invalid JSON: ${GRAPH_PATH}`);
+    }
+  }
+  const scopes = (['project', 'global'] as const).map((scope) => {
+    const settingsPath = getClaudeSettingsPath(scope);
+    const hooksPath = getClaudeHooksPath(scope);
+    let settings: Record<string, unknown> = {};
+    try {
+      settings = readSettingsFile(settingsPath);
+    } catch {
+      initialBlockers.push(`${scope} settings is invalid JSON: ${settingsPath}`);
+    }
+    try {
+      settings = settingsWithMergedHooks(settings, readHooksFile(hooksPath));
+    } catch {
+      initialBlockers.push(`${scope} hooks file is invalid JSON: ${hooksPath}`);
+    }
+    return {
+      scope,
+      settingsPath,
+      hooksPath,
+      settings,
+      installState: readHookInstallStateForScope(scope, scope === 'project' ? process.cwd() : undefined),
+    };
+  });
+  return {
+    graphExists,
+    graphNodes,
+    runtimeStats,
+    report: evaluateReady({
+      graphExists,
+      compileErrors,
+      status,
+      runtime,
+      scopes,
+      cwd: process.cwd(),
+      config,
+      embeddingsIndexExists: existsSync(EMBEDDINGS_INDEX_PATH),
+      embeddingsBinExists: existsSync(EMBEDDINGS_BIN_PATH),
+      loadAverage1m: loadavg()[0],
+      initialBlockers,
+    }),
+  };
+}
+
+function cmdQuickstart(asJson: boolean): void {
+  const { report, graphExists, graphNodes, runtimeStats } = buildQuickstartReadyReport();
+  const hookInstalled = report.scopes.some(scope => scope.lazybrainUserPromptSubmit);
+  const hookBlocked = report.blockers.some(blocker => /Hook|hook|Host load|Hung hook/.test(blocker));
+  const hookDegraded = report.warnings.some(warning => /Hook|hook|host load|slow-duration|statusline/.test(warning));
+  const hookAutomatic = hookBlocked
+    ? 'blocked'
+    : hookDegraded
+      ? 'degraded'
+      : hookInstalled
+        ? 'ready'
+        : 'not_installed';
+  const nextCommand = !graphExists
+    ? 'lazybrain scan && lazybrain compile --offline'
+    : !hookInstalled
+      ? 'lazybrain hook install'
+      : hookAutomatic === 'blocked' || hookAutomatic === 'degraded'
+        ? 'lazybrain doctor --fix'
+        : 'lazybrain route "review this change" --target codex --brief';
+  const quickstart = {
+    status: report.state,
+    graph: { exists: graphExists, nodes: graphNodes },
+    hookAutomatic,
+    hookRuntime: {
+      avgDurationMs: runtimeStats.avgDurationMs,
+      p95DurationMs: runtimeStats.p95DurationMs,
+      breakerOpen: runtimeStats.breakerOpen,
+    },
+    mcp: { status: 'ready', tools: getMcpToolNames() },
+    nextCommand,
+    tryNow: [
+      'lazybrain route "review this change" --target codex --brief',
+      'lazybrain ui --no-open',
+      'lazybrain doctor --json',
+    ],
+    blockers: report.blockers,
+    warnings: report.warnings,
+  };
+  if (asJson) {
+    console.log(JSON.stringify(quickstart, null, 2));
+    return;
+  }
+  console.log('LazyBrain quickstart');
+  console.log(`  Product: ${quickstart.status}`);
+  console.log(`  Graph: ${graphExists ? `${graphNodes} capabilities` : 'missing'}`);
+  console.log(`  Hook automatic: ${hookAutomatic}`);
+  console.log(`  Hook runtime: avg ${runtimeStats.avgDurationMs}ms | p95 ${runtimeStats.p95DurationMs}ms`);
+  console.log(`  MCP: ${quickstart.mcp.status} (${quickstart.mcp.tools.join(', ')})`);
+  if (report.blockers.length > 0) {
+    console.log('  Blockers:');
+    for (const blocker of report.blockers) console.log(`    - ${blocker}`);
+  }
+  if (report.warnings.length > 0) {
+    console.log('  Warnings:');
+    for (const warning of report.warnings) console.log(`    - ${warning}`);
+  }
+  console.log(`  Next: ${nextCommand}`);
+  console.log('  Try:');
+  for (const command of quickstart.tryNow) console.log(`    ${command}`);
+}
+
 // ─── Home / API / Embeddings / UI ─────────────────────────────────────────
 
 function statusLabel(ok: boolean, warn = false): string {
@@ -3017,6 +3175,7 @@ Usage:
   lazybrain prompt "<query>" --copy  Copy the target prompt to clipboard
   lazybrain mcp [--stdio]            Start read-only MCP stdio server
   lazybrain mcp status               Show MCP readiness and tools
+  lazybrain quickstart [--json]      Show first-run status and the next useful command
   lazybrain combos [category]        List built-in route combo templates
   lazybrain list [--category <c>]    List indexed capabilities
   lazybrain stats                    Show graph statistics

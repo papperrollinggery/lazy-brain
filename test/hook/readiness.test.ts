@@ -150,6 +150,34 @@ describe('evaluateReady', () => {
     expect(report.blockers.join('\n')).toContain('Hook breaker is open');
   });
 
+  it('warns when old slow hook samples would make automatic recommendations misleading', () => {
+    const report = evaluateReady({
+      ...base,
+      runtime: {
+        ...runtime,
+        health: {
+          recentDurationsMs: [100, 124000, 200],
+          lastSkipReason: 'slow_recent_avg',
+          updatedAt: 1000,
+        },
+      },
+      config: {
+        engine: 'tag',
+        hookSafety: {
+          maxConcurrentHooks: 3,
+          staleHookMs: 15000,
+          avgDurationBreakerMs: 3000,
+          loadAvgBreaker: 8,
+          breakerCooldownMs: 60000,
+          recentDurationsWindow: 12,
+        },
+      },
+    });
+    expect(report.state).toBe('READY');
+    expect(report.warnings.join('\n')).toContain('Hook slow-duration window is degraded');
+    expect(report.warnings.join('\n')).toContain('lazybrain doctor --fix');
+  });
+
   it('reports NOT_READY when hung hook records exist', () => {
     const report = evaluateReady({
       ...base,
