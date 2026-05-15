@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="420" viewBox="0 0 920 420" role="img" aria-label="LazyBrain terminal demo">
+  <rect width="920" height="420" rx="18" fill="#0b1020"/>
+  <rect x="28" y="28" width="864" height="364" rx="12" fill="#111827" stroke="#334155"/>
+  <circle cx="58" cy="52" r="7" fill="#ef4444"/>
+  <circle cx="82" cy="52" r="7" fill="#f59e0b"/>
+  <circle cx="106" cy="52" r="7" fill="#22c55e"/>
+  <text x="48" y="98" fill="#94a3b8" font-family="Menlo, monospace" font-size="18">$ lb "review this PR for security issues"</text>
+  <text x="72" y="150" fill="#e2e8f0" font-family="Menlo, monospace" font-size="18">╭────────────────────────────────────────────────────────╮</text>
+  <text x="72" y="184" fill="#67e8f9" font-family="Menlo, monospace" font-size="18">│  🎯 /security-review                              95%  │</text>
+  <text x="72" y="218" fill="#e2e8f0" font-family="Menlo, monospace" font-size="18">│  Scan code for OWASP Top 10, auth bypass,              │</text>
+  <text x="72" y="252" fill="#e2e8f0" font-family="Menlo, monospace" font-size="18">│  injection, and credential exposure.                   │</text>
+  <text x="72" y="286" fill="#94a3b8" font-family="Menlo, monospace" font-size="18">│  Also consider: /code-review · /tdd-workflow           │</text>
+  <text x="72" y="320" fill="#facc15" font-family="Menlo, monospace" font-size="18">│  💡 Combo: /security-review → /code-review             │</text>
+  <text x="72" y="354" fill="#e2e8f0" font-family="Menlo, monospace" font-size="18">╰────────────────────────────────────────────────────────╯</text>
+</svg>

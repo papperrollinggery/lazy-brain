@@ -1,7 +1,7 @@
 {
   "name": "lazybrain",
   "version": "1.5.0",
-  "description": "Agent work delivery layer for local AI coding agents",
+  "description": "AI agent capability orchestration engine",
   "type": "module",
   "bin": {
     "lazybrain": "./dist/bin/lazybrain.js",
@@ -32,8 +32,8 @@
   },
   "keywords": [
     "claude-code",
-    "skill-router",
-    "semantic-matching",
+    "skill-orchestration",
+    "agent-orchestration",
     "ai-agent",
     "knowledge-graph",
     "lazybrain"
@@ -51,10 +51,16 @@
   "engines": {
     "node": ">=18.0.0"
   },
-  "dependencies": {
+  "peerDependencies": {
     "@huggingface/transformers": "^4.1.0"
   },
+  "peerDependenciesMeta": {
+    "@huggingface/transformers": {
+      "optional": true
+    }
+  },
   "optionalDependencies": {
+    "@huggingface/transformers": "^4.1.0",
     "@esbuild/darwin-arm64": "^0.28.0",
     "@esbuild/darwin-x64": "^0.28.0",
     "@esbuild/linux-x64": "^0.28.0",

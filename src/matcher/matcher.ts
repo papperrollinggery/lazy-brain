@@ -1,424 +1,223 @@
-/**
- * LazyBrain — Matcher (Multi-Layer Orchestrator)
- *
- * Matching layers:
- *   Layer 0: Alias exact match
- *   Layer 1: Tag + example query match (primary)
- *   Layer 2: Secretary LLM rerank (low-confidence fallback)
- *
- * Then enriches results via graph traversal.
- */
-
-import type {
-  Capability,
-  MatchResult,
-  Recommendation,
-  UserConfig,
-  Platform,
-  HistoryEntry,
-} from '../types.js';
-import { MAX_RESULTS, HISTORY_BOOST_CAP } from '../constants.js';
+import type { Capability, HistoryEntry, MatchResult, Recommendation, UserConfig } from '../types.js';
 import { Graph } from '../graph/graph.js';
-import { tagMatch } from './tag-layer.js';
-import { semanticMatch } from './embedding-layer.js';
-import { detectDecisionType, buildDecisionRecommendation } from './decision-type.js';
-import { normalizeQuery } from '../utils/query-normalizer.js';
+import { BUILTIN_SKILLS, type BuiltinSkill } from '../knowledge/builtin.js';
 
-/**
- * Language/framework keywords that make a capability specialized.
- * When the top result is lang-specialized on a generic query, it is demoted
- * below non-specialized candidates in the post-merge step.
- */
-const LANG_KEYWORDS = new Set([
-  'cpp', 'c++', 'c#', 'kotlin', 'python', 'go', 'golang', 'rust',
-  'flutter', 'dart', 'swift', 'java', 'ruby', 'php', 'scala',
-  'django', 'spring', 'springboot', 'laravel', 'rails', 'react', 'vue',
-  'angular', 'svelte', 'nextjs', 'nuxt', 'fastapi', 'flask', 'express',
-  'kubernetes', 'docker', 'terraform', 'android', 'ios', 'macos', 'windows',
-  'linux', 'webassembly', 'wasm', 'solidity', 'blockchain', 'mcp',
-  'postgres', 'mysql', 'mongodb', 'redis', 'clickhouse',
-  'gradle', 'maven', 'webpack', 'vite', 'bun', 'deno',
-  'nestjs', 'pytorch', 'wechat', 'supabase', 'planetscale',
-]);
-
-/**
- * Check if a capability is language/framework-specialized.
- * Returns the matching language keyword, or undefined if generic.
- */
-function getLangSpecialty(cap: Capability): string | undefined {
-  const nameLower = cap.name.toLowerCase();
-  const tagsLower = cap.tags.map(t => t.toLowerCase());
-  for (const kw of LANG_KEYWORDS) {
-    if (nameLower.includes(kw) || tagsLower.some(t => t.includes(kw))) return kw;
-  }
-  return undefined;
+export interface FindResult {
+  skill: string;
+  score: number;
+  reason: string;
+  description: string;
+  category: string;
+  composesWell: string[];
 }
 
-function fillExplanation(
-  result: MatchResult,
-  query: string,
-  history?: HistoryEntry[],
-): MatchResult {
-  const { capability } = result;
-  const template = capability.explanation_template;
-  if (!template) return result;
-
-  // query_tags: use matched tags from capability that overlap with query
-  const queryLower = query.toLowerCase();
-  const tagLowers = capability.tags.map(t => t.toLowerCase());
-  const matchedTags = tagLowers.filter(t => t.length > 2 && queryLower.includes(t));
-  const query_tags = matchedTags.length > 0 ? matchedTags.join(', ') : capability.tags.slice(0, 3).join(', ');
-
-  // history_hint: check if this tool was used before
-  const toolHistory = history?.filter(h => h.matched === capability.name || h.id === capability.id);
-  const acceptedCount = toolHistory?.filter(h => h.accepted).length ?? 0;
-  let history_hint = '';
-  if (acceptedCount > 0) {
-    history_hint = `该工具已被你使用过 ${acceptedCount} 次。`;
-  } else if (toolHistory && toolHistory.length > 0) {
-    history_hint = `该工具在历史记录中出现。`;
-  } else {
-    history_hint = `暂无使用记录。`;
-  }
-
-  const tool_name = capability.name;
-
-  const explanation = template
-    .replace('{query_tags}', query_tags)
-    .replace('{history_hint}', history_hint)
-    .replace('{tool_name}', tool_name);
-
-  return { ...result, explanation };
-}
-
-function mergeMatchResults(primary: MatchResult[], secondary: MatchResult[]): MatchResult[] {
-  const byId = new Map<string, MatchResult>();
-  for (const result of [...primary, ...secondary]) {
-    const existing = byId.get(result.capability.id);
-    if (!existing || result.score > existing.score) {
-      byId.set(result.capability.id, result);
-    }
-  }
-  return [...byId.values()].sort((a, b) => b.score - a.score).slice(0, MAX_RESULTS);
+export interface FindOptions {
+  graph?: Graph;
+  limit?: number;
+  threshold?: number;
+  history?: Array<{ recommended?: string; used?: string | null; matched?: string; accepted?: boolean }>;
 }
 
 export interface MatchOptions {
   graph: Graph;
   config: UserConfig;
   history?: HistoryEntry[];
-  profile?: import('../types.js').UserProfile;
+  profile?: unknown;
 }
 
-/**
- * Full matching pipeline: alias → tag → (embedding) → graph enrichment.
- */
-export async function match(
-  query: string,
-  options: MatchOptions,
-): Promise<Recommendation> {
-  const normalizedQuery = normalizeQuery(query);
-  const { graph, config, history, profile } = options;
-  const allNodes = graph.getAllNodes().filter(n => n.status !== 'disabled');
-  const platform = config.platform;
+const TOKEN_RE = /[\p{L}\p{N}][\p{L}\p{N}-]*/gu;
 
-  // Empty graph check
-  if (allNodes.length === 0) {
-    return {
-      matches: [],
-      comparisons: [],
-      compositions: [],
-      upgrades: [],
-      external: [],
-      warnings: ['Graph is empty. Run `lazybrain scan && lazybrain compile` first.'],
-    };
-  }
+function normalize(text: string): string {
+  return text.toLowerCase().replace(/[^\p{L}\p{N}\s-]/gu, ' ').replace(/\s+/g, ' ').trim();
+}
 
-  // ─── Layer 0: Alias exact match ───────────────────────────────────────
-  const aliasResult = matchAlias(normalizedQuery, config.aliases, allNodes);
-  if (aliasResult) {
-    const withExplanation = fillExplanation(aliasResult, normalizedQuery, history);
-    return buildRecommendation([withExplanation], graph, platform, history);
-  }
+function tokens(text: string): Set<string> {
+  return new Set(normalize(text).match(TOKEN_RE) ?? []);
+}
 
-  // ─── Layer 1: Tag + example query match ───────────────────────────────
-  // Prefer tier 0+1 (current platform + universal), fallback to tier 2
-  const primaryNodes = allNodes.filter(n => n.tier === undefined || n.tier <= 1);
-  const warnings: string[] = [];
-  const engine = config.engine ?? 'tag';
-  let results = engine === 'semantic'
-    ? []
-    : tagMatch(normalizedQuery, primaryNodes, platform, MAX_RESULTS);
+function tokenList(text: string): string[] {
+  return normalize(text).match(TOKEN_RE) ?? [];
+}
 
-  if (engine === 'llm') {
-    warnings.push('LLM engine is only available inside the Claude hook Secretary fallback; CLI/server matching uses tag routing.');
-  }
+function phraseMatch(query: string, phrase: string): boolean {
+  const q = normalize(query);
+  const p = normalize(phrase);
+  if (!p) return false;
+  if (/[\u4e00-\u9fff]/.test(p)) return q.includes(p);
+  const escaped = p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(^|\\s)${escaped}(\\s|$)`).test(q);
+}
 
-  if (engine === 'semantic' || engine === 'hybrid') {
-    const shouldRunSemantic = engine === 'semantic' || results.length < 3 || (results[0]?.score ?? 0) < 0.85;
-    if (shouldRunSemantic) {
-      const semantic = await semanticMatch(normalizedQuery, primaryNodes, config, platform, MAX_RESULTS);
-      warnings.push(...semantic.warnings);
-      results = engine === 'semantic'
-        ? semantic.results
-        : mergeMatchResults(results, semantic.results);
-    }
-  }
+function overlap(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let hits = 0;
+  for (const item of a) if (b.has(item)) hits++;
+  return hits / Math.min(a.size, b.size);
+}
 
-  // Fallback: if < 3 results, search tier 2 as well
-  if (engine !== 'semantic' && results.length < 3) {
-    const tier2Nodes = allNodes.filter(n => n.tier === 2);
-    if (tier2Nodes.length > 0) {
-      const tier2Results = tagMatch(normalizedQuery, tier2Nodes, platform, MAX_RESULTS);
-      // Mark tier 2 results with lower confidence
-      for (const r of tier2Results) {
-        r.confidence = 'low';
+function jaccard(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let hits = 0;
+  for (const item of a) if (b.has(item)) hits++;
+  return hits / (a.size + b.size - hits);
+}
+
+function graphSkills(graph?: Graph): BuiltinSkill[] {
+  if (!graph) return [];
+  return graph.getAllNodes()
+    .filter((cap) => cap.status !== 'disabled')
+    .map((cap) => ({
+      name: cap.name,
+      category: cap.category || 'local',
+      description: cap.description || cap.scenario || 'Local capability.',
+      triggers: [...(cap.triggers ?? []), ...cap.tags, cap.name],
+      negatives: [],
+      examples: cap.exampleQueries,
+      composesWell: graph.getLinks(cap.id).slice(0, 4).map((link) => {
+        const otherId = link.source === cap.id ? link.target : link.source;
+        return graph.getNode(otherId)?.name ?? otherId;
+      }),
+    }));
+}
+
+function historyBoost(skillName: string, history?: FindOptions['history']): number {
+  if (!history?.length) return 0;
+  const normalizedName = normalize(skillName);
+  const uses = history.filter((entry) => {
+    const name = entry.used ?? entry.recommended ?? entry.matched ?? '';
+    return normalize(name) === normalizedName && entry.accepted !== false;
+  }).length;
+  return Math.min(0.12, uses * 0.03);
+}
+
+function scoreSkill(query: string, queryTokens: Set<string>, item: BuiltinSkill): FindResult | null {
+  const q = normalize(query);
+  let best = 0;
+  let reason = '';
+
+  for (const trigger of item.triggers) {
+    const t = normalize(trigger);
+    if (!t) continue;
+    if (phraseMatch(q, t)) {
+      const tokenCount = tokenList(t).length;
+      const score = t === q ? 0.98 : tokenCount <= 1 ? 0.68 : 0.95;
+      if (score > best) {
+        best = score;
+        reason = `trigger "${trigger}"`;
       }
-      results = [...results, ...tier2Results].slice(0, MAX_RESULTS);
+      continue;
+    }
+    const ratio = overlap(queryTokens, tokens(trigger));
+    if (ratio >= 0.6 && 0.8 > best) {
+      best = 0.8;
+      reason = `partial trigger "${trigger}"`;
     }
   }
 
-  // ─── Post-merge lang-specialty penalty ─────────────────────────────────
-  // If the top result is a language/framework-specialized cap and the second
-  // is generic, demote it to just below the second candidate.  This corrects
-  // cases where a framework-specific cap scores slightly above a generic one
-  // due to example-query inflation but the query itself has no lang hint.
-  if (results.length >= 2) {
-    const topSpec = getLangSpecialty(results[0].capability);
-    const secondSpec = getLangSpecialty(results[1].capability);
-    if (topSpec && !secondSpec) {
-      const secondScore = results[1].score;
-      results[0] = { ...results[0], score: Math.max(0.01, secondScore - 0.01) };
-      results.sort((a, b) => b.score - a.score);
-    }
-  }
-
-  // ─── History boost (after merge) ────────────────────────────────
-  if (history && history.length > 0) {
-    results = applyHistoryBoost(results, history);
-  }
-
-  // ─── Correction penalty ──────────────────────────────────────────────
-  if (profile?.corrections && profile.corrections.length > 0) {
-    results = applyCorrectionPenalty(results, profile.corrections);
-  }
-
-  // ─── Decision type detection ────────────────────────────────────────
-  const decisionType = detectDecisionType(normalizedQuery);
-
-  // ─── Build enriched recommendation via graph traversal ────────────────
-  const withExplanation = results.map(r => fillExplanation(r, normalizedQuery, history));
-  const sessionId = process.env.CLAUDE_SESSION_ID ?? 'unknown';
-  const rec = buildRecommendation(withExplanation, graph, platform, history, sessionId, warnings);
-  if (decisionType && rec) {
-    const hint = buildDecisionRecommendation(decisionType);
-    if (hint) {
-      rec.decisionHint = {
-        type: hint.type as string,
-        reason: hint.reason,
-        suggestedTools: hint.suggestedTools,
-        note: hint.note,
-      };
-    }
-  }
-  return rec;
-}
-
-// ─── Alias Matching ───────────────────────────────────────────────────────
-
-function matchAlias(
-  query: string,
-  aliases: Record<string, string>,
-  allNodes: Capability[],
-): MatchResult | null {
-  const lower = query.toLowerCase().trim();
-
-  for (const [alias, targetName] of Object.entries(aliases)) {
-    if (lower.includes(alias.toLowerCase())) {
-      const cap = allNodes.find(n => n.name === targetName);
-      if (cap) {
-        return { capability: cap, score: 1.0, layer: 'alias', confidence: 'high' };
-      }
-    }
-  }
-  return null;
-}
-
-// ─── History Boost ────────────────────────────────────────────────────────
-
-function applyHistoryBoost(
-  results: MatchResult[],
-  history: HistoryEntry[],
-): MatchResult[] {
-  // Count accepted matches per capability (prefer id over name for stability)
-  const freq: Record<string, number> = {};
-  for (const entry of history) {
-    if (entry.accepted) {
-      // Use id if available, fall back to matched (name)
-      const key = entry.id ?? entry.matched;
-      freq[key] = (freq[key] ?? 0) + 1;
-    }
-  }
-
-  const maxFreq = Math.max(1, ...Object.values(freq));
-
-  const boosted = results.map(r => {
-    const f = freq[r.capability.id] ?? freq[r.capability.name] ?? 0;
-    if (f === 0) return r;
-
-    const boost = HISTORY_BOOST_CAP * (f / maxFreq);
-    return {
-      ...r,
-      score: Math.min(1, r.score + boost),
-      historyBoost: boost,
-    };
-  });
-
-  return boosted.sort((a, b) => b.score - a.score);
-}
-
-/** 对被拒工具降权 0.8x（基于纠正信号） */
-const CORRECTION_PENALTY = 0.8;
-
-function applyCorrectionPenalty(
-  results: MatchResult[],
-  corrections: import('../types.js').CorrectionSignal[],
-): MatchResult[] {
-  const rejectedTools = new Set<string>();
-  for (const c of corrections) {
-    if (c.count >= 3) rejectedTools.add(c.rejected);
-  }
-
-  if (rejectedTools.size === 0) return results;
-
-  return results.map(r => {
-    const name = r.capability.name;
-    const id = r.capability.id;
-    if (rejectedTools.has(name) || rejectedTools.has(id)) {
-      return { ...r, score: r.score * CORRECTION_PENALTY };
-    }
-    return r;
-  });
-}
-
-// ─── Graph Enrichment ─────────────────────────────────────────────────────
-
-function buildRecommendation(
-  matches: MatchResult[],
-  graph: Graph,
-  platform?: Platform,
-  history?: HistoryEntry[],
-  sessionId?: string,
-  warnings: string[] = [],
-): Recommendation {
-  const comparisons: Recommendation['comparisons'] = [];
-  const compositions: Recommendation['compositions'] = [];
-  const upgrades: Recommendation['upgrades'] = [];
-  const external: MatchResult[] = [];
-
-  for (const m of matches) {
-    const nodeId = m.capability.id;
-
-    // Find similar capabilities with diff
-    const similarLinks = graph.getLinksByType(nodeId, 'similar_to');
-    for (const link of similarLinks) {
-      const other = graph.getNode(link.target);
-      if (!other) continue;
-      if (platform && !other.compatibility.includes(platform) && !other.compatibility.includes('universal')) continue;
-      comparisons.push({
-        a: m.capability,
-        b: other,
-        diff: link.diff ?? link.description ?? '',
-      });
-    }
-
-    // Find composable capabilities
-    const composeLinks = graph.getLinksByType(nodeId, 'composes_with')
-      .filter((link) => !link.description?.startsWith('同属 '));
-    if (composeLinks.length > 0) {
-      const companions = composeLinks
-        .map(l => graph.getNode(l.target))
-        .filter((n): n is Capability => n !== undefined);
-      if (companions.length > 0) {
-        compositions.push({
-          capabilities: [m.capability, ...companions],
-          reason: composeLinks[0].description ?? 'Recommended combination',
-        });
-      }
-    }
-
-    // Find version upgrades
-    const supersedesLinks = graph.getLinksByType(nodeId, 'supersedes');
-    for (const link of supersedesLinks) {
-      const newer = graph.getNode(link.target);
-      if (newer) {
-        upgrades.push({ old: m.capability, new: newer });
+  for (const example of item.examples) {
+    const ratio = jaccard(queryTokens, tokens(example));
+    if (ratio >= 0.35) {
+      const score = 0.7 + Math.min(0.12, ratio * 0.2);
+      if (score > best) {
+        best = score;
+        reason = `example "${example}"`;
       }
     }
   }
 
-  // Collect external (available but not installed) from graph traversal
-  const matchIds = matches.map(m => m.capability.id);
-  if (matchIds.length > 0) {
-    const { nodeIds } = graph.bfs(matchIds, 2);
-    for (const nid of nodeIds) {
-      if (matchIds.includes(nid)) continue;
-      const node = graph.getNode(nid);
-      if (node?.status === 'available') {
-        external.push({
-          capability: node,
-          score: 0.5,
-          layer: 'tag',
-          confidence: 'low',
-        });
-      }
-    }
+  const categoryTokens = tokens(`${item.category} ${item.name} ${item.description}`);
+  const categoryOverlap = overlap(queryTokens, categoryTokens);
+  if (categoryOverlap >= 0.35 && 0.55 > best) {
+    best = 0.55;
+    reason = `category ${item.category}`;
   }
 
-  // ─── Next steps prediction (from current session) ───────────────────
-  const nextSteps = getNextSteps(matches, history, sessionId);
+  const negativeHit = item.negatives.some((negative) => q.includes(normalize(negative)));
+  if (negativeHit) best *= 0.3;
+  if (best <= 0) return null;
 
   return {
-    matches,
-    comparisons,
-    compositions,
-    upgrades,
-    external: external.slice(0, 3),
-    ...(warnings.length > 0 ? { warnings: [...new Set(warnings)] } : {}),
-    ...(nextSteps.length > 0 ? { nextSteps } : {}),
+    skill: item.name,
+    score: Math.min(1, Number(best.toFixed(4))),
+    reason,
+    description: item.description,
+    category: item.category,
+    composesWell: item.composesWell,
   };
 }
 
-function getNextSteps(matches: MatchResult[], history?: HistoryEntry[], sessionId?: string): string[] {
-  if (!history || history.length === 0) return [];
-  if (matches.length === 0) return [];
-
-  const topTool = matches[0].capability.name;
-
-  // Search current session first, then fall back to cross-session patterns
-  const sessionHistory = sessionId
-    ? history.filter(e => e.sessionId === sessionId && e.accepted).map(e => e.matched)
-    : [];
-
-  const allHistory = history.filter(e => e.accepted).map(e => e.matched);
-
-  // Collect tools that follow topTool in history
-  const allNextSteps: string[] = [];
-  const source = sessionHistory.length > 0 ? sessionHistory : allHistory;
-  for (let i = 0; i < source.length - 1; i++) {
-    if (source[i] === topTool) {
-      allNextSteps.push(...source.slice(i + 1, i + 3));
-    }
+function uniqueSkills(skills: BuiltinSkill[]): BuiltinSkill[] {
+  const seen = new Set<string>();
+  const out: BuiltinSkill[] = [];
+  for (const item of skills) {
+    const key = normalize(item.name);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
   }
+  return out;
+}
 
-  // If current session yielded nothing, also check cross-session
-  if (allNextSteps.length === 0 && sessionHistory.length > 0) {
-    for (let i = 0; i < allHistory.length - 1; i++) {
-      if (allHistory[i] === topTool) {
-        allNextSteps.push(...allHistory.slice(i + 1, i + 3));
-      }
-    }
-  }
+export function find(query: string, options: FindOptions = {}): FindResult[] {
+  const trimmed = query.trim();
+  if (!trimmed) return [];
+  const queryTokens = tokens(trimmed);
+  const threshold = options.threshold ?? 0.5;
+  const limit = options.limit ?? 5;
+  const skills = uniqueSkills([...BUILTIN_SKILLS, ...graphSkills(options.graph)]);
 
-  // Deduplicate and cap at 3
-  return [...new Set(allNextSteps)].slice(0, 3);
+  return skills
+    .map((item) => {
+      const result = scoreSkill(trimmed, queryTokens, item);
+      if (!result) return null;
+      const boost = result.score >= 0.9 ? 0 : historyBoost(result.skill, options.history);
+      const score = Math.min(1, result.score + boost);
+      return { ...result, score: Number(score.toFixed(4)) };
+    })
+    .filter((result): result is FindResult => result !== null && result.score >= threshold)
+    .sort((a, b) => b.score - a.score || a.skill.localeCompare(b.skill))
+    .slice(0, limit);
+}
+
+function resultToCapability(result: FindResult): Capability {
+  return {
+    id: `builtin:${result.skill}`,
+    kind: 'skill',
+    name: result.skill,
+    description: result.description,
+    origin: 'builtin',
+    status: 'installed',
+    compatibility: ['universal'],
+    tags: [result.category, ...tokens(result.skill)],
+    exampleQueries: [],
+    category: result.category,
+    scenario: result.reason,
+  };
+}
+
+function toMatchResult(result: FindResult): MatchResult {
+  return {
+    capability: resultToCapability(result),
+    score: result.score,
+    layer: 'tag',
+    confidence: result.score >= 0.8 ? 'high' : result.score >= 0.6 ? 'medium' : 'low',
+    explanation: result.reason,
+  };
+}
+
+export async function match(query: string, options: MatchOptions): Promise<Recommendation> {
+  const results = find(query, {
+    graph: options.graph,
+    limit: 5,
+    threshold: 0.3,
+    history: options.history,
+  });
+  return {
+    matches: results.map(toMatchResult),
+    comparisons: [],
+    compositions: [],
+    upgrades: [],
+    external: [],
+    warnings: options.graph.getNodeCount() === 0 ? ['Graph is empty; using built-in knowledge.'] : [],
+  };
 }
