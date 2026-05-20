@@ -10,9 +10,11 @@
 
 ## 安装
 
+Beta channel：
+
 ```bash
-npx --yes lazybrain quickstart
-npm install -g lazybrain
+npm install -g lazybrain@beta
+lb quickstart
 lb "review this PR for security issues"
 ```
 
@@ -23,6 +25,8 @@ npm ci
 npm run build
 node dist/bin/lazybrain.js quickstart
 ```
+
+MCP 配置、本地 capability 路径和源码运行方式见 [docs/INSTALL.md](docs/INSTALL.md)。
 
 ## 常用命令
 
@@ -56,6 +60,8 @@ LazyBrain 可以扫描或索引这些本地能力来源：
 `Claude Code` `Codex` `Cursor` `Windsurf` `Cline` `OpenCode` `local SKILL.md`
 
 默认覆盖 Claude skills/commands、项目 commands、Cursor/Windsurf/Cline 规则文件、`.skillshub`、`.codex/skills` 和 `.agents/skills`。
+
+LazyBrain 是 local-first。它扫描本地 capability metadata，写入本地 cache/history；核心路径不调用 LLM，也不会上传扫描到的文件。隐私边界见 [docs/PRIVACY.md](docs/PRIVACY.md)。
 
 ## 编排能力
 
@@ -139,6 +145,14 @@ Verification: npm run audit:public && npm pack --dry-run --json
 3. 运行 `npm test`。
 
 适合贡献的方向：触发词、combo 模板、编排规则、scanner 覆盖、benchmark cases。
+
+## 使用场景
+
+Beta 阶段支持的真实用户场景见 [docs/USE_CASES.md](docs/USE_CASES.md)。
+
+## 发布检查
+
+发布 beta 或 stable 前先跑 [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md)。
 
 ## License
 
