@@ -40,6 +40,10 @@ function checkPack() {
     file === 'CHANGELOG.md' ||
     file === 'LICENSE' ||
     file === 'docs/assets/lazybrain-demo.svg' ||
+    file === 'docs/INSTALL.md' ||
+    file === 'docs/PRIVACY.md' ||
+    file === 'docs/RELEASE_CHECKLIST.md' ||
+    file === 'docs/USE_CASES.md' ||
     file.startsWith('dist/'));
   if (!allowed) {
     fail(`npm package includes unexpected files: ${files.filter(file =>
@@ -49,6 +53,10 @@ function checkPack() {
       file !== 'CHANGELOG.md' &&
       file !== 'LICENSE' &&
       file !== 'docs/assets/lazybrain-demo.svg' &&
+      file !== 'docs/INSTALL.md' &&
+      file !== 'docs/PRIVACY.md' &&
+      file !== 'docs/RELEASE_CHECKLIST.md' &&
+      file !== 'docs/USE_CASES.md' &&
       !file.startsWith('dist/')).join(', ')}`);
   }
   const required = ['dist/bin/lazybrain.js', 'dist/bin/mcp.js', 'dist/bin/hook.js', 'dist/index.js', 'dist/index.d.ts'];

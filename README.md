@@ -10,9 +10,11 @@ You installed hundreds of AI skills, commands, plugins, and local rules. You rem
 
 ## Install
 
+Beta channel:
+
 ```bash
-npx --yes lazybrain quickstart
-npm install -g lazybrain
+npm install -g lazybrain@beta
+lb quickstart
 lb "review this PR for security issues"
 ```
 
@@ -23,6 +25,8 @@ npm ci
 npm run build
 node dist/bin/lazybrain.js quickstart
 ```
+
+See [docs/INSTALL.md](docs/INSTALL.md) for MCP setup, local capability paths, and source checkout usage.
 
 ## What It Does
 
@@ -56,6 +60,8 @@ LazyBrain scans or indexes local capability files for:
 `Claude Code` `Codex` `Cursor` `Windsurf` `Cline` `OpenCode` `local SKILL.md`
 
 Default scan paths include Claude skills/commands, project commands, Cursor/Windsurf/Cline rule files, `.skillshub`, `.codex/skills`, and `.agents/skills`.
+
+LazyBrain is local-first. It scans local capability metadata and writes local cache/history files; it does not call an LLM on the hot path and does not upload scanned files. See [docs/PRIVACY.md](docs/PRIVACY.md).
 
 ## Orchestration
 
@@ -139,6 +145,14 @@ The smallest useful PR is one trigger phrase plus one golden-set case:
 3. Run `npm test`.
 
 Useful contribution areas: trigger phrases, combo templates, orchestration rules, scanner coverage, and benchmark cases.
+
+## User Scenarios
+
+See [docs/USE_CASES.md](docs/USE_CASES.md) for supported beta workflows and examples.
+
+## Release Readiness
+
+See [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md) before publishing a beta or stable release.
 
 ## License
 

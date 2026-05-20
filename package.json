@@ -20,6 +20,10 @@
   "files": [
     "dist",
     "docs/assets",
+    "docs/INSTALL.md",
+    "docs/PRIVACY.md",
+    "docs/RELEASE_CHECKLIST.md",
+    "docs/USE_CASES.md",
     "README_CN.md",
     "CHANGELOG.md"
   ],
