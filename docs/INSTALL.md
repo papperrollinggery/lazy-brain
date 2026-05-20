@@ -2,12 +2,18 @@
 
 LazyBrain is a local-first capability router for AI agent tools. It runs on Node.js 18 or newer.
 
-## Beta Install
+## Current Beta Prerelease
+
+```bash
+npm install -g https://github.com/papperrollinggery/lazy-brain/releases/download/v2.0.0-beta.1/lazybrain-2.0.0.tgz
+lb quickstart
+lb "review this PR for security issues"
+```
+
+After npm beta is published:
 
 ```bash
 npm install -g lazybrain@beta
-lb quickstart
-lb "review this PR for security issues"
 ```
 
 If the beta package is not published yet, install from a checkout:
