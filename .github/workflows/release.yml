@@ -55,6 +55,12 @@ jobs:
 
       - name: Publish
         if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.dry_run == 'false') }}
-        run: npm publish
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "::notice::NPM_TOKEN is not configured; skipping npm publish."
+            echo "Set the NPM_TOKEN repository secret, then rerun this workflow_dispatch with dry_run=false."
+            exit 0
+          fi
+          npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
