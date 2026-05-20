@@ -29,6 +29,14 @@ function checkVersion() {
 }
 
 function checkPack() {
+  const requiredBins = {
+    lazybrain: 'dist/bin/lazybrain.js',
+    lb: 'dist/bin/lazybrain.js',
+    'lazybrain-mcp': 'dist/bin/mcp.js',
+  };
+  for (const [name, target] of Object.entries(requiredBins)) {
+    if (pkg.bin?.[name] !== target) fail(`package.json bin.${name} must point to ${target}`);
+  }
   const raw = run('npm', ['pack', '--dry-run', '--json']);
   const entries = JSON.parse(raw);
   const files = entries[0]?.files?.map(file => file.path).sort() ?? [];

@@ -4,9 +4,9 @@
   "description": "Deterministic capability router and orchestration engine for local AI agents",
   "type": "module",
   "bin": {
-    "lazybrain": "./dist/bin/lazybrain.js",
-    "lb": "./dist/bin/lazybrain.js",
-    "lazybrain-mcp": "./dist/bin/mcp.js"
+    "lazybrain": "dist/bin/lazybrain.js",
+    "lb": "dist/bin/lazybrain.js",
+    "lazybrain-mcp": "dist/bin/mcp.js"
   },
   "main": "./dist/index.js",
   "module": "./dist/index.js",
