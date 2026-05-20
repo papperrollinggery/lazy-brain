@@ -28,8 +28,17 @@ function readStdin(): string {
 }
 
 function readChainConfig(): ChainConfig {
+  const explicitChainPath = process.env.LAZYBRAIN_STATUSLINE_CHAIN;
+  if (explicitChainPath) {
+    try {
+      if (!existsSync(explicitChainPath)) return {};
+      return JSON.parse(readFileSync(explicitChainPath, 'utf-8')) as ChainConfig;
+    } catch {
+      return {};
+    }
+  }
+
   const candidates = [
-    process.env.LAZYBRAIN_STATUSLINE_CHAIN,
     join(resolve(process.cwd(), '.claude'), 'lazybrain-statusline-chain.json'),
     getStatuslineChainPath(),
     `${process.env.HOME ?? ''}/.lazybrain/statusline-chain.json`,
@@ -45,14 +54,14 @@ function readChainConfig(): ChainConfig {
   return {};
 }
 
-function runCommand(command: string, stdin: string): string {
+function runCommand(command: string, stdin: string, extraEnv: Record<string, string> = {}): string {
   try {
     return execSync(command, {
       input: stdin,
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'ignore'],
       timeout: 5000,
-      env: process.env,
+      env: { ...process.env, ...extraEnv },
     }).trim();
   } catch {
     return '';
@@ -71,7 +80,11 @@ function main(): void {
     ? runCommand(upstreamCommand, stdin)
     : '';
   const upstream = simplifyUpstreamHud(upstreamRaw);
-  const lazybrain = runCommand(`node ${JSON.stringify(new URL('./statusline.js', import.meta.url).pathname)}`, stdin);
+  const lazybrain = runCommand(
+    `node ${JSON.stringify(new URL('./statusline.js', import.meta.url).pathname)}`,
+    stdin,
+    { LAZYBRAIN_STATUSLINE_LABEL_ONLY: '1' },
+  );
 
   if (upstream && lazybrain) {
     if (isLowSignalLazyBrainLabel(lazybrain)) {

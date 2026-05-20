@@ -17,6 +17,16 @@ describe('scanner', () => {
     expect(fixtureSkills.length).toBeGreaterThanOrEqual(2);
   });
 
+  it('scans top-level skillshub-style skill roots', () => {
+    const result = scan({
+      extraPaths: [resolve(fixturesDir, '.skillshub')],
+    });
+
+    const skill = result.capabilities.find(c => c.name === 'test-ecc-skill');
+    expect(skill?.kind).toBe('skill');
+    expect(skill?.origin).toBe('ECC');
+  });
+
   it('scans agents from extra paths', () => {
     const result = scan({
       extraPaths: [resolve(fixturesDir, 'agents')],

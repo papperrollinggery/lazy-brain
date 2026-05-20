@@ -6,6 +6,7 @@ import type { RawCapability } from '../../types.js';
 import { parseFrontmatter } from '../../utils/yaml.js';
 import { inferPlatformFromPath, inferSinglePlatformFromPath } from '../../constants.js';
 import { inferOrigin } from '../origin.js';
+import { parseCapabilityMetadata } from '../metadata.js';
 
 /**
  * Extract first non-heading paragraph from body.
@@ -55,6 +56,7 @@ export function parseAgent(filePath: string, content: string): RawCapability | n
     name,
     description,
     origin,
+    ...parseCapabilityMetadata(frontmatter),
     filePath,
     compatibility: inferPlatformFromPath(filePath),
     platform: inferSinglePlatformFromPath(filePath),

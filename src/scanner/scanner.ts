@@ -5,7 +5,8 @@
  */
 
 import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs';
-import { join, basename } from 'node:path';
+import { homedir } from 'node:os';
+import { join, basename, resolve } from 'node:path';
 
 import type { RawCapability, Platform } from '../types.js';
 import { getDefaultScanPaths, inferPlatformFromPath } from '../constants.js';
@@ -16,6 +17,7 @@ import { dedup } from './dedup.js';
 
 export interface ScanOptions {
   extraPaths?: string[];
+  sources?: ScanSource[];
   onProgress?: (scanned: number, found: number) => void;
   /** Current platform for tier assignment */
   platform?: Platform;
@@ -23,11 +25,32 @@ export interface ScanOptions {
   platforms?: Record<string, boolean>;
 }
 
+export interface ScanSource {
+  tool: 'claude-code' | 'cursor' | 'windsurf' | 'cline' | 'custom';
+  paths: string[];
+  parser: 'skill-md' | 'cursorrules' | 'json' | 'markdown';
+}
+
 export interface ScanResult {
   capabilities: RawCapability[];
   scannedFiles: number;
   scannedPaths: number;
   errors: string[];
+}
+
+export function detectSources(): ScanSource[] {
+  const home = homedir();
+  const cwd = process.cwd();
+  const candidates: ScanSource[] = [
+    { tool: 'claude-code', parser: 'skill-md', paths: [join(home, '.claude', 'skills'), join(home, '.claude', 'commands'), join(cwd, '.claude', 'commands')] },
+    { tool: 'cursor', parser: 'cursorrules', paths: [join(cwd, '.cursorrules'), join(cwd, '.cursor', 'rules'), join(home, '.cursor', 'rules')] },
+    { tool: 'windsurf', parser: 'markdown', paths: [join(cwd, '.windsurfrules'), join(home, '.windsurf', 'rules')] },
+    { tool: 'cline', parser: 'markdown', paths: [join(cwd, '.clinerules'), join(home, '.cline', 'rules')] },
+    { tool: 'custom', parser: 'skill-md', paths: [join(home, '.skillshub'), join(home, '.codex', 'skills'), join(home, '.agents', 'skills')] },
+  ];
+  return candidates
+    .map((source) => ({ ...source, paths: source.paths.map((path) => resolve(path)).filter(existsSync) }))
+    .filter((source) => source.paths.length > 0);
 }
 
 function isDirectory(path: string): boolean {
@@ -97,8 +120,36 @@ function safeReadFile(filePath: string): string | null {
   }
 }
 
+function isFile(path: string): boolean {
+  try {
+    return statSync(path).isFile();
+  } catch {
+    return false;
+  }
+}
+
+function isSkillRootPath(path: string): boolean {
+  return path.includes('/skills') || path.includes('/skills-disabled') || basename(path) === '.skillshub';
+}
+
+function parseRuleFile(filePath: string, content: string, tool: string): RawCapability | null {
+  const name = basename(filePath).replace(/^\./, '').replace(/\.[^.]+$/, '') || `${tool}-rules`;
+  const firstLine = content.split('\n').map((line) => line.trim()).find(Boolean);
+  return {
+    kind: 'skill',
+    name: `${tool}-${name}`,
+    description: firstLine?.slice(0, 180) || `${tool} local rule file`,
+    origin: tool,
+    filePath,
+    triggers: [tool, name, `${tool} rules`],
+    compatibility: tool === 'cursor' ? ['cursor'] : ['universal'],
+    platform: tool === 'cursor' ? 'cursor' : 'universal',
+  };
+}
+
 export function scan(options?: ScanOptions): ScanResult {
-  const paths = [...getDefaultScanPaths(options?.platforms), ...(options?.extraPaths ?? [])];
+  const sourcePaths = (options?.sources ?? detectSources()).flatMap((source) => source.paths);
+  const paths = [...new Set([...getDefaultScanPaths(options?.platforms), ...sourcePaths, ...(options?.extraPaths ?? [])])];
   const capabilities: RawCapability[] = [];
   const errors: string[] = [];
   let scannedFiles = 0;
@@ -106,10 +157,25 @@ export function scan(options?: ScanOptions): ScanResult {
 
   for (const path of paths) {
     scannedPaths++;
-    if (!existsSync(path) || !isDirectory(path)) continue;
+    if (!existsSync(path)) continue;
+
+    if (isFile(path)) {
+      scannedFiles++;
+      const content = safeReadFile(path);
+      if (content === null) {
+        errors.push(`Failed to read: ${path}`);
+        continue;
+      }
+      const tool = path.includes('cursor') ? 'cursor' : path.includes('windsurf') ? 'windsurf' : path.includes('cline') ? 'cline' : 'custom';
+      const capability = parseRuleFile(path, content, tool);
+      if (capability) capabilities.push(capability);
+      continue;
+    }
+
+    if (!isDirectory(path)) continue;
 
     try {
-      if (path.includes('/skills') || path.includes('/skills-disabled')) {
+      if (isSkillRootPath(path)) {
         const skillFiles = findSkillFiles(path);
         for (const filePath of skillFiles) {
           scannedFiles++;

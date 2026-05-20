@@ -1,11 +1,12 @@
 {
   "name": "lazybrain",
-  "version": "1.5.0",
-  "description": "Semantic skill router for AI coding agents — your second brain for capabilities",
+  "version": "2.0.0",
+  "description": "Deterministic capability router and orchestration engine for local AI agents",
   "type": "module",
   "bin": {
     "lazybrain": "./dist/bin/lazybrain.js",
-    "lb": "./dist/bin/lazybrain.js"
+    "lb": "./dist/bin/lazybrain.js",
+    "lazybrain-mcp": "./dist/bin/mcp.js"
   },
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -18,6 +19,7 @@
   },
   "files": [
     "dist",
+    "docs/assets",
     "README_CN.md",
     "CHANGELOG.md"
   ],
@@ -32,8 +34,13 @@
   },
   "keywords": [
     "claude-code",
-    "skill-router",
-    "semantic-matching",
+    "codex",
+    "cursor",
+    "cli",
+    "mcp",
+    "deterministic",
+    "skill-orchestration",
+    "agent-orchestration",
     "ai-agent",
     "knowledge-graph",
     "lazybrain"
@@ -51,10 +58,16 @@
   "engines": {
     "node": ">=18.0.0"
   },
-  "dependencies": {
+  "peerDependencies": {
     "@huggingface/transformers": "^4.1.0"
   },
+  "peerDependenciesMeta": {
+    "@huggingface/transformers": {
+      "optional": true
+    }
+  },
   "optionalDependencies": {
+    "@huggingface/transformers": "^4.1.0",
     "@esbuild/darwin-arm64": "^0.28.0",
     "@esbuild/darwin-x64": "^0.28.0",
     "@esbuild/linux-x64": "^0.28.0",
@@ -65,5 +78,9 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/papperrollinggery/lazy-brain.git"
+  },
+  "homepage": "https://github.com/papperrollinggery/lazy-brain#readme",
+  "bugs": {
+    "url": "https://github.com/papperrollinggery/lazy-brain/issues"
   }
 }

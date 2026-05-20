@@ -1,255 +1,162 @@
-import type { Capability, RouteTarget, UserConfig } from '../types.js';
-import type { Graph } from '../graph/graph.js';
-import { buildRouteSpec, isRouteTarget } from '../orchestrator/route.js';
-import { listCombos } from '../combos/registry.js';
-import { loadRecentHistory } from '../history/history.js';
-import { loadProfile } from '../history/profile.js';
-import { getPackageVersion } from '../version.js';
+import { stdin, stdout } from 'node:process';
+import { existsSync } from 'node:fs';
+import { Graph } from '../graph/graph.js';
+import { GRAPH_PATH } from '../constants.js';
+import { find } from '../matcher/matcher.js';
+import { orchestrate } from '../orchestrator/engine.js';
+import { signalFromQuery } from '../orchestrator/signals.js';
+import { getStats, loadRecent } from '../history/history.js';
+import { scan } from '../scanner/scanner.js';
 
-type JsonRpcRequest = {
+type JsonObject = Record<string, unknown>;
+
+export interface JsonRpcRequest {
   jsonrpc?: string;
   id?: string | number | null;
-  method?: string;
-  params?: unknown;
-};
-
-type McpContext = {
-  graph: Graph;
-  config: UserConfig;
-};
-
-const TOOL_DESCRIPTION_ROUTE =
-  'Call lazybrain.route before non-trivial coding, review, debugging, UI, docs, release, hook, testing, or multi-agent tasks. Call it when the request is vague or when routing skills/agents can reduce context. Do not call it for simple factual answers or tiny edits.';
-
-const MAX_QUERY_LENGTH = 2000;
-const MAX_LIMIT = 20;
-
-function errorResponse(id: JsonRpcRequest['id'], code: number, message: string) {
-  return { jsonrpc: '2.0', id: id ?? null, error: { code, message } };
+  method: string;
+  params?: JsonObject;
 }
 
-function okResponse(id: JsonRpcRequest['id'], result: unknown) {
-  return { jsonrpc: '2.0', id: id ?? null, result };
+interface JsonRpcResponse {
+  jsonrpc: '2.0';
+  id: string | number | null;
+  result?: unknown;
+  error?: { code: number; message: string };
 }
 
-function paramsObject(params: unknown): Record<string, unknown> {
-  return params && typeof params === 'object' ? params as Record<string, unknown> : {};
+function textContent(text: string): JsonObject {
+  return { content: [{ type: 'text', text }] };
 }
 
-function toolText(data: unknown) {
-  return {
-    content: [
-      { type: 'text', text: typeof data === 'string' ? data : JSON.stringify(data, null, 2) },
-    ],
-  };
+function argString(params: JsonObject | undefined, key: string): string {
+  const args = params?.arguments;
+  const source = args && typeof args === 'object' ? args as JsonObject : params;
+  const value = source?.[key];
+  return typeof value === 'string' ? value.trim() : '';
 }
 
-function sanitizeCapability(cap: Capability): Record<string, unknown> {
-  return {
-    id: cap.id,
-    name: cap.name,
-    kind: cap.kind,
-    category: cap.category,
-    origin: cap.origin,
-    status: cap.status,
-    compatibility: cap.compatibility,
-    description: cap.description,
-    tags: cap.tags.slice(0, 12),
-    exampleQueries: cap.exampleQueries.slice(0, 5),
-    scenario: cap.scenario,
-  };
+function loadGraph(): Graph | undefined {
+  return existsSync(GRAPH_PATH) ? Graph.load(GRAPH_PATH) : undefined;
 }
 
-function findCapability(graph: Graph, name: string): Capability | undefined {
-  const lower = name.toLowerCase();
-  return graph.getNode(name) ??
-    graph.findByName(name) ??
-    graph.getAllNodes().find((cap) => cap.name.toLowerCase() === lower) ??
-    graph.getAllNodes().find((cap) => cap.name.toLowerCase().includes(lower));
+function formatFind(query: string): string {
+  const results = find(query, { graph: loadGraph(), limit: 5, threshold: 0.3, history: loadRecent(30) });
+  if (!results.length) return 'No match found.';
+  return results.map((item, index) => `${index + 1}. /${item.skill} ${Math.round(item.score * 100)}% - ${item.reason}`).join('\n');
 }
 
-function searchCapabilities(graph: Graph, query: string, limit: number): Record<string, unknown>[] {
-  const lower = query.toLowerCase();
-  return graph.getAllNodes()
-    .filter((cap) => cap.name.toLowerCase().includes(lower) ||
-      cap.description.toLowerCase().includes(lower) ||
-      cap.tags.some((tag) => tag.toLowerCase().includes(lower)) ||
-      cap.category.toLowerCase().includes(lower))
-    .slice(0, limit)
-    .map(sanitizeCapability);
+function formatOrchestration(query: string): string {
+  const plan = orchestrate(signalFromQuery(query));
+  if (!plan) return formatFind(query);
+  const steps = plan.enhancements.map((item) => `${item.priority}. /${item.name} - ${item.reason}`).join('\n');
+  return `Plan ${Math.round(plan.confidence * 100)}% (${plan.sequence})\n${plan.reason}\n${steps}`;
 }
 
-function toolsList() {
-  return {
-    tools: [
-      {
-        name: 'lazybrain.route',
-        description: TOOL_DESCRIPTION_ROUTE,
-        inputSchema: {
-          type: 'object',
-          properties: {
-            query: { type: 'string', maxLength: MAX_QUERY_LENGTH },
-            target: { type: 'string', enum: ['generic', 'claude', 'codex', 'cursor'] },
-          },
-          required: ['query'],
-        },
-      },
-      {
-        name: 'lazybrain.search',
-        description: 'Search the LazyBrain capability database without loading full skill bodies.',
-        inputSchema: {
-          type: 'object',
-          properties: {
-            query: { type: 'string', maxLength: MAX_QUERY_LENGTH },
-            limit: { type: 'number', minimum: 1, maximum: MAX_LIMIT },
-          },
-          required: ['query'],
-        },
-      },
-      {
-        name: 'lazybrain.skill_card',
-        description: 'Return compact public metadata for one skill or capability. Does not return the full skill body.',
-        inputSchema: {
-          type: 'object',
-          properties: { name: { type: 'string', maxLength: 200 } },
-          required: ['name'],
-        },
-      },
-      {
-        name: 'lazybrain.combos',
-        description: 'List built-in advisory route combo templates by optional category.',
-        inputSchema: {
-          type: 'object',
-          properties: { category: { type: 'string', maxLength: 100 } },
-        },
-      },
-    ],
-  };
+function formatStats(): string {
+  const stats = getStats();
+  const top = stats.bySkill.slice(0, 8).map((item) => `/${item.skill}: ${item.count}`).join('\n');
+  return [
+    `Total queries: ${stats.total}`,
+    `Accepted: ${stats.accepted}`,
+    `Ignored: ${stats.ignored}`,
+    top ? `Top skills:\n${top}` : 'Top skills: none',
+  ].join('\n');
 }
 
-async function callTool(name: string, args: Record<string, unknown>, ctx: McpContext): Promise<unknown> {
-  switch (name) {
-    case 'lazybrain.route': {
-      const query = args.query;
-      const target = typeof args.target === 'string' && isRouteTarget(args.target) ? args.target as RouteTarget : 'generic';
-      if (typeof query !== 'string' || !query.trim()) throw new Error('Missing required argument: query');
-      if (query.length > MAX_QUERY_LENGTH) throw new Error(`Query is too long. Limit: ${MAX_QUERY_LENGTH} characters.`);
-      const spec = await buildRouteSpec(query, {
-        graph: ctx.graph,
-        config: ctx.config,
-        history: loadRecentHistory(50),
-        profile: loadProfile() ?? undefined,
-        target,
-      });
-      return toolText(spec);
-    }
-    case 'lazybrain.search': {
-      const query = args.query;
-      const limit = Math.min(MAX_LIMIT, Math.max(1, Number(args.limit ?? 8)));
-      if (typeof query !== 'string' || !query.trim()) throw new Error('Missing required argument: query');
-      if (query.length > MAX_QUERY_LENGTH) throw new Error(`Query is too long. Limit: ${MAX_QUERY_LENGTH} characters.`);
-      return toolText({ results: searchCapabilities(ctx.graph, query, Number.isFinite(limit) ? limit : 8) });
-    }
-    case 'lazybrain.skill_card': {
-      const nameArg = args.name;
-      if (typeof nameArg !== 'string' || !nameArg.trim()) throw new Error('Missing required argument: name');
-      const cap = findCapability(ctx.graph, nameArg.trim());
-      if (!cap) throw new Error(`Capability not found: ${nameArg}`);
-      return toolText({ capability: sanitizeCapability(cap) });
-    }
-    case 'lazybrain.combos': {
-      const category = typeof args.category === 'string' ? args.category : undefined;
-      return toolText({ combos: listCombos(category) });
-    }
-    default:
-      throw new Error(`Unknown tool: ${name}`);
+function formatGraphStats(): string {
+  const graph = loadGraph();
+  if (!graph) return 'Graph not compiled yet. Run lazybrain scan or lazybrain compile first.';
+  return `Nodes: ${graph.getNodeCount()}\nLinks: ${graph.getAllLinks().length}`;
+}
+
+function formatHistory(): string {
+  const recent = loadRecent(30).slice(-20);
+  if (!recent.length) return 'No recent history.';
+  return recent.map((entry) => `${entry.timestamp} ${entry.query} -> ${entry.used ?? entry.recommended}`).join('\n');
+}
+
+function tools(): JsonObject[] {
+  const stringSchema = { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] };
+  return [
+    { name: 'lazybrain_find', description: 'Find matching LazyBrain skills for a task.', inputSchema: stringSchema },
+    { name: 'lazybrain_orchestrate', description: 'Build an orchestration plan for a task.', inputSchema: stringSchema },
+    { name: 'lazybrain_stats', description: 'Return recent LazyBrain usage stats.', inputSchema: { type: 'object', properties: {} } },
+    { name: 'lazybrain_scan', description: 'Scan local capability sources.', inputSchema: { type: 'object', properties: {} } },
+  ];
+}
+
+function resources(): JsonObject[] {
+  return [
+    { uri: 'lazybrain://graph/stats', name: 'LazyBrain graph stats', mimeType: 'text/plain' },
+    { uri: 'lazybrain://history/recent', name: 'LazyBrain recent history', mimeType: 'text/plain' },
+  ];
+}
+
+function toolCall(params: JsonObject | undefined): JsonObject {
+  const name = typeof params?.name === 'string' ? params.name : '';
+  if (name === 'lazybrain_find') return textContent(formatFind(argString(params, 'query')));
+  if (name === 'lazybrain_orchestrate') return textContent(formatOrchestration(argString(params, 'query')));
+  if (name === 'lazybrain_stats') return textContent(formatStats());
+  if (name === 'lazybrain_scan') {
+    const result = scan();
+    return textContent(`Scanned ${result.scannedPaths} paths. Found ${result.capabilities.length} capabilities.`);
   }
+  throw new Error(`Unknown tool: ${name}`);
 }
 
-export async function handleMcpRequest(request: JsonRpcRequest, ctx: McpContext): Promise<unknown | null> {
-  if (!request.id && request.method?.startsWith('notifications/')) return null;
+function resourceRead(params: JsonObject | undefined): JsonObject {
+  const uri = typeof params?.uri === 'string' ? params.uri : '';
+  const text = uri === 'lazybrain://graph/stats'
+    ? formatGraphStats()
+    : uri === 'lazybrain://history/recent'
+      ? formatHistory()
+      : undefined;
+  if (text === undefined) throw new Error(`Unknown resource: ${uri}`);
+  return { contents: [{ uri, mimeType: 'text/plain', text }] };
+}
 
+export function handleRequest(request: JsonRpcRequest): JsonRpcResponse | null {
+  if (!request.id && request.method.startsWith('notifications/')) return null;
   try {
-    switch (request.method) {
-      case 'initialize':
-        return okResponse(request.id, {
-          protocolVersion: '2025-06-18',
-          capabilities: { tools: {} },
-          serverInfo: { name: 'lazybrain', version: getPackageVersion() },
-        });
-      case 'tools/list':
-        return okResponse(request.id, toolsList());
-      case 'tools/call': {
-        const params = paramsObject(request.params);
-        const name = params.name;
-        if (typeof name !== 'string') return errorResponse(request.id, -32602, 'Missing tool name');
-        const args = paramsObject(params.arguments);
-        return okResponse(request.id, await callTool(name, args, ctx));
-      }
-      default:
-        return errorResponse(request.id, -32601, `Method not found: ${request.method ?? '(missing)'}`);
-    }
+    const result = request.method === 'initialize'
+      ? { protocolVersion: '2024-11-05', capabilities: { tools: {}, resources: {} }, serverInfo: { name: 'lazybrain', version: '1.0.0' } }
+      : request.method === 'tools/list'
+        ? { tools: tools() }
+        : request.method === 'tools/call'
+          ? toolCall(request.params)
+          : request.method === 'resources/list'
+            ? { resources: resources() }
+            : request.method === 'resources/read'
+              ? resourceRead(request.params)
+              : undefined;
+    if (result === undefined) throw new Error(`Unknown method: ${request.method}`);
+    return { jsonrpc: '2.0', id: request.id ?? null, result };
   } catch (error) {
-    return errorResponse(request.id, -32000, error instanceof Error ? error.message : String(error));
+    return { jsonrpc: '2.0', id: request.id ?? null, error: { code: -32000, message: error instanceof Error ? error.message : String(error) } };
   }
 }
 
-function writeFramed(message: unknown): void {
-  const payload = JSON.stringify(message);
-  process.stdout.write(`Content-Length: ${Buffer.byteLength(payload)}\r\n\r\n${payload}`);
-}
-
-function extractMessages(buffer: string): { messages: string[]; rest: string } {
-  const messages: string[] = [];
-  let rest = buffer;
-
-  while (rest.length > 0) {
-    if (rest.startsWith('Content-Length:')) {
-      const headerEnd = rest.indexOf('\r\n\r\n');
-      if (headerEnd === -1) break;
-      const header = rest.slice(0, headerEnd);
-      const match = header.match(/Content-Length:\s*(\d+)/i);
-      if (!match) {
-        const next = rest.indexOf('\n');
-        rest = next === -1 ? '' : rest.slice(next + 1);
-        continue;
-      }
-      const length = Number(match[1]);
-      const bodyStart = headerEnd + 4;
-      if (rest.length < bodyStart + length) break;
-      messages.push(rest.slice(bodyStart, bodyStart + length));
-      rest = rest.slice(bodyStart + length);
-      continue;
-    }
-
-    const newline = rest.indexOf('\n');
-    if (newline === -1) break;
-    const line = rest.slice(0, newline).trim();
-    rest = rest.slice(newline + 1);
-    if (line) messages.push(line);
+function readMessages(input: string): JsonRpcRequest[] {
+  const messages: JsonRpcRequest[] = [];
+  const trimmed = input.trim();
+  if (!trimmed) return messages;
+  if (trimmed.includes('Content-Length:')) {
+    for (const part of trimmed.split(/\r?\n\r?\n/).slice(1)) messages.push(JSON.parse(part.trim()) as JsonRpcRequest);
+    return messages;
   }
-
-  return { messages, rest };
+  for (const line of trimmed.split(/\r?\n/)) messages.push(JSON.parse(line) as JsonRpcRequest);
+  return messages;
 }
 
-export function runMcpStdioServer(ctx: McpContext): void {
+export function startServer(): void {
+  stdin.setEncoding('utf8');
   let buffer = '';
-  process.stdin.setEncoding('utf-8');
-  process.stdin.on('data', async (chunk: string) => {
+  stdin.on('data', (chunk) => {
     buffer += chunk;
-    const parsed = extractMessages(buffer);
-    buffer = parsed.rest;
-    for (const message of parsed.messages) {
-      try {
-        const response = await handleMcpRequest(JSON.parse(message) as JsonRpcRequest, ctx);
-        if (response) writeFramed(response);
-      } catch {
-        writeFramed(errorResponse(null, -32700, 'Parse error'));
-      }
+    for (const request of readMessages(buffer)) {
+      const response = handleRequest(request);
+      if (response) stdout.write(`${JSON.stringify(response)}\n`);
     }
+    buffer = '';
   });
-}
-
-export function getMcpToolNames(): string[] {
-  return toolsList().tools.map((tool) => tool.name);
 }

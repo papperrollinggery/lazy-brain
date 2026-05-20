@@ -60,13 +60,31 @@ import type {
   LinkType,
   WikiCard,
 } from '../types.js';
+import { isLinkType } from '../types.js';
 import { GRAPH_PATH, GRAPH_VERSION } from '../constants.js';
+
+function isCapabilityCostLevel(value: unknown): value is Capability['costLevel'] {
+  return value === 'free' || value === 'low' || value === 'medium' || value === 'high';
+}
+
+function isCapabilityRiskLevel(value: unknown): value is Capability['riskLevel'] {
+  return value === 'safe' || value === 'caution' || value === 'destructive';
+}
+
+function isBoolean(value: unknown): value is boolean {
+  return typeof value === 'boolean';
+}
+
+function isNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
 
 export class Graph {
   private nodes: Map<string, Capability> = new Map();
   private adjacency: Map<string, Link[]> = new Map();
   private compileModel?: string;
   private compiledAt?: string;
+  private compileErrors: string[] = [];
 
   // ─── Load / Save ────────────────────────────────────────────────────────
 
@@ -75,7 +93,12 @@ export class Graph {
     if (!existsSync(path)) return g;
 
     return withFileLock(path, () => {
-      const raw: CapabilityGraph = JSON.parse(readFileSync(path, 'utf-8'));
+      let raw: CapabilityGraph;
+      try {
+        raw = JSON.parse(readFileSync(path, 'utf-8')) as CapabilityGraph;
+      } catch {
+        return g;
+      }
       for (const node of raw.nodes) {
         const validNode: Capability = {
           id: node.id ?? `unknown-${g.nodes.size}`,
@@ -83,6 +106,9 @@ export class Graph {
           name: node.name ?? 'Unnamed',
           description: node.description ?? '',
           origin: node.origin ?? 'unknown',
+          provider: node.provider ?? node.origin ?? 'unknown',
+          conflictGroup: node.conflictGroup,
+          sideEffects: Array.isArray(node.sideEffects) ? node.sideEffects : undefined,
           status: node.status ?? 'installed',
           compatibility: Array.isArray(node.compatibility) ? node.compatibility : ['universal'],
           filePath: node.filePath,
@@ -90,20 +116,28 @@ export class Graph {
           exampleQueries: Array.isArray(node.exampleQueries) ? node.exampleQueries : [],
           category: node.category ?? 'other',
           scenario: node.scenario,
+          explanation_template: node.explanation_template,
           meta: node.meta,
           triggers: Array.isArray(node.triggers) ? node.triggers : undefined,
           aliases: Array.isArray(node.aliases) ? node.aliases : undefined,
           tier: node.tier,
           evolvedTags: Array.isArray(node.evolvedTags) ? node.evolvedTags : undefined,
+          costLevel: isCapabilityCostLevel(node.costLevel) ? node.costLevel : undefined,
+          riskLevel: isCapabilityRiskLevel(node.riskLevel) ? node.riskLevel : undefined,
+          requiresConfirmation: isBoolean(node.requiresConfirmation) ? node.requiresConfirmation : undefined,
+          hiddenByDefault: isBoolean(node.hiddenByDefault) ? node.hiddenByDefault : undefined,
+          sourcePriority: isNumber(node.sourcePriority) ? node.sourcePriority : undefined,
+          overlapsWith: Array.isArray(node.overlapsWith) ? node.overlapsWith.filter((name): name is string => typeof name === 'string') : undefined,
           schema: node.schema,
         };
         g.nodes.set(validNode.id, validNode);
       }
       for (const link of raw.links ?? []) {
-        g.addLinkInternal(link);
+        if (isLinkType(link.type)) g.addLinkInternal(link);
       }
       g.compileModel = raw.compileModel;
       g.compiledAt = raw.compiledAt;
+      g.compileErrors = Array.isArray(raw.compileErrors) ? raw.compileErrors.filter((error): error is string => typeof error === 'string') : [];
       return g;
     });
   }
@@ -118,6 +152,7 @@ export class Graph {
         version: GRAPH_VERSION,
         compiledAt: this.compiledAt ?? new Date().toISOString(),
         compileModel: this.compileModel,
+        compileErrors: this.compileErrors,
         nodes,
         links: this.getAllLinks(),
         categories: [...new Set(nodes.map(n => n.category))].sort(),
@@ -171,6 +206,7 @@ export class Graph {
 
   addLink(link: Link): void {
     if (!this.nodes.has(link.source) || !this.nodes.has(link.target)) return;
+    if (!isLinkType(link.type)) return;
     this.addLinkInternal(link);
   }
 
@@ -346,8 +382,13 @@ export class Graph {
 
   // ─── Metadata ─────────────────────────────────────────────────────────
 
-  setCompileInfo(model: string): void {
+  setCompileInfo(model: string, errors: string[] = []): void {
     this.compileModel = model;
     this.compiledAt = new Date().toISOString();
+    this.compileErrors = [...errors];
+  }
+
+  getCompileErrors(): string[] {
+    return [...this.compileErrors];
   }
 }

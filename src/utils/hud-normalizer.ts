@@ -4,7 +4,7 @@ export function simplifyUpstreamHud(text: string): string {
     .replace(/tok:\s*([^\s(]+)\s*\([^)]*\)/g, '累计消耗 $1 tok');
 }
 
-// Always show LazyBrain in combined statusline so users can see active/dormant state
-export function isLowSignalLazyBrainLabel(_label: string): boolean {
-  return false;
+export function isLowSignalLazyBrainLabel(label: string): boolean {
+  const clean = label.replace(/\x1b\[[0-9;]*m/g, '').trim();
+  return clean.includes('待机中') || clean.includes('上次') || clean.includes('已跳过');
 }

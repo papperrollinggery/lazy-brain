@@ -6,6 +6,7 @@ import type { RawCapability } from '../../types.js';
 import { parseFrontmatter } from '../../utils/yaml.js';
 import { inferPlatformFromPath, inferSinglePlatformFromPath } from '../../constants.js';
 import { inferOrigin } from '../origin.js';
+import { parseCapabilityMetadata } from '../metadata.js';
 import { parseSkillSchema } from '../../schema/skill-schema.js';
 
 /**
@@ -87,6 +88,7 @@ export function parseSkill(filePath: string, content: string): RawCapability | n
     name,
     description,
     origin,
+    ...parseCapabilityMetadata(frontmatter),
     filePath,
     triggers,
     compatibility: inferPlatformFromPath(filePath),

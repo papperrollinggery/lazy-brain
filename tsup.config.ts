@@ -4,6 +4,7 @@ export default defineConfig({
   entry: {
     index: 'src/index.ts',
     'bin/lazybrain': 'bin/lazybrain.ts',
+    'bin/mcp': 'bin/mcp.ts',
     'bin/hook': 'bin/hook.ts',
     'bin/statusline': 'bin/statusline.ts',
     'bin/statusline-combined': 'bin/statusline-combined.ts',

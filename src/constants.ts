@@ -1,48 +1,17 @@
-/**
- * LazyBrain — Constants
- *
- * Paths, thresholds, defaults, and model configuration.
- */
-
 import { homedir } from 'node:os';
 import { join, normalize } from 'node:path';
-import type { Platform, UserConfig } from './types.js';
+import type { Platform } from './types.js';
 
-// ─── Paths ──────────────────────────────────────────────────────────────────
-
-/** LazyBrain data directory */
 export const LAZYBRAIN_DIR = join(homedir(), '.lazybrain');
 export const GRAPH_PATH = join(LAZYBRAIN_DIR, 'graph.json');
-export const EMBEDDINGS_BIN_PATH = join(LAZYBRAIN_DIR, 'graph.embeddings.bin');
-export const EMBEDDINGS_INDEX_PATH = join(LAZYBRAIN_DIR, 'graph.embeddings.index.json');
-export const EMBEDDINGS_STATUS_PATH = join(LAZYBRAIN_DIR, 'graph.embeddings.status.json');
-export const EMBEDDINGS_LOCK_PATH = join(LAZYBRAIN_DIR, 'graph.embeddings.lock');
-export const CONFIG_PATH = join(LAZYBRAIN_DIR, 'config.json');
 export const HISTORY_PATH = join(LAZYBRAIN_DIR, 'history.jsonl');
-export const WIKI_DIR = join(LAZYBRAIN_DIR, 'wiki');
-export const EXTERNAL_CATALOG_PATH = join(LAZYBRAIN_DIR, 'external-catalog.json');
-export const PROFILE_PATH = join(LAZYBRAIN_DIR, 'profile.json');
-export const ROUTE_EVENTS_PATH = join(LAZYBRAIN_DIR, 'route-events.jsonl');
+export const GRAPH_VERSION = '2.0.0';
 
-/** OMC state directory — read to detect active execution mode */
-export const OMC_STATE_DIR = join(homedir(), '.omc', 'state');
-export const STATUS_PATH = join(LAZYBRAIN_DIR, 'status.json');
-export const HOOK_ACTIVE_PATH = join(LAZYBRAIN_DIR, '.hook-pid');
-export const HOOK_INSTALL_STATE_PATH = join(LAZYBRAIN_DIR, 'hook-install.json');
-export const HOOK_INSTALL_STATE_MAP_PATH = join(LAZYBRAIN_DIR, 'hook-install-map.json');
-export const HOOK_RUNS_DIR = join(LAZYBRAIN_DIR, 'hook-runs');
-export const HOOK_HEALTH_PATH = join(LAZYBRAIN_DIR, 'hook-health.json');
-export const HOOK_EVENTS_PATH = join(LAZYBRAIN_DIR, 'hook-events.jsonl');
-export const SECRETARY_CB_PATH = join(LAZYBRAIN_DIR, '.secretary-cb.json');
-
-/** Resolve Claude config dir (mirrors ~/.claude/hooks/lib/config-dir.mjs) */
 export function getClaudeConfigDir(): string {
   const configured = process.env.CLAUDE_CONFIG_DIR?.trim();
   if (!configured) return normalize(join(homedir(), '.claude'));
   if (configured === '~') return normalize(homedir());
-  if (configured.startsWith('~/') || configured.startsWith('~\\')) {
-    return normalize(join(homedir(), configured.slice(2)));
-  }
+  if (configured.startsWith('~/') || configured.startsWith('~\\')) return normalize(join(homedir(), configured.slice(2)));
   return normalize(configured);
 }
 
@@ -50,216 +19,50 @@ export function getStatuslineChainPath(): string {
   return join(getClaudeConfigDir(), 'lazybrain-statusline-chain.json');
 }
 
-// ─── Default Scan Paths ─────────────────────────────────────────────────────
+export function inferSinglePlatformFromPath(filePath: string): Platform {
+  if (filePath.includes('/.codex/')) return 'codex';
+  if (filePath.includes('/.cursor/')) return 'cursor';
+  if (filePath.includes('/.kiro/')) return 'kiro';
+  if (filePath.includes('/.config/opencode/') || filePath.includes('/.opencode/')) return 'opencode';
+  if (filePath.includes('/.agents/skills/')) return 'universal';
+  if (filePath.includes('/.claude/')) return 'claude-code';
+  return 'universal';
+}
 
-/** Infer primary platform from file path (single platform, not array) */
- export function inferSinglePlatformFromPath(filePath: string): Platform {
-   if (filePath.includes('/.openclaw/')) return 'openclaw';
-   if (filePath.includes('/.codex/')) return 'codex';
-   if (filePath.includes('/.config/opencode/')) return 'opencode';
-   if (filePath.includes('/.opencode/')) return 'opencode';
-   if (filePath.includes('/.hermes/')) return 'hermes';
-   if (filePath.includes('/.workbuddy/')) return 'workbuddy';
-   if (filePath.includes('/.cursor/')) return 'cursor';
-   if (filePath.includes('/.kiro/')) return 'kiro';
-   return 'claude-code';
- }
-
-/** Generate default scan paths based on Claude config dir */
 export function getDefaultScanPaths(platforms?: Record<string, boolean>): string[] {
-  const claude = getClaudeConfigDir();
   const home = homedir();
-  const pf = platforms;
+  const claude = getClaudeConfigDir();
+  const includeClaude = platforms ? platforms['claude-code'] === true : true;
   const paths: string[] = [];
-  const includeClaude = pf ? pf['claude-code'] === true : true;
-
   if (includeClaude) {
     paths.push(
       join(claude, 'skills'),
       join(claude, 'skills-disabled'),
-      join(claude, '.agents', 'skills'),
-      join(claude, 'agents'),
       join(claude, 'commands'),
-      join(claude, 'ecc', 'skills'),
-      join(claude, 'ecc', '.agents', 'skills'),
-      join(claude, 'ecc', '.claude', 'skills'),
-      join(claude, 'ecc', '.cursor', 'skills'),
-      join(claude, 'ecc', '.kiro', 'skills'),
-      join(claude, 'plugins'),
+      join(home, '.skillshub'),
     );
   }
-
-  if (pf?.['openclaw'] === true) {
-    paths.push(
-      join(home, '.openclaw', 'skills'),
-      join(home, '.openclaw', 'agents'),
-    );
-  }
-
-  if (pf?.['codex'] === true) {
-    paths.push(
-      join(home, '.codex', 'skills'),
-      join(home, '.codex', 'agents'),
-      join(home, '.codex', 'commands'),
-    );
-  }
-
-  if (pf?.['opencode'] === true) {
-    paths.push(
-      join(home, '.config', 'opencode', 'skills'),
-      join(home, '.config', 'opencode', 'agents'),
-      join(home, '.opencode', 'skills'),
-      join(home, '.opencode', 'agents'),
-    );
-  }
-
-  if (pf?.['hermes'] === true) {
-    paths.push(
-      join(home, '.hermes', 'skills'),
-      join(home, '.hermes', 'agents'),
-    );
-  }
-
-  if (pf?.['workbuddy'] === true) {
-    paths.push(
-      join(home, '.workbuddy', 'skills'),
-    );
-  }
-
+  if (platforms?.codex) paths.push(join(home, '.codex', 'skills'), join(home, '.codex', 'commands'));
+  if (platforms?.cursor) paths.push(join(home, '.cursor', 'rules'));
+  if (platforms?.opencode) paths.push(join(home, '.config', 'opencode', 'skills'), join(home, '.opencode', 'skills'));
   return paths;
 }
 
-/**
- * Path patterns that indicate translation/localization variants.
- * These should be skipped during deduplication.
- */
 export const TRANSLATION_PATH_PATTERNS = [
   /\/docs\/zh-CN\//,
   /\/docs\/zh-TW\//,
   /\/docs\/ja-JP\//,
   /\/docs\/ko-KR\//,
-  /\/docs\/tr\//,
   /\/docs\/pt-BR\//,
 ];
 
-// ─── Platform Detection ─────────────────────────────────────────────────────
-
-/** Infer platform compatibility from file path */
 export function inferPlatformFromPath(filePath: string): Platform[] {
   const p = filePath.toLowerCase();
-  if (p.includes('/.claw/') || p.includes('/claw/')) return ['openclaw'];
   if (p.includes('/.codex/')) return ['codex'];
   if (p.includes('/.cursor/')) return ['cursor'];
   if (p.includes('/.kiro/')) return ['kiro'];
-  if (p.includes('/.factory/')) return ['droid'];
-  if (p.includes('/.config/opencode/')) return ['opencode'];
-  if (p.includes('/.opencode/')) return ['opencode'];
-  if (p.includes('/.hermes/')) return ['hermes'];
+  if (p.includes('/.config/opencode/') || p.includes('/.opencode/')) return ['opencode'];
   if (p.includes('/.agents/skills/')) return ['claude-code', 'codex', 'universal'];
   if (p.includes('/.claude/')) return ['claude-code'];
   return ['universal'];
 }
-
-// ─── Thresholds ─────────────────────────────────────────────────────────────
-
-/** Minimum score to include in results */
-export const MIN_MATCH_SCORE = 0.3;
-/** Default auto-trigger threshold */
-export const DEFAULT_AUTO_THRESHOLD = 0.85;
-/** Maximum results to return */
-export const MAX_RESULTS = 5;
-/** History boost cap (additive, not multiplicative) */
-export const HISTORY_BOOST_CAP = 0.15;
-/** External catalog refresh interval (ms) */
-export const EXTERNAL_CATALOG_TTL = 24 * 60 * 60 * 1000; // 24h
-/** Default decision card threshold */
-export const DEFAULT_DECISION_CARD_THRESHOLD = 0.7;
-
-// ─── Functional Categories ──────────────────────────────────────────────────
-
-export const CATEGORIES = [
-  'code-quality',       // review, lint, refactor, clean
-  'testing',            // tdd, e2e, unit, coverage
-  'development',        // patterns, frameworks, languages
-  'deployment',         // ci-cd, pr, git, release
-  'design',             // frontend, ui, ux, slides
-  'planning',           // plan, blueprint, prd, architecture
-  'research',           // search, docs, analysis
-  'operations',         // devops, monitoring, infra
-  'security',           // scan, audit, compliance
-  'content',            // writing, docs, video, media
-  'data',               // database, migration, analytics
-  'orchestration',      // agent, team, workflow, mode
-  'learning',           // continuous-learning, instinct, evolve
-  'communication',      // email, slack, notifications
-  'other',
-] as const;
-
-export type Category = typeof CATEGORIES[number];
-
-// ─── Default Config ─────────────────────────────────────────────────────────
-
-export const DEFAULT_GOVERNANCE_CONFIG: NonNullable<UserConfig['governance']> = {
-  enablePreflight: true,
-  softCostUsd: 0.5,
-  hardCostUsd: 5.0,
-  softTokenThreshold: 50_000,
-  hardTokenThreshold: 200_000,
-  heavyModes: ['team', 'ralph', 'ralplan'],
-};
-
-export const DEFAULT_HOOK_RUNTIME_CONFIG: Required<NonNullable<UserConfig['hookSafety']>> = {
-  maxConcurrentHooks: 3,
-  staleHookMs: 15_000,
-  avgDurationBreakerMs: 3_000,
-  loadAvgBreaker: 8,
-  breakerCooldownMs: 60_000,
-  recentDurationsWindow: 12,
-};
-
-export const DEFAULT_CONFIG: UserConfig = {
-  aliases: {},
-  scanPaths: [],
-  mode: 'select',
-  autoThreshold: DEFAULT_AUTO_THRESHOLD,
-  engine: 'tag',
-  strategy: 'ask',
-  compileApiBase: 'https://api.siliconflow.cn/v1',
-  compileModel: 'Qwen/Qwen3-235B-A22B-Instruct-2507',
-  embeddingApiBase: 'https://api.siliconflow.cn/v1',
-  embeddingModel: 'BAAI/bge-m3',
-  secretaryApiBase: 'https://api.siliconflow.cn/v1',
-  secretaryModel: 'Qwen/Qwen2.5-7B-Instruct',
-  externalDiscovery: false,
-  platform: 'claude-code' as const,
-  language: 'auto' as const,
-  platforms: { 'claude-code': true, 'openclaw': false, 'workbuddy': false, 'cursor': false, 'kiro': false, 'codex': false, 'opencode': false, 'hermes': false, 'droid': false, 'universal': false },
-  decisionCardThreshold: DEFAULT_DECISION_CARD_THRESHOLD,
-  governance: DEFAULT_GOVERNANCE_CONFIG,
-  hookSafety: DEFAULT_HOOK_RUNTIME_CONFIG,
-};
-
-// ─── Graph Version ──────────────────────────────────────────────────────────
-
-export const GRAPH_VERSION = '1.0.0';
-
-// ─── Secretary Layer ─────────────────────────────────────────────────────────
-
-export const SECRETARY_THRESHOLD = 0.85;
-export const SECRETARY_LOW_THRESHOLD = 0.5;
-export const SECRETARY_TIMEOUT_MS = 5000;
-export const SECRETARY_RATE_LIMIT_MS = 30000;
-export const SECRETARY_CONTEXT_SIZE = 20;
-export const SECRETARY_CONTEXT_TOKENS = 1200;
-export const SECRETARY_CIRCUIT_BREAKER_THRESHOLD = 3;
-export const SECRETARY_CIRCUIT_BREAKER_PAUSE_MS = 600000;
-
-// ─── Capability Model Hints ─────────────────────────────────────────────────
-
-export const CAPABILITY_MODEL_HINTS: Record<string, string> = {
-  'santa-loop': 'claude-opus-4-6',
-  'ccg': 'claude-opus-4-6',
-  'ultrawork': 'claude-opus-4-6',
-  'ralph': 'claude-opus-4-6',
-  'deep-interview': 'claude-opus-4-6',
-};

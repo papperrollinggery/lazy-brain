@@ -39,6 +39,7 @@ function checkPack() {
     file === 'README_CN.md' ||
     file === 'CHANGELOG.md' ||
     file === 'LICENSE' ||
+    file === 'docs/assets/lazybrain-demo.svg' ||
     file.startsWith('dist/'));
   if (!allowed) {
     fail(`npm package includes unexpected files: ${files.filter(file =>
@@ -47,9 +48,10 @@ function checkPack() {
       file !== 'README_CN.md' &&
       file !== 'CHANGELOG.md' &&
       file !== 'LICENSE' &&
+      file !== 'docs/assets/lazybrain-demo.svg' &&
       !file.startsWith('dist/')).join(', ')}`);
   }
-  const required = ['dist/bin/lazybrain.js', 'dist/bin/hook.js', 'dist/index.js', 'dist/index.d.ts'];
+  const required = ['dist/bin/lazybrain.js', 'dist/bin/mcp.js', 'dist/bin/hook.js', 'dist/index.js', 'dist/index.d.ts'];
   for (const file of required) {
     if (!files.includes(file)) fail(`npm package missing ${file}`);
   }

@@ -1,10 +1,3 @@
-/**
- * LazyBrain — Built-in Route Combos
- *
- * Combos are advisory templates. They do not execute work and do not require
- * every named skill to be installed.
- */
-
 import type { GuardrailRule, VerificationRequirement, WorkflowStep } from '../types.js';
 
 export interface ComboTemplate {
@@ -13,182 +6,210 @@ export interface ComboTemplate {
   category: string;
   description: string;
   keywords: string[];
+  negativeKeywords?: string[];
   skillNames: string[];
   workflow: WorkflowStep[];
-  contextNeeded: string[];
   guardrails: GuardrailRule[];
   verification: VerificationRequirement[];
   doneWhen: string[];
 }
 
-function step(id: string, title: string, detail?: string): WorkflowStep {
-  return { id, title, detail, source: 'combo' };
+function step(title: string): WorkflowStep {
+  return { title, source: 'combo' };
 }
 
-function check(id: string, title: string, command?: string): VerificationRequirement {
-  return { id, title, command, required: true, source: 'combo' };
+function check(title: string, command?: string): VerificationRequirement {
+  return { title, command, required: true, source: 'combo' };
 }
 
-function guard(title: string, detail?: string, strength: GuardrailRule['strength'] = 'normal'): GuardrailRule {
-  return { title, detail, strength, source: 'combo' };
+function guard(title: string): GuardrailRule {
+  return { title, strength: 'normal', source: 'combo' };
 }
 
 export const COMBOS: ComboTemplate[] = [
   {
-    id: 'frontend_new_page',
-    title: 'Frontend new page',
-    category: 'frontend',
-    description: 'Create a new usable product screen with responsive UI verification.',
-    keywords: ['new page', 'frontend', 'ui', 'screen', '页面', '前端', '新页面', '界面'],
-    skillNames: ['frontend-design', 'frontend-patterns', 'e2e-testing'],
-    workflow: [
-      step('understand-user-flow', 'Identify the primary user workflow'),
-      step('build-first-screen', 'Build the real usable first screen'),
-      step('verify-responsive', 'Verify desktop and mobile rendering'),
-    ],
-    contextNeeded: ['Target user', 'Primary workflow', 'Existing design conventions', 'Run command or preview URL'],
-    guardrails: [guard('Do not make a marketing landing page unless requested', undefined, 'strict')],
-    verification: [check('build', 'Build succeeds', 'npm run build')],
-    doneWhen: ['The page is usable without extra explanation.', 'Desktop and mobile screenshots are readable.'],
-  },
-  {
-    id: 'frontend_existing_redesign',
-    title: 'Existing frontend redesign',
-    category: 'frontend',
-    description: 'Improve an existing interface while preserving product behavior.',
-    keywords: ['redesign', 'existing', 'refactor ui', '改版', '重设计', '优化界面', '现有页面'],
-    skillNames: ['frontend-design', 'design-review', 'e2e-testing'],
-    workflow: [
-      step('inspect-existing-ui', 'Inspect the existing UI and design conventions'),
-      step('make-targeted-redesign', 'Redesign the weak surface without changing unrelated flows'),
-      step('compare-before-after', 'Verify no regression in layout or interaction'),
-    ],
-    contextNeeded: ['Existing screen URL or route', 'Known pain points', 'Viewport targets', 'Behavior that must not change'],
-    guardrails: [guard('Preserve working flows while improving visual hierarchy', undefined, 'strict')],
-    verification: [check('console', 'Console stays clean'), check('build', 'Build succeeds', 'npm run build')],
-    doneWhen: ['The redesigned screen improves clarity without breaking existing behavior.'],
-  },
-  {
-    id: 'dashboard_ceo',
-    title: 'CEO dashboard',
-    category: 'dashboard',
-    description: 'Turn operational data into a decision-oriented dashboard.',
-    keywords: ['ceo dashboard', 'dashboard', 'metrics', 'ops', '后台', '看板', 'CEO', '运营', '指标'],
-    skillNames: ['dashboard-builder', 'product-capability', 'frontend-design'],
-    workflow: [
-      step('define-operating-questions', 'Define the decisions the dashboard must support'),
-      step('map-signal-groups', 'Group metrics into status, risk, owner, and next action'),
-      step('build-scan-layout', 'Build a dense, scannable dashboard layout'),
-      step('verify-operator-readiness', 'Check whether the dashboard answers the operating questions'),
-    ],
-    contextNeeded: ['Target operator', 'Critical metrics', 'Current data source', 'Refresh cadence', 'Decision questions'],
-    guardrails: [guard('Prioritize operational signal over visual decoration', undefined, 'strict')],
-    verification: [check('operator-check', 'Dashboard answers the target operating questions')],
-    doneWhen: ['A CEO can identify status, risk, owner, and next action from the first screen.'],
-  },
-  {
-    id: 'docs_public_install',
-    title: 'Public install docs',
-    category: 'docs',
-    description: 'Write public-facing installation and recovery documentation.',
-    keywords: ['readme', 'docs', 'install', 'public docs', 'README', '文档', '安装流程', '普通用户'],
-    skillNames: ['document-release', 'document-review', 'devex-review'],
-    workflow: [
-      step('separate-real-vs-planned', 'Separate implemented behavior from planned behavior'),
-      step('write-install-flow', 'Write a copyable install, test, and rollback flow'),
-      step('add-troubleshooting', 'Add short fixes for common failures'),
-    ],
-    contextNeeded: ['Supported platforms', 'Install commands', 'Known failure modes', 'Rollback command'],
-    guardrails: [guard('Do not imply planned features already work', undefined, 'strict')],
-    verification: [check('public-audit', 'Public audit passes', 'npm run audit:public')],
-    doneWhen: ['A new user can install, test, troubleshoot, and roll back from the docs alone.'],
-  },
-  {
-    id: 'code_review_regression',
-    title: 'Regression code review',
-    category: 'code-quality',
-    description: 'Review changed code for behavioral regressions and missing tests.',
-    keywords: ['review', 'regression', 'risk', '审查', '回归', '风险', '代码审核'],
-    skillNames: ['ce:review', 'ai-regression-testing', 'coding-standards'],
-    workflow: [
-      step('inspect-diff', 'Inspect the changed surface and identify risky paths'),
-      step('review-behavior', 'Look for behavioral regressions before style issues'),
-      step('verify-tests', 'Run or specify focused verification'),
-    ],
-    contextNeeded: ['Diff or branch', 'Expected behavior', 'Relevant test command'],
-    guardrails: [guard('Findings must be grounded in files and behavior', undefined, 'strict')],
-    verification: [check('tests', 'Tests pass', 'npm test'), check('lint', 'Lint/typecheck passes', 'npm run lint')],
-    doneWhen: ['High-risk regressions are either fixed or explicitly called out with evidence.'],
-  },
-  {
-    id: 'debug_stuck_runtime',
-    title: 'Stuck runtime debug',
-    category: 'debugging',
-    description: 'Diagnose a long-running or hung local runtime without destructive resets.',
-    keywords: ['stuck', 'hung', 'no output', 'debug', '卡住', '长时间无输出', '排查', '无响应'],
-    skillNames: ['agent-introspection-debugging', 'omc-doctor', 'debugging'],
-    workflow: [
-      step('capture-state', 'Capture process, logs, and runtime state'),
-      step('separate-active-vs-stale', 'Distinguish active work from stale records'),
-      step('apply-safe-fix', 'Apply the smallest safe cleanup or restart'),
-    ],
-    contextNeeded: ['Exact command', 'Last output time', 'Process id or session id', 'Relevant logs'],
-    guardrails: [guard('Do not restart or delete state before preserving evidence', undefined, 'strict')],
-    verification: [check('smoke', 'Smoke test produces real output')],
-    doneWhen: ['The active/stale state is clear and the runtime can be verified with a smoke test.'],
-  },
-  {
     id: 'release_public_audit',
     title: 'Public release audit',
     category: 'release',
-    description: 'Prepare a public release with package and privacy checks.',
-    keywords: ['release', 'publish', 'npm', 'audit', 'privacy', 'hook', '发布', '公开', '隐私', '回滚'],
-    skillNames: ['document-release', 'github-ops', 'ci-cd-best-practices'],
-    workflow: [
-      step('version-consistency', 'Verify package, CLI, health, changelog, and tag version consistency'),
-      step('public-package-audit', 'Run public privacy and package dry-run checks'),
-      step('release-gate', 'Confirm rollback and CI gates before publishing'),
-    ],
-    contextNeeded: ['Target version', 'Release notes', 'Changed public surface', 'Rollback path'],
-    guardrails: [guard('Never publish without a public privacy scan', undefined, 'strict')],
-    verification: [
-      check('audit-public', 'Public audit passes', 'npm run audit:public'),
-      check('pack-dry-run', 'Package dry-run passes', 'npm pack --dry-run --json'),
-    ],
-    doneWhen: ['Package contents, docs, version, and rollback path are verified.'],
+    description: 'Prepare a public release with package, security, CI, and rollback checks.',
+    keywords: ['release', 'publish', 'deploy', 'production', 'feature', 'ship', 'npm', '上线', '发布', '部署'],
+    negativeKeywords: ['draft', 'local only', 'prototype', '草稿', '本地试验'],
+    skillNames: ['document-release', 'github-ops', 'ci-cd-best-practices', 'security-review'],
+    workflow: [step('Verify version, changelog, package, and CLI behavior'), step('Run public package and privacy checks'), step('Confirm CI, rollback, and deployment gate')],
+    guardrails: [guard('Never publish or deploy without explicit release evidence')],
+    verification: [check('Public audit passes', 'npm run audit:public'), check('Package dry-run passes', 'npm pack --dry-run --json')],
+    doneWhen: ['Version, package contents, CI, and rollback path are verified.'],
+  },
+  {
+    id: 'bug_regression_repair',
+    title: 'Bug regression repair',
+    category: 'debugging',
+    description: 'Reproduce a bug, add a regression test, fix it, and review the change.',
+    keywords: ['bug', 'debug', 'crash', 'error', 'failing', 'broken', '报错', '崩溃', '失败', '调试'],
+    negativeKeywords: ['feature request', 'new feature', 'docs only', '新功能', '只写文档'],
+    skillNames: ['investigate', 'tdd-workflow', 'code-review'],
+    workflow: [step('Reproduce the failing behavior'), step('Write or update the regression test'), step('Fix the smallest responsible code path'), step('Review the diff for regressions')],
+    guardrails: [guard('Do not guess a fix before reproducing the failure')],
+    verification: [check('Original failure passes'), check('Focused tests pass')],
+    doneWhen: ['The original failure is fixed and covered.'],
+  },
+  {
+    id: 'frontend_verified_screen',
+    title: 'Frontend verified screen',
+    category: 'frontend',
+    description: 'Build a usable responsive screen and verify it in the browser.',
+    keywords: ['frontend', 'react', 'ui', 'screen', 'page', 'component', '页面', '界面', '前端'],
+    negativeKeywords: ['api only', 'backend only', 'cli only', '只改后端', '命令行'],
+    skillNames: ['frontend-design', 'frontend-patterns', 'e2e-testing'],
+    workflow: [step('Identify the primary workflow'), step('Build the real first screen'), step('Verify desktop and mobile rendering')],
+    guardrails: [guard('Build the usable experience, not a marketing placeholder')],
+    verification: [check('Build succeeds', 'npm run build'), check('Browser smoke passes')],
+    doneWhen: ['The screen is usable and responsive.'],
+  },
+  {
+    id: 'security_code_review',
+    title: 'Security code review',
+    category: 'security',
+    description: 'Review sensitive code for vulnerabilities, regressions, and missing tests.',
+    keywords: ['security', 'vulnerability', 'auth', 'credential', 'payment', '安全', '漏洞', '认证', '支付'],
+    negativeKeywords: ['copy edit', 'visual polish', '文案', '视觉微调'],
+    skillNames: ['security-review', 'code-review', 'tdd-workflow'],
+    workflow: [step('Map the sensitive boundary'), step('Audit auth, input, and secrets'), step('Add focused regression checks')],
+    guardrails: [guard('Every finding must cite an exploitable path or concrete risk')],
+    verification: [check('Focused security tests pass'), check('Full tests pass', 'npm test')],
+    doneWhen: ['Sensitive paths are reviewed and verified.'],
+  },
+  {
+    id: 'api_endpoint_build',
+    title: 'API endpoint build',
+    category: 'backend',
+    description: 'Design, implement, test, and review a new API endpoint.',
+    keywords: ['api', 'endpoint', 'route', 'handler', 'controller', '接口', '端点', '路由', '后端接口'],
+    negativeKeywords: ['ui only', 'css', 'copy', '只改页面', '样式'],
+    skillNames: ['api-design', 'backend-patterns', 'tdd-workflow', 'code-review'],
+    workflow: [step('Define contract, inputs, outputs, and failure modes'), step('Implement the endpoint through existing backend patterns'), step('Cover success and error paths with focused tests'), step('Review API compatibility and call sites')],
+    guardrails: [guard('Do not change public API shape without explicit contract evidence')],
+    verification: [check('Focused API tests pass'), check('Type check passes', 'npm run lint')],
+    doneWhen: ['Endpoint behavior, errors, and tests match the contract.'],
+  },
+  {
+    id: 'refactor_safe',
+    title: 'Safe refactor',
+    category: 'quality',
+    description: 'Refactor code with tests and review while preserving behavior.',
+    keywords: ['refactor', 'clean', 'simplify', 'extract', 'cleanup', '重构', '清理', '简化', '抽取'],
+    negativeKeywords: ['new feature', 'ship now', 'rewrite everything', '新功能', '重写全部'],
+    skillNames: ['refactor-clean', 'tdd-workflow', 'code-review'],
+    workflow: [step('Identify the smallest behavior-preserving change'), step('Lock behavior with existing or new tests'), step('Refactor within current module boundaries'), step('Review diff for accidental scope growth')],
+    guardrails: [guard('Keep public behavior unchanged unless the task explicitly asks otherwise')],
+    verification: [check('Focused regression tests pass'), check('Lint/type check passes', 'npm run lint')],
+    doneWhen: ['Behavior is preserved and the refactor has test evidence.'],
+  },
+  {
+    id: 'new_feature_full',
+    title: 'Full new feature',
+    category: 'feature',
+    description: 'Plan, build, test, review, and ship a complete feature.',
+    keywords: ['new feature', 'feature', 'build feature', 'full flow', '完整功能', '新功能', '做一个', '从零做'],
+    negativeKeywords: ['bug only', 'docs only', 'hotfix', '只修 bug', '只写文档'],
+    skillNames: ['plan', 'frontend-design', 'tdd-workflow', 'code-review', 'ship'],
+    workflow: [step('Define user workflow and acceptance criteria'), step('Build the smallest complete slice'), step('Add focused tests for expected behavior'), step('Review and prepare release evidence')],
+    guardrails: [guard('Ship a usable feature slice before broad polish')],
+    verification: [check('Feature tests pass'), check('Build passes', 'npm run build')],
+    doneWhen: ['The feature is usable, reviewed, and ready for release.'],
+  },
+  {
+    id: 'performance_fix',
+    title: 'Performance fix',
+    category: 'performance',
+    description: 'Investigate, measure, fix, and verify performance issues.',
+    keywords: ['performance', 'slow', 'latency', 'memory', 'profile', '优化', '性能', '慢', '延迟', '内存'],
+    negativeKeywords: ['style', 'copy', 'docs only', '文案', '只写文档'],
+    skillNames: ['performance', 'investigate', 'tdd-workflow'],
+    workflow: [step('Capture the slow path and baseline'), step('Find the smallest measurable bottleneck'), step('Apply a focused optimization'), step('Verify behavior and performance improved')],
+    guardrails: [guard('Do not optimize without a baseline or observable bottleneck')],
+    verification: [check('Performance scenario improves'), check('Regression tests pass')],
+    doneWhen: ['Measured performance improves without behavior regressions.'],
+  },
+  {
+    id: 'documentation_complete',
+    title: 'Complete documentation',
+    category: 'documentation',
+    description: 'Create complete docs with developer-experience and content review.',
+    keywords: ['docs', 'documentation', 'readme', 'guide', 'handoff', '文档', '说明', '指南', '交接'],
+    negativeKeywords: ['code only', 'no docs', '只改代码', '不要文档'],
+    skillNames: ['docs', 'devex-review', 'document-review'],
+    workflow: [step('Identify the reader and task path'), step('Write runnable usage and maintenance docs'), step('Review clarity, omissions, and examples')],
+    guardrails: [guard('Document real behavior only; do not invent unsupported commands')],
+    verification: [check('Examples match current CLI/API'), check('Documentation review passes')],
+    doneWhen: ['A new reader can complete the documented task.'],
+  },
+  {
+    id: 'ci_repair',
+    title: 'CI repair',
+    category: 'ci',
+    description: 'Diagnose and repair failing CI or workflow automation.',
+    keywords: ['ci', 'pipeline', 'github actions', 'workflow fail', 'build fail', '流水线', '构建失败', 'CI失败', '自动化失败'],
+    negativeKeywords: ['local only', 'docs only', 'ignore ci', '只本地', '忽略 CI'],
+    skillNames: ['ci-cd-best-practices', 'investigate', 'tdd-workflow'],
+    workflow: [step('Read the failing job and reproduce the smallest failing command'), step('Fix config or code at the responsible boundary'), step('Add or update regression coverage where useful')],
+    guardrails: [guard('Do not loosen CI gates to hide the failure')],
+    verification: [check('Failing CI command passes locally'), check('Full test suite passes', 'npm test')],
+    doneWhen: ['The failing pipeline path is fixed without weakening checks.'],
+  },
+  {
+    id: 'database_migration_safe',
+    title: 'Safe database migration',
+    category: 'database',
+    description: 'Plan, implement, and verify a safe schema or data migration.',
+    keywords: ['database', 'migration', 'schema', 'postgres', 'sql', '数据库', '迁移', '表结构', '索引'],
+    negativeKeywords: ['frontend only', 'css', 'static page', '只改前端', '静态页面'],
+    skillNames: ['database', 'database-migrations', 'tdd-workflow', 'security-review'],
+    workflow: [step('Define forward and rollback migration behavior'), step('Check data, locking, and compatibility risks'), step('Implement migration and related code changes'), step('Verify migration tests and sensitive access paths')],
+    guardrails: [guard('Never make destructive schema changes without rollback evidence')],
+    verification: [check('Migration tests pass'), check('Security-sensitive paths reviewed')],
+    doneWhen: ['Forward, rollback, compatibility, and tests are verified.'],
+  },
+  {
+    id: 'onboarding_new_repo',
+    title: 'New repository onboarding',
+    category: 'onboarding',
+    description: 'Understand a new repo and produce an actionable starting plan.',
+    keywords: ['onboard', 'new repo', 'understand repo', 'codebase tour', '上手', '新项目', '理解仓库', '代码导览'],
+    negativeKeywords: ['small fix', 'single file', 'hotfix', '只改一处', '紧急修复'],
+    skillNames: ['architecture', 'plan', 'docs'],
+    workflow: [step('Map entrypoints, modules, and test commands'), step('Identify active workflows and ownership boundaries'), step('Write a short plan for the first safe change')],
+    guardrails: [guard('Do not make broad edits before the repo shape is understood')],
+    verification: [check('Known test or smoke command identified'), check('Architecture notes are grounded in files')],
+    doneWhen: ['Repository structure, commands, and next action are clear.'],
   },
 ];
 
 export function listCombos(category?: string): ComboTemplate[] {
-  const normalized = category?.toLowerCase();
-  if (!normalized) return COMBOS;
-  return COMBOS.filter(combo => combo.category.toLowerCase() === normalized || combo.id.startsWith(normalized));
+  if (!category) return COMBOS;
+  const normalized = category.toLowerCase();
+  return COMBOS.filter((combo) => combo.category === normalized || combo.id.includes(normalized));
+}
+
+function scoreCombo(combo: ComboTemplate, query: string): number {
+  const q = query.toLowerCase();
+  const positive = combo.keywords.reduce((score, keyword) => score + (q.includes(keyword.toLowerCase()) ? 1 : 0), 0);
+  const negative = combo.negativeKeywords?.some((keyword) => q.includes(keyword.toLowerCase())) ? 2 : 0;
+  return positive - negative;
 }
 
 export function findCombo(query: string, categories: string[] = []): ComboTemplate | undefined {
-  const q = query.toLowerCase();
-  const categorySet = new Set(categories.map(c => c.toLowerCase()));
-  let best: { combo: ComboTemplate; score: number } | undefined;
-
-  for (const combo of COMBOS) {
-    let score = categorySet.has(combo.category.toLowerCase()) ? 1 : 0;
-    for (const keyword of combo.keywords) {
-      if (q.includes(keyword.toLowerCase())) score += keyword.length > 5 ? 3 : 2;
-    }
-    if (!best || score > best.score) best = { combo, score };
-  }
-
-  return best && best.score > 0 ? best.combo : undefined;
+  const categorySet = new Set(categories.map((item) => item.toLowerCase()));
+  const ranked = COMBOS
+    .map((combo) => ({
+      combo,
+      score: scoreCombo(combo, query) + (categorySet.has(combo.category) ? 1 : 0),
+    }))
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score);
+  return ranked[0]?.combo;
 }
 
 export function formatComboList(combos: ComboTemplate[]): string {
-  if (combos.length === 0) return 'No combos found.';
-  const lines = ['Built-in route combos:', ''];
-  for (const combo of combos) {
-    lines.push(`  ${combo.id} [${combo.category}]`);
-    lines.push(`    ${combo.description}`);
-    lines.push(`    Skills: ${combo.skillNames.join(', ')}`);
-    lines.push('');
-  }
-  return lines.join('\n').trimEnd();
+  return combos.map((combo) => `${combo.id} [${combo.category}] ${combo.description}`).join('\n');
 }
