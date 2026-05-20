@@ -13,7 +13,9 @@ import { append, getStats, loadRecent } from '../src/history/history.js';
 import { detectPatterns, unusedHighValue } from '../src/insights/patterns.js';
 import { findCombo } from '../src/combos/registry.js';
 import { orchestrate } from '../src/orchestrator/engine.js';
+import { loadRules } from '../src/orchestrator/rules.js';
 import { signalFromQuery } from '../src/orchestrator/signals.js';
+import { userRuleTemplate } from '../src/orchestrator/user-rules.js';
 import { box, bold, cyan, dim, green, highlight, progressBar, yellow } from '../src/ui/terminal.js';
 import type { Capability, RawCapability } from '../src/types.js';
 import { getPackageVersion } from '../src/version.js';
@@ -143,20 +145,44 @@ function runFind(query: string): void {
 function runStats(): void {
   const stats = getStats();
   const max = Math.max(1, ...stats.bySkill.map((item) => item.count));
+  const now = Date.now();
+  const weekMs = 7 * 24 * 60 * 60 * 1000;
+  const recentSkill = (entry: { used: string | null; recommended: string }) => entry.used ?? entry.recommended;
+  const weekOne = new Set(stats.recent.filter((entry) => Date.parse(entry.timestamp) >= now - weekMs).map(recentSkill)).size;
+  const weekFour = new Set(stats.recent.filter((entry) => Date.parse(entry.timestamp) < now - (3 * weekMs)).map(recentSkill)).size;
+  const patterns = detectPatterns(stats.recent);
+  const neverTried = unusedHighValue(stats.recent);
   const lines = [
     bold('📊 Your AI Enhancement Usage (30 days)'),
     '',
     `Total queries: ${stats.total}   Accepted: ${stats.accepted}   Ignored: ${stats.ignored}`,
+    `Growth: Week 1 ${weekOne} skills vs Week 4 ${weekFour} skills`,
+    `Estimated time saved: ${stats.accepted * 3} minutes`,
     '',
     'Most activated',
     ...stats.bySkill.slice(0, 6).map((item) => `/${item.skill} ${progressBar(item.count, max)} ${item.count}x`),
   ];
-  const patterns = detectPatterns(stats.recent);
   if (patterns.length) {
-    lines.push('', 'Patterns');
+    lines.push('', 'Combos used');
     for (const pattern of patterns.slice(0, 3)) lines.push(`${pattern.sequence.join(' → ')} (${pattern.count}x)`);
   }
+  if (neverTried.length) lines.push('', `Never tried: ${neverTried.map((skill) => `/${skill}`).join(', ')}`);
   out(box(lines));
+}
+
+function runRules(): void {
+  if (args[1] === 'add') {
+    out(userRuleTemplate());
+    return;
+  }
+  const rules = loadRules();
+  out(box([
+    bold('Active orchestration rules'),
+    '',
+    ...rules.map((rule) => `${rule.name} ${progressBar(rule.confidence, 1, 10)} ${Math.round(rule.confidence * 100)}%`),
+    '',
+    `Add custom rule: ${cyan('lb rules add')} >> ~/.lazybrain/rules.yaml`,
+  ], { title: 'rules' }));
 }
 
 function runDiscover(): void {
@@ -275,6 +301,7 @@ Usage:
   lb discover
   lb combo "task"
   lb orchestrate "task"
+  lb rules
   lb quickstart`);
 }
 
@@ -288,6 +315,7 @@ async function main(): Promise<void> {
   if (cmd === 'discover') return runDiscover();
   if (cmd === 'combo') return runCombo(queryFrom(1));
   if (cmd === 'orchestrate') return runOrchestrate(queryFrom(1));
+  if (cmd === 'rules') return runRules();
   if (cmd === 'scan') return runScan();
   if (cmd === 'compile') return runCompile();
   if (cmd === 'quickstart') return runQuickstart();

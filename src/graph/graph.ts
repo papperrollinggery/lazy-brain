@@ -93,7 +93,12 @@ export class Graph {
     if (!existsSync(path)) return g;
 
     return withFileLock(path, () => {
-      const raw: CapabilityGraph = JSON.parse(readFileSync(path, 'utf-8'));
+      let raw: CapabilityGraph;
+      try {
+        raw = JSON.parse(readFileSync(path, 'utf-8')) as CapabilityGraph;
+      } catch {
+        return g;
+      }
       for (const node of raw.nodes) {
         const validNode: Capability = {
           id: node.id ?? `unknown-${g.nodes.size}`,

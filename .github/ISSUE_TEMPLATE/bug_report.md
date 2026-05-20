@@ -7,24 +7,45 @@ assignees: ''
 ---
 
 ## Describe the bug
-A clear and concise description of what the bug is.
+A clear description of what broke.
 
-## To Reproduce
-Steps to reproduce the behavior:
-1. Go to '...'
-2. Click on '....'
-3. Scroll down to '....'
-4. See error
+## Command
+The exact command you ran:
+
+```bash
+lb "..."
+```
+
+## Version
+Output of:
+
+```bash
+lb --version
+```
+
+## Scan Output
+Output of:
+
+```bash
+lb scan
+```
+
+## Reproduction Steps
+1.
+2.
+3.
 
 ## Expected behavior
-A clear and concise description of what you expected to happen.
+What you expected LazyBrain to return or do.
 
-## Screenshots
-If applicable, add screenshots to help explain your problem.
+## Actual behavior
+What LazyBrain returned or did instead.
 
-## Desktop (please complete the following information):
- - OS: [e.g. macOS]
- - Version [e.g. 22]
+## Environment
+- OS:
+- Shell:
+- Node version:
+- Install method: npm, npx, local checkout, other
 
 ## Additional context
-Add any other context about the problem here.
+Screenshots, terminal output, or related files.

@@ -1,5 +1,16 @@
 # Changelog
 
+## [v2.0.0]
+
+- Added product-grade README, Chinese README, terminal SVG demo, CONTRIBUTING guide, and issue/PR templates.
+- Expanded deterministic orchestration to 18 rules and 12 combo templates.
+- Integrated learned local workflow signals into orchestration with cached history reads.
+- Added stdio MCP server entrypoint `lazybrain-mcp` with find, orchestrate, stats, scan, graph, and history surfaces.
+- Added user-defined orchestration rules from `~/.lazybrain/rules.yaml` plus `lb rules`.
+- Expanded golden set to 76 labeled cases plus negative cases, with 88% precision gate.
+- Added benchmark, edge-case, MCP, combo, and user-rule tests.
+- Improved `lb stats` with growth, combo, time-saved, and never-tried signals.
+
 ## [v1.5.0]
 
 - Added public-trial work delivery positioning: Hook WorkEnvelope guidance, quickstart readiness, receipt execution health, and Agent Workbench first-use cues.

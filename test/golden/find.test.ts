@@ -52,9 +52,46 @@ const GOLDEN_SET = [
   { query: 'review architecture tradeoffs', expect: 'architecture' },
   { query: 'cover this bug with a regression test', expect: 'tdd-workflow' },
   { query: 'deploy new payment feature', expect: 'ship' },
+  { query: 'check if this auth flow has vulnerabilities', expect: 'security-review' },
+  { query: 'check this diff for regressions', expect: 'code-review' },
+  { query: 'why is this failing', expect: 'investigate' },
+  { query: 'redesign this screen', expect: 'frontend-design' },
+  { query: 'prepare release', expect: 'ship' },
+  { query: 'use TDD for this fix', expect: 'tdd-workflow' },
+  { query: 'make an execution plan', expect: 'plan' },
+  { query: 'remove duplication', expect: 'refactor-clean' },
+  { query: 'write OpenAPI docs', expect: 'api-design' },
+  { query: 'document this workflow', expect: 'docs' },
+  { query: 'review this SQL index', expect: 'database' },
+  { query: 'optimize Dockerfile', expect: 'docker-patterns' },
+  { query: 'release pipeline is broken', expect: 'ci-cd-best-practices' },
+  { query: 'reduce latency', expect: 'performance' },
+  { query: 'address PR comments', expect: 'github-ops' },
+  { query: 'make a conventional commit', expect: 'git-commit' },
+  { query: 'find latest docs', expect: 'research' },
+  { query: 'how do I use Responses API', expect: 'openai-docs' },
+  { query: '定位问题', expect: 'investigate' },
+  { query: '代码太乱', expect: 'refactor-clean' },
+  { query: '接口设计', expect: 'api-design' },
+  { query: '持续集成', expect: 'ci-cd-best-practices' },
+  { query: '浏览器测试', expect: 'e2e-testing' },
+  { query: '苹果应用', expect: 'build-ios-apps' },
+  { query: '模块边界', expect: 'architecture' },
+  { query: '内存泄漏', expect: 'performance' },
+] as const;
+
+const NEGATIVE_SET = [
+  'visual polish only',
+  'write marketing copy for landing page',
+  'small typo in text',
+  'brainstorm product idea only',
 ] as const;
 
 describe('find golden set', () => {
+  test('golden set has product-grade breadth', () => {
+    expect(GOLDEN_SET.length).toBeGreaterThanOrEqual(60);
+  });
+
   test.each(GOLDEN_SET)('find("$query") -> $expect', ({ query, expect: expected }) => {
     const results = find(query, { threshold: 0.5, limit: 1 });
     expect(results[0]?.skill).toBe(expected);
@@ -63,7 +100,11 @@ describe('find golden set', () => {
 
   test('precision is at least 85 percent', () => {
     const correct = GOLDEN_SET.filter((item) => find(item.query, { threshold: 0.5, limit: 1 })[0]?.skill === item.expect).length;
-    expect(correct / GOLDEN_SET.length).toBeGreaterThanOrEqual(0.85);
+    expect(correct / GOLDEN_SET.length).toBeGreaterThanOrEqual(0.88);
+  });
+
+  test.each(NEGATIVE_SET)('does not force a match for "$query"', (query) => {
+    expect(find(query, { threshold: 0.5, limit: 1 })).toEqual([]);
   });
 
   test('find responds in under 200ms on average', () => {

@@ -1,15 +1,72 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="920" height="420" viewBox="0 0 920 420" role="img" aria-label="LazyBrain terminal demo">
-  <rect width="920" height="420" rx="18" fill="#0b1020"/>
-  <rect x="28" y="28" width="864" height="364" rx="12" fill="#111827" stroke="#334155"/>
-  <circle cx="58" cy="52" r="7" fill="#ef4444"/>
-  <circle cx="82" cy="52" r="7" fill="#f59e0b"/>
-  <circle cx="106" cy="52" r="7" fill="#22c55e"/>
-  <text x="48" y="98" fill="#94a3b8" font-family="Menlo, monospace" font-size="18">$ lb "review this PR for security issues"</text>
-  <text x="72" y="150" fill="#e2e8f0" font-family="Menlo, monospace" font-size="18">╭────────────────────────────────────────────────────────╮</text>
-  <text x="72" y="184" fill="#67e8f9" font-family="Menlo, monospace" font-size="18">│  🎯 /security-review                              95%  │</text>
-  <text x="72" y="218" fill="#e2e8f0" font-family="Menlo, monospace" font-size="18">│  Scan code for OWASP Top 10, auth bypass,              │</text>
-  <text x="72" y="252" fill="#e2e8f0" font-family="Menlo, monospace" font-size="18">│  injection, and credential exposure.                   │</text>
-  <text x="72" y="286" fill="#94a3b8" font-family="Menlo, monospace" font-size="18">│  Also consider: /code-review · /tdd-workflow           │</text>
-  <text x="72" y="320" fill="#facc15" font-family="Menlo, monospace" font-size="18">│  💡 Combo: /security-review → /code-review             │</text>
-  <text x="72" y="354" fill="#e2e8f0" font-family="Menlo, monospace" font-size="18">╰────────────────────────────────────────────────────────╯</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="720" viewBox="0 0 1120 720" role="img" aria-label="LazyBrain terminal demo">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#07111f"/>
+      <stop offset="0.55" stop-color="#0d1b2e"/>
+      <stop offset="1" stop-color="#101827"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#000000" flood-opacity="0.34"/>
+    </filter>
+    <style>
+      .mono { font-family: Menlo, Consolas, "SFMono-Regular", monospace; }
+      .muted { fill: #94a3b8; }
+      .text { fill: #dbeafe; }
+      .title { fill: #f8fafc; font-weight: 700; }
+      .cyan { fill: #67e8f9; }
+      .green { fill: #86efac; }
+      .amber { fill: #facc15; }
+      .red { fill: #f87171; }
+      .line { stroke: #334155; stroke-width: 1; }
+    </style>
+  </defs>
+
+  <rect width="1120" height="720" rx="28" fill="url(#bg)"/>
+  <rect x="48" y="42" width="1024" height="636" rx="18" fill="#0f172a" stroke="#334155" filter="url(#shadow)"/>
+
+  <circle cx="84" cy="76" r="7" fill="#ef4444"/>
+  <circle cx="108" cy="76" r="7" fill="#f59e0b"/>
+  <circle cx="132" cy="76" r="7" fill="#22c55e"/>
+  <text class="mono title" x="166" y="83" font-size="17">LazyBrain CLI</text>
+  <text class="mono muted" x="916" y="83" font-size="15">deterministic local routing</text>
+  <line class="line" x1="48" y1="102" x2="1072" y2="102"/>
+
+  <text class="mono muted" x="78" y="139" font-size="16">$ lb "review this PR for security issues"</text>
+  <rect x="76" y="158" width="968" height="136" rx="10" fill="#111c2f" stroke="#26364f"/>
+  <text class="mono cyan" x="104" y="190" font-size="18">🎯 /security-review</text>
+  <text class="mono green" x="946" y="190" font-size="18">98%</text>
+  <text class="mono text" x="104" y="222" font-size="16">Scan code for OWASP Top 10, auth bypass, injection, and credential exposure.</text>
+  <text class="mono muted" x="104" y="250" font-size="16">Reason: trigger "review this PR for security issues"</text>
+  <text class="mono amber" x="104" y="278" font-size="16">Combo: /security-review -> /code-review</text>
+
+  <text class="mono muted" x="78" y="334" font-size="16">$ lb stats</text>
+  <rect x="76" y="353" width="456" height="205" rx="10" fill="#111c2f" stroke="#26364f"/>
+  <text class="mono title" x="104" y="386" font-size="17">Your AI Enhancement Usage</text>
+  <text class="mono muted" x="104" y="416" font-size="15">Total queries: 47   Accepted: 47   Ignored: 0</text>
+  <text class="mono text" x="104" y="456" font-size="15">/security-review</text>
+  <rect x="260" y="443" width="210" height="14" rx="7" fill="#1e293b"/>
+  <rect x="260" y="443" width="172" height="14" rx="7" fill="#67e8f9"/>
+  <text class="mono muted" x="482" y="456" font-size="15">12x</text>
+  <text class="mono text" x="104" y="490" font-size="15">/code-review</text>
+  <rect x="260" y="477" width="210" height="14" rx="7" fill="#1e293b"/>
+  <rect x="260" y="477" width="132" height="14" rx="7" fill="#86efac"/>
+  <text class="mono muted" x="482" y="490" font-size="15">9x</text>
+  <text class="mono text" x="104" y="524" font-size="15">/tdd-workflow</text>
+  <rect x="260" y="511" width="210" height="14" rx="7" fill="#1e293b"/>
+  <rect x="260" y="511" width="88" height="14" rx="7" fill="#facc15"/>
+  <text class="mono muted" x="482" y="524" font-size="15">6x</text>
+
+  <text class="mono muted" x="588" y="334" font-size="16">$ lb orchestrate "deploy payment feature"</text>
+  <rect x="588" y="353" width="456" height="205" rx="10" fill="#111c2f" stroke="#26364f"/>
+  <text class="mono title" x="616" y="386" font-size="17">🎼 Orchestration Plan</text>
+  <text class="mono green" x="974" y="386" font-size="17">94%</text>
+  <text class="mono muted" x="616" y="416" font-size="15">payment/auth risk detected</text>
+  <text class="mono text" x="616" y="456" font-size="15">1. /security-review</text>
+  <text class="mono text" x="616" y="486" font-size="15">2. /tdd-workflow</text>
+  <text class="mono text" x="616" y="516" font-size="15">3. /code-review</text>
+  <text class="mono text" x="616" y="546" font-size="15">4. /ship</text>
+
+  <line class="line" x1="76" y1="598" x2="1044" y2="598"/>
+  <text class="mono muted" x="78" y="637" font-size="15">task -> matcher -> local graph -> combo/rules -> execution plan</text>
+  <text class="mono cyan" x="788" y="637" font-size="15">no runtime LLM call</text>
 </svg>

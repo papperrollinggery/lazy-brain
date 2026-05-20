@@ -1,122 +1,145 @@
 # LazyBrain
 
-本地 AI coding agent 的工作交付层。
+> 输入一次任务，LazyBrain 自动找到本机最合适的 AI capability，并生成确定性的编排计划。
 
-LazyBrain 把用户任务变成 agent 能直接执行的工作简报：角色、下一步、允许范围、验证方式、停止条件和 receipt 证据。它仍然保留能力路由，但公开产品价值是：在真实 coding 工作流里自动给 agent 有用的工作指导。
+![LazyBrain terminal demo](docs/assets/lazybrain-demo.svg)
 
-## 快速开始
+## 问题
 
-```bash
-lazybrain quickstart
-lazybrain route "审查这次改动有没有回归风险" --target codex --brief
-lazybrain ui --no-open
-```
+你装了很多 skills、commands、plugins 和本地规则。真正记得住、会主动调用的只有少数几个。LazyBrain 把这些能力重新变成一个可搜索、可编排、可验证的本地能力层。
 
-如果 Hook 已安装，LazyBrain 会在非平凡任务上自动注入低延迟工作建议。如果 Hook 降级，`quickstart`、`ready` 和 Workbench 会显示恢复命令，而不是静默失效。
-
-## 当前保留能力
-
-核心命令：
+## 安装
 
 ```bash
-lazybrain quickstart
-lazybrain quickstart --json
-lazybrain route "审查这次改动" --target codex --brief
-lazybrain route "审查这次改动" --target claude --json
-lazybrain route dogfood --target claude
-lazybrain ready
-lazybrain ready --release
-lazybrain doctor --json
-lazybrain embeddings status
-lazybrain embeddings rebuild --yes
-lazybrain mcp status
+npx --yes lazybrain quickstart
+npm install -g lazybrain
+lb "review this PR for security issues"
 ```
 
-刷新本地能力图谱：
+从源码运行：
 
 ```bash
-lazybrain scan
-lazybrain compile --offline
-lazybrain compile --with-relations
+npm ci
+npm run build
+node dist/bin/lazybrain.js quickstart
 ```
 
-本地 HTTP workbench：
+## 常用命令
 
 ```bash
-lazybrain server
-lazybrain ui --no-open
+lb "审查这个 PR 有没有安全问题"          # 匹配最合适的能力
+lb combo "deploy new feature to production" # 生成工作流模板
+lb orchestrate "deploy payment feature"     # 生成多技能编排计划
+lb stats                                    # 查看最近使用情况
+lb discover                                 # 发现高价值但未使用的能力
+lb scan && lb compile                       # 刷新本地能力图谱
+lb config show                              # 查看脱敏后的本地配置
+lazybrain-mcp                               # 启动 stdio MCP server
 ```
 
-稳定本地 API：
-
-- `GET /api/status`
-- `GET /api/routes`
-- `GET /api/diagnostics`
-- `POST /api/route`
-- `POST /api/compile`
-- `GET /api/compile/status`
-- `GET /api/embeddings/status`
-- `POST /api/embeddings/rebuild`
-- `GET /api/config`
-- `POST /api/config`
-- `POST /api/test`
-
-## Route 输出
-
-`lazybrain route` 输出 RouteSpec `1.5.0`、`RecommendationEnvelope` 和 `WorkEnvelope`：mode、intent、命中能力、route plan、guardrails、verification、done conditions、目标 agent prompt、用户/模型推荐通道，以及当前 work role。它只做建议，不执行任务。
-
-## Hook 工作指导
-
-默认 Hook 路径刻意保持轻量：只使用 fast route gate、combo metadata 和 tag match 生成短 `WorkEnvelope`，不跑完整 route 分析。完整分析仍在 CLI、MCP、HTTP 和 Workbench 中可用。
-
-示例 Hook 输出：
+## 工作方式
 
 ```text
-LazyBrain WorkEnvelope
-Role: scout
-Do next: Inspect the relevant files, diff, errors, or UI state.
-Allowed scope: Read-only evidence gathering. | Capability: code-review
-Verify: npm test | npm run lint
-Stop if: Required context is still missing.
-Receipt: result, summary, evidence, ambiguity_or_next_tasks
+用户任务
+  -> trigger / tag / example 匹配
+  -> scan / compile 生成的本地图谱
+  -> combo 模板和 orchestration rules
+  -> CLI / hook / statusline 输出
 ```
 
-恢复命令：
+核心路径是确定性的：匹配时不调用 LLM，不依赖 embedding，低置信度 hook 建议会保持静默。
 
-```bash
-lazybrain ready
-lazybrain doctor --fix
-lazybrain hook rollback
+## 支持的来源
+
+LazyBrain 可以扫描或索引这些本地能力来源：
+
+`Claude Code` `Codex` `Cursor` `Windsurf` `Cline` `OpenCode` `local SKILL.md`
+
+默认覆盖 Claude skills/commands、项目 commands、Cursor/Windsurf/Cline 规则文件、`.skillshub`、`.codex/skills` 和 `.agents/skills`。
+
+## 编排能力
+
+`lb orchestrate` 会把一句任务升级成有顺序的执行计划：
+
+```text
+$ lb orchestrate "deploy payment feature"
+
+Orchestration Plan 94%
+payment/auth risk detected
+
+1. /security-review
+2. /tdd-workflow
+3. /code-review
+4. /ship
+
+Sequence: sequential
+Auto-activate: no
 ```
 
-## MCP
+`lb combo` 用于返回可复用工作流模板：
 
-`lazybrain mcp --stdio` 暴露只读工具，用于路由规划、能力搜索、技能卡片和组合模板。
+```text
+$ lb combo "deploy new feature to production"
 
-```bash
-lazybrain mcp status
+Recommended workflow: release_public_audit
+1. /document-release
+2. /github-ops
+3. /ci-cd-best-practices
+
+Verification: npm run audit:public && npm pack --dry-run --json
 ```
 
-## Ready
+## MCP Server
 
-`lazybrain ready` 区分产品可用状态和本机 hook/runtime 临时状态。过期 runtime status 会标记为 stale，不阻塞产品可用状态。Hook 的慢样本污染、主机高负载、breaker、HUD 不可见会作为 warning/blocker 展示，并给出恢复命令。
+全局安装后：
 
-`lazybrain quickstart` 是公开试用用户的首次检查入口，会报告 graph、Hook 自动建议、MCP tools、runtime latency、blocker、warning 和下一条该执行的命令。
-
-## 公开包范围
-
-npm 包只包含 `dist`、`README.md`、`README_CN.md`、`CHANGELOG.md`、`LICENSE` 和 package metadata。
-
-## 验证
-
-```bash
-npm run lint
-npm run audit:public
-npm test
-node dist/bin/lazybrain.js quickstart --json
-node dist/bin/lazybrain.js ready
-node dist/bin/lazybrain.js ready --release
-node dist/bin/lazybrain.js mcp status
-node dist/bin/lazybrain.js embeddings status
-node dist/bin/lazybrain.js route dogfood --target claude
+```json
+{
+  "mcpServers": {
+    "lazybrain": {
+      "command": "lazybrain-mcp",
+      "args": []
+    }
+  }
+}
 ```
+
+源码 checkout：
+
+```json
+{
+  "mcpServers": {
+    "lazybrain": {
+      "command": "node",
+      "args": ["/absolute/path/to/lazybrain/dist/bin/mcp.js"]
+    }
+  }
+}
+```
+
+## Benchmark
+
+仓库内可验证的指标：
+
+| 指标 | 证据 |
+| --- | --- |
+| Golden set | `test/golden/find.test.ts` 中 76 条标注用例和 negative checks |
+| Precision gate | 测试要求 top-match 精准率不低于 88% |
+| Latency gate | 测试要求 100 次 `find()` 平均耗时低于 200ms |
+| 内置匹配面 | `src/knowledge/builtin.ts` 中的核心技能和生成能力名 |
+| 编排面 | `src/orchestrator/rules.ts` 中 18 条规则，`src/combos/registry.ts` 中 12 个 combo |
+| 运行模型 | 确定性 matcher + rule engine；核心路径不调用运行时 LLM |
+
+## 贡献方式
+
+最小有效贡献：一个 trigger phrase 加一条 golden-set case。
+
+1. 在 `src/knowledge/builtin.ts` 增加 trigger/example。
+2. 在 `test/golden/find.test.ts` 增加标注查询。
+3. 运行 `npm test`。
+
+适合贡献的方向：触发词、combo 模板、编排规则、scanner 覆盖、benchmark cases。
+
+## License
+
+AGPL-3.0.

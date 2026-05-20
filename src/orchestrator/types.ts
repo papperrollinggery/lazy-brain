@@ -30,4 +30,5 @@ export interface EngineOptions {
   confidenceThreshold?: number;
   maxEnhancements?: number;
   disabledRules?: string[];
+  learnedHistory?: Array<{ recommended: string; used: string | null; timestamp: string }>;
 }
