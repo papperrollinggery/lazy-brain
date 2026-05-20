@@ -15,7 +15,7 @@ jobs:
           node-version: ${{ matrix.node-version }}
       - run: npm ci
       - run: npm run lint
-      - run: npm test
       - run: npm run build
+      - run: npm test
       - run: node dist/bin/lazybrain.js quickstart
       - run: node dist/bin/lazybrain.js "review this PR for security"
