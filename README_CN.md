@@ -10,12 +10,18 @@
 
 ## 安装
 
-Beta channel：
+当前 beta prerelease：
+
+```bash
+npm install -g https://github.com/papperrollinggery/lazy-brain/releases/download/v2.0.0-beta.1/lazybrain-2.0.0.tgz
+lb quickstart
+lb "review this PR for security issues"
+```
+
+npm registry beta 发布后：
 
 ```bash
 npm install -g lazybrain@beta
-lb quickstart
-lb "review this PR for security issues"
 ```
 
 从源码运行：

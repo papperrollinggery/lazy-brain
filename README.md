@@ -10,12 +10,18 @@ You installed hundreds of AI skills, commands, plugins, and local rules. You rem
 
 ## Install
 
-Beta channel:
+Current beta prerelease:
+
+```bash
+npm install -g https://github.com/papperrollinggery/lazy-brain/releases/download/v2.0.0-beta.1/lazybrain-2.0.0.tgz
+lb quickstart
+lb "review this PR for security issues"
+```
+
+Registry beta, after npm publish:
 
 ```bash
 npm install -g lazybrain@beta
-lb quickstart
-lb "review this PR for security issues"
 ```
 
 From source:
