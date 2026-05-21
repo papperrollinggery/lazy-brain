@@ -1,29 +1,50 @@
 # LazyBrain
 
-> 本地优先的 AI agent capability 路由器。
+> 不再记 AI agent 命令。描述任务，LazyBrain 把它路由到本机最合适的能力。
+
+[![npm version](https://img.shields.io/npm/v/lazybrain.svg)](https://www.npmjs.com/package/lazybrain)
+[![Node.js >=18](https://img.shields.io/badge/node-%3E%3D18-339933.svg)](package.json)
+[![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
+[![No runtime deps](https://img.shields.io/badge/runtime_deps-0-success.svg)](package.json)
 
 ![LazyBrain terminal demo](docs/assets/lazybrain-demo.svg)
 
-LazyBrain 把一句自然语言任务映射到本机最合适的 skill、slash command、plugin、MCP 工具、工作流模板或编排计划。它解决的问题很直接：你装了很多能力，但不可能每次都记住准确命令名。
+LazyBrain 是本地优先的 AI-agent 工具路由器。它扫描你本机的 skills、slash commands、rules、prompts、MCP tools 和 workflow templates，然后把一句自然语言任务匹配到最合适的 capability 或执行计划。
 
-当前版本：`2.0.1`。
+它适合已经装了很多 agent 能力、但不想每次记准确命令名的开发者。
 
-## 当前可用能力
+```bash
+npm install -g lazybrain
+lb quickstart
+lb "review this PR for security issues"
+```
+
+## 为什么需要 LazyBrain
+
+| 问题 | LazyBrain 给你的结果 |
+| --- | --- |
+| skills、commands、rules 太多，记不住 | 一个自然语言入口 |
+| agent 随机选工具或套通用流程 | 确定性的本地路由 |
+| 发布、安全、迁移、review 这类任务反复做 | 可复用 combo 和编排计划 |
+| hook 提示太吵 | 只在高置信度时提示 |
+| 担心扫描文件离开本机 | 本地图谱、本地缓存、无 telemetry |
+
+## 当前能力
 
 | 使用面 | 状态 | 用途 |
 | --- | --- | --- |
-| CLI：`lb` / `lazybrain` | 可用 | 手动查能力、查 workflow、看 stats、刷新图谱 |
-| Claude Code 项目 hook | 可用 | 每个项目安装一次，之后高置信度自动提示 |
-| MCP：`lazybrain-mcp` | 可用 | 给支持 stdio MCP 的 agent 客户端调用 |
-| 本地图谱/cache | 可用 | 基于本机 capability metadata 做快速确定性匹配 |
+| `lb` CLI | 可用 | 匹配能力、workflow、计划、stats、ready 状态 |
+| Claude Code hook | 可用 | 在项目内自动给高置信度建议 |
+| `lazybrain-mcp` | 可用 | 给支持 MCP 的 agent 客户端做确定性路由 |
+| 本地图谱/cache | 可用 | 基于本机 capability metadata 快速匹配 |
 | Hosted dashboard | 未包含 | 当前 beta 没有云端 UI 或团队同步 |
-| 自动执行任务 | 未包含 | LazyBrain 负责推荐和规划，执行仍由你的 agent 完成 |
+| 自动执行任务 | 未包含 | LazyBrain 负责推荐和规划，执行仍由 agent 完成 |
+
+当前版本：`2.0.1`。
 
 ## 安装
 
 要求 Node.js 18 或更新版本。
-
-从 npm 安装：
 
 ```bash
 npm install -g lazybrain
@@ -33,13 +54,19 @@ lb ready
 
 `npm install` 只安装 CLI，不会自动扫描你的 home 目录。`lb quickstart` 才是显式首次运行命令：扫描本机 capability metadata，并生成 `~/.lazybrain/graph.json`。
 
-Beta tag：
+Beta channel：
 
 ```bash
 npm install -g lazybrain@beta
 ```
 
-从源码安装：
+GitHub release tarball：
+
+```bash
+npm install -g https://github.com/papperrollinggery/lazy-brain/releases/download/v2.0.1/lazybrain-2.0.1.tgz
+```
+
+源码安装：
 
 ```bash
 git clone https://github.com/papperrollinggery/lazy-brain.git
@@ -51,38 +78,47 @@ lb quickstart
 lb ready
 ```
 
-GitHub release tarball 兜底：
-
-```bash
-npm install -g https://github.com/papperrollinggery/lazy-brain/releases/download/v2.0.0/lazybrain-2.0.0.tgz
-```
-
 完整安装、旧版本清理、MCP 和 smoke test 说明见：[docs/INSTALL.md](docs/INSTALL.md)。
 
-## 首次使用
+## 快速演示
 
-安装后或本机 skills/rules 变化后跑一次：
-
-```bash
-lb quickstart
-```
-
-它执行的就是 `lb scan` 加 `lb compile` 的本地流程：扫描 capability metadata，然后把本地图谱写到 `~/.lazybrain/graph.json`。这里的 compile 不是 LLM 调用，也不是 embedding 编译。
-
-想手动问“这个任务该用哪个能力”时：
+查任务该用哪个能力：
 
 ```bash
 lb "review this PR for security issues"
 ```
 
-如果希望 Claude Code 在当前项目自动提示，项目里安装一次 hook：
+示例输出：
+
+```text
+/security-review 98%
+Scan code for OWASP Top 10, auth bypass, injection, and credential exposure.
+
+Also consider:
+- /code-review
+- /gitnexus-pr-review
+```
+
+把高风险任务变成有顺序的计划：
+
+```bash
+lb orchestrate "deploy payment feature"
+```
+
+选择可复用 workflow：
+
+```bash
+lb combo "deploy new feature to production"
+```
+
+给当前项目安装安静的 Claude Code 自动建议：
 
 ```bash
 lb hook install
 lb hook status
 ```
 
-装好以后，你不需要每次都敲 `lb`。在该项目里正常向 Claude Code 输入任务即可；低置信度时 LazyBrain 会保持静默。
+hook 安装后，你继续在 Claude Code 里正常输入任务即可。LazyBrain 只在匹配足够确定时追加建议。
 
 ## 常用命令
 
@@ -92,7 +128,7 @@ lb hook status
 | `lb combo "task"` | 返回可复用 workflow 模板 |
 | `lb orchestrate "task"` | 生成多 skill 编排计划 |
 | `lb scan` | 扫描本机 capability 文件 |
-| `lb compile` | 重建本地 capability 图谱；不调用 LLM/embedding |
+| `lb compile` | 重建本地 capability 图谱；不调用 LLM 或 embedding |
 | `lb quickstart` | 首次使用的一键扫描和编译 |
 | `lb stats` | 查看最近使用情况和模式 |
 | `lb discover` | 发现高价值但未使用的本机能力 |
@@ -102,19 +138,6 @@ lb hook status
 | `lb hook install` | 安装当前项目的 Claude Code hook |
 | `lb hook uninstall` | 移除当前项目 hook |
 | `lazybrain-mcp` | 启动 stdio MCP server |
-
-示例：
-
-```text
-$ lb "review this PR for security issues"
-
-/security-review 98%
-Scan code for OWASP Top 10, auth bypass, injection, and credential exposure.
-
-Also consider:
-- /code-review
-- /gitnexus-pr-review
-```
 
 ## MCP
 
@@ -159,7 +182,7 @@ Smoke test：
 printf '{"jsonrpc":"2.0","id":1,"method":"tools/list"}\n' | lazybrain-mcp
 ```
 
-## 支持的来源
+## 支持来源
 
 `lb quickstart`、`lb scan`、`lb compile` 会读取常见 agent 工具目录里的本地 capability metadata：
 
@@ -174,7 +197,7 @@ printf '{"jsonrpc":"2.0","id":1,"method":"tools/list"}\n' | lazybrain-mcp
 
 空机器也能用，因为 LazyBrain 内置了一组常见开发 workflow capability。
 
-## 如何保证建议可靠
+## 可靠性
 
 LazyBrain 的核心路径是确定性的：
 
@@ -202,21 +225,21 @@ LazyBrain 是 local-first。它扫描本机 capability metadata，把 cache/hist
 
 详情见：[docs/PRIVACY.md](docs/PRIVACY.md)。
 
-## Beta 适用场景
+## 适合谁
 
 适合：
 
-- 本机 AI 工具重度用户
-- 有大量 skills、prompts、rules、commands、plugins 的团队
-- agent workflow 作者
-- 想要确定性路由、不想在核心路径调用运行时 LLM 的开发者
+- 本机有很多 agent skills、slash commands、rules、prompts 或 plugins
+- 经常做发布、安全 review、迁移、incident response、PR review 等重复工作
+- 使用支持 MCP 的 agent 客户端，需要确定性工具选择
+- 偏好本地路由，不想在核心路径调用运行时模型
 
 暂不适合：
 
-- 期待 LazyBrain 自动执行完整任务的用户
-- 需要 hosted team dashboard 的用户
-- 需要跨机器同步的用户
-- 需要托管云端 telemetry 或 analytics 的用户
+- 需要工具自动执行完整任务
+- 需要 hosted team dashboard
+- 需要跨机器同步
+- 需要托管云端 analytics
 
 ## 文档
 
