@@ -1,5 +1,11 @@
 # Changelog
 
+## [v2.0.1]
+
+- Removed the leftover optional HuggingFace/embedding dependency from the public package.
+- Clarified that `lb quickstart` performs the first scan and local graph build; npm install itself does not scan user files.
+- Clarified that `lb compile` means local capability graph compilation, not LLM/embedding compilation.
+
 ## [v2.0.0]
 
 - Added product-grade README, Chinese README, terminal SVG demo, CONTRIBUTING guide, and issue/PR templates.

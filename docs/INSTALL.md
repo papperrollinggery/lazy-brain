@@ -10,6 +10,8 @@ lb quickstart
 lb "review this PR for security issues"
 ```
 
+`npm install` does not scan local files. The explicit first-run command is `lb quickstart`, which runs local metadata scan and local graph compilation.
+
 Beta tag:
 
 ```bash
@@ -114,3 +116,5 @@ printf '{"jsonrpc":"2.0","id":1,"method":"tools/list"}\n' | lazybrain-mcp
 ```
 
 Expected result: commands exit successfully, MCP returns `lazybrain_find`, and routing returns concrete capabilities such as `/security-review`, `/code-review`, or `/ship`.
+
+`lb compile` means compiling the local capability graph at `~/.lazybrain/graph.json`. It is not an LLM or embedding operation.

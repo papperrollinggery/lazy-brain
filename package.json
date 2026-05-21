@@ -1,6 +1,6 @@
 {
   "name": "lazybrain",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Deterministic capability router and orchestration engine for local AI agents",
   "type": "module",
   "bin": {
@@ -61,23 +61,6 @@
   },
   "engines": {
     "node": ">=18.0.0"
-  },
-  "peerDependencies": {
-    "@huggingface/transformers": "^4.1.0"
-  },
-  "peerDependenciesMeta": {
-    "@huggingface/transformers": {
-      "optional": true
-    }
-  },
-  "optionalDependencies": {
-    "@huggingface/transformers": "^4.1.0",
-    "@esbuild/darwin-arm64": "^0.28.0",
-    "@esbuild/darwin-x64": "^0.28.0",
-    "@esbuild/linux-x64": "^0.28.0",
-    "@rollup/rollup-darwin-arm64": "^4.60.2",
-    "@rollup/rollup-darwin-x64": "^4.60.2",
-    "@rollup/rollup-linux-x64-gnu": "^4.60.1"
   },
   "repository": {
     "type": "git",

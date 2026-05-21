@@ -18,9 +18,10 @@ npm pack --dry-run --json
 For hook, matcher, config, workflow, package, or release-doc changes, also run:
 
 ```bash
+node dist/bin/lazybrain.js ready --json
 node dist/bin/lazybrain.js hook plan --json
-node dist/bin/lazybrain.js ready
-node dist/bin/lazybrain.js embeddings status
+node dist/bin/lazybrain.js hook status --json
+node dist/bin/lazybrain.js orchestrate "deploy payment feature"
 ```
 
 ## Required PR Gate
@@ -82,7 +83,7 @@ Focus on:
 - version/package consistency
 - API calls only when explicitly requested
 - GUI routes staying read-only unless a user confirms an action
-- embedding cache correctness and atomic writes
+- graph/cache correctness and atomic writes
 - package contents suitable for public npm release
 ```
 

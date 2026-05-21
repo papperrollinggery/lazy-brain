@@ -6,7 +6,7 @@
 
 LazyBrain turns a plain-language task into the right local AI capability, workflow combo, or orchestration plan. It is useful when you have many skills, slash commands, plugins, MCP tools, and local rules, but do not want to remember every exact command name.
 
-Current package version: `2.0.0`.
+Current package version: `2.0.1`.
 
 ## What Works Now
 
@@ -30,6 +30,8 @@ npm install -g lazybrain
 lb quickstart
 lb ready
 ```
+
+`npm install` only installs the CLI. It does not scan your home directory. `lb quickstart` is the explicit first-run command that scans local capability metadata and builds `~/.lazybrain/graph.json`.
 
 Beta tag:
 
@@ -65,7 +67,7 @@ Run once after install or after changing local skills/rules:
 lb quickstart
 ```
 
-This scans supported local capability sources and writes the local graph under `~/.lazybrain`.
+This runs the same local pipeline as `lb scan` plus `lb compile`: scan supported capability metadata, then compile a local graph under `~/.lazybrain/graph.json`. This compile step is not an LLM call and does not use embeddings.
 
 Use the CLI manually when you want to ask what capability fits a task:
 
@@ -90,7 +92,7 @@ After that, you do not need to type `lb` for every prompt in that project. The h
 | `lb combo "task"` | Return a reusable workflow template |
 | `lb orchestrate "task"` | Build a multi-skill execution plan |
 | `lb scan` | Scan local capability files |
-| `lb compile` | Rebuild the local capability graph |
+| `lb compile` | Rebuild the local capability graph; no LLM/embedding call |
 | `lb quickstart` | Scan and compile in one first-run command |
 | `lb stats` | Show recent usage and patterns |
 | `lb discover` | Find high-value unused local capabilities |
@@ -178,6 +180,7 @@ LazyBrain's hot path is deterministic:
 
 - no runtime LLM call for normal matching
 - no embedding dependency for normal matching
+- no runtime dependencies in the published package
 - low-confidence hook suggestions stay silent
 - golden-set tests cover 76 labeled routing cases plus negative cases
 - precision gate requires at least 88% top-match precision

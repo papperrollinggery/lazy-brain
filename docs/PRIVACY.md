@@ -17,6 +17,8 @@ Default scan paths include Claude, Codex, Cursor, Windsurf, Cline, OpenCode, `.s
 
 LazyBrain writes local cache and history files under the user's home directory. These files support faster routing, stats, discovery, and learned workflow signals.
 
+`npm install` does not scan local files. Scanning starts only when the user runs commands such as `lb quickstart`, `lb scan`, `lb compile`, or the MCP `lazybrain_scan` tool.
+
 ## What It Does Not Do
 
 - No runtime LLM call on the hot path.

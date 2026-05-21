@@ -13,11 +13,11 @@ describe('config output redaction', () => {
     const configPath = join(tempDir, '.lazybrain', 'config.json');
     mkdirSync(dirname(configPath), { recursive: true });
     writeFileSync(configPath, JSON.stringify({
-      secretaryApiBase: 'https://example.test/v1',
-      secretaryModel: 'public-model-name',
-      compileApiKey: 'real-compile-key',
-      embeddingApiKey: 'real-embedding-key',
-      secretaryApiKey: 'real-secretary-key',
+      providerApiBase: 'https://example.test/v1',
+      providerModel: 'public-model-name',
+      providerApiKey: 'real-provider-key',
+      registryToken: 'real-registry-token',
+      serviceSecret: 'real-service-secret',
     }), 'utf-8');
   });
 
@@ -33,9 +33,9 @@ describe('config output redaction', () => {
     });
 
     expect(output).toContain('<redacted>');
-    expect(output).not.toContain('real-compile-key');
-    expect(output).not.toContain('real-embedding-key');
-    expect(output).not.toContain('real-secretary-key');
+    expect(output).not.toContain('real-provider-key');
+    expect(output).not.toContain('real-registry-token');
+    expect(output).not.toContain('real-service-secret');
     expect(output).toContain('https://example.test/v1');
     expect(output).toContain('public-model-name');
   });

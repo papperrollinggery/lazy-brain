@@ -119,7 +119,7 @@ export interface CapabilityGraph {
   categories: string[];
 }
 
-export type MatchLayer = 'alias' | 'tag' | 'semantic' | 'llm';
+export type MatchLayer = 'alias' | 'tag';
 export type Confidence = 'high' | 'medium' | 'low';
 
 export interface MatchResult {

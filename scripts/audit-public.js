@@ -76,10 +76,7 @@ function checkPack() {
 const allowlist = [
   { file: /^scripts\/audit-public\.js$/, pattern: /.*/ },
   { file: /^test\/hook\/plan\.test\.ts$/, pattern: /sk-live123|Bearer abc/ },
-  { file: /^test\/config\/redaction\.test\.ts$/, pattern: /real-(compile|embedding|secretary)-key/ },
-  { file: /^test\/matcher\/semantic-engine\.test\.ts$/, pattern: /test-key/ },
-  { file: /^test\/embeddings\/cache-rebuild\.test\.ts$/, pattern: /fake-key/ },
-  { file: /^test\/health\/api-test\.test\.ts$/, pattern: /private-(compile|embedding|secretary)-key|fake-key/ },
+  { file: /^test\/config\/redaction\.test\.ts$/, pattern: /real-(provider-key|registry-token|service-secret)/ },
   { file: /^src\/constants\.ts$/, pattern: /\.omc/ },
   { file: /^src\/utils\/omc-state\.ts$/, pattern: /\.omc/ },
   { file: /^dist\//, pattern: /\.omc/ },

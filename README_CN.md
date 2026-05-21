@@ -6,7 +6,7 @@
 
 LazyBrain 把一句自然语言任务映射到本机最合适的 skill、slash command、plugin、MCP 工具、工作流模板或编排计划。它解决的问题很直接：你装了很多能力，但不可能每次都记住准确命令名。
 
-当前版本：`2.0.0`。
+当前版本：`2.0.1`。
 
 ## 当前可用能力
 
@@ -30,6 +30,8 @@ npm install -g lazybrain
 lb quickstart
 lb ready
 ```
+
+`npm install` 只安装 CLI，不会自动扫描你的 home 目录。`lb quickstart` 才是显式首次运行命令：扫描本机 capability metadata，并生成 `~/.lazybrain/graph.json`。
 
 Beta tag：
 
@@ -65,7 +67,7 @@ npm install -g https://github.com/papperrollinggery/lazy-brain/releases/download
 lb quickstart
 ```
 
-它会扫描本机支持的 capability 来源，并把本地图谱写到 `~/.lazybrain`。
+它执行的就是 `lb scan` 加 `lb compile` 的本地流程：扫描 capability metadata，然后把本地图谱写到 `~/.lazybrain/graph.json`。这里的 compile 不是 LLM 调用，也不是 embedding 编译。
 
 想手动问“这个任务该用哪个能力”时：
 
@@ -90,7 +92,7 @@ lb hook status
 | `lb combo "task"` | 返回可复用 workflow 模板 |
 | `lb orchestrate "task"` | 生成多 skill 编排计划 |
 | `lb scan` | 扫描本机 capability 文件 |
-| `lb compile` | 重建本地 capability 图谱 |
+| `lb compile` | 重建本地 capability 图谱；不调用 LLM/embedding |
 | `lb quickstart` | 首次使用的一键扫描和编译 |
 | `lb stats` | 查看最近使用情况和模式 |
 | `lb discover` | 发现高价值但未使用的本机能力 |
@@ -178,6 +180,7 @@ LazyBrain 的核心路径是确定性的：
 
 - 正常匹配不调用运行时 LLM
 - 正常匹配不依赖 embedding
+- 发布包没有 runtime dependencies
 - hook 低置信度建议保持静默
 - golden-set 测试覆盖 76 条标注路由用例和 negative cases
 - precision gate 要求 top-match 精准率至少 88%
