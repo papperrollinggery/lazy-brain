@@ -1,109 +1,122 @@
 # LazyBrain
 
-> Type a task once. LazyBrain finds the right local AI capability and turns it into a deterministic orchestration plan.
+> Local-first capability routing for AI agent tools.
 
 ![LazyBrain terminal demo](docs/assets/lazybrain-demo.svg)
 
-## The Problem
+LazyBrain turns a plain-language task into the right local AI capability, workflow combo, or orchestration plan. It is useful when you have many skills, slash commands, plugins, MCP tools, and local rules, but do not want to remember every exact command name.
 
-You installed hundreds of AI skills, commands, plugins, and local rules. You remember the same twenty. LazyBrain makes the rest usable from plain language.
+Current package version: `2.0.0`.
+
+## What Works Now
+
+| Surface | Status | Use it for |
+| --- | --- | --- |
+| CLI: `lb` / `lazybrain` | Ready | Manual routing, workflow lookup, stats, graph refresh |
+| Claude Code project hook | Ready | One-time project install, then automatic high-confidence suggestions |
+| MCP: `lazybrain-mcp` | Ready | Agent clients that can call stdio MCP tools |
+| Local graph/cache | Ready | Fast deterministic matching from local capability metadata |
+| Hosted dashboard | Not included | No cloud UI or team sync in this beta |
+| Automatic task execution | Not included | LazyBrain recommends and plans; your agent still executes |
 
 ## Install
 
-Current beta prerelease:
+Requires Node.js 18 or newer.
+
+Install from npm:
 
 ```bash
-npm install -g https://github.com/papperrollinggery/lazy-brain/releases/download/v2.0.0-beta.1/lazybrain-2.0.0.tgz
+npm install -g lazybrain
 lb quickstart
-lb "review this PR for security issues"
+lb ready
 ```
 
-Registry beta, after npm publish:
+Beta tag:
 
 ```bash
 npm install -g lazybrain@beta
 ```
 
-From source:
+From a source checkout:
 
 ```bash
+git clone https://github.com/papperrollinggery/lazy-brain.git
+cd lazy-brain
 npm ci
 npm run build
-node dist/bin/lazybrain.js quickstart
+npm link
+lb quickstart
+lb ready
 ```
 
-See [docs/INSTALL.md](docs/INSTALL.md) for MCP setup, local capability paths, and source checkout usage.
-
-## What It Does
+GitHub release tarball fallback:
 
 ```bash
-lb "review this PR for security issues"     # best matching capability
-lb combo "deploy new feature to production" # reusable workflow template
-lb orchestrate "deploy payment feature"     # multi-skill execution plan
-lb stats                                    # recent usage and patterns
-lb discover                                 # high-value unused capabilities
-lb scan && lb compile                       # refresh the local knowledge graph
-lb config show                              # inspect redacted local config
-lazybrain-mcp                               # start the stdio MCP server
+npm install -g https://github.com/papperrollinggery/lazy-brain/releases/download/v2.0.0/lazybrain-2.0.0.tgz
 ```
 
-## How It Works
+Full install, cleanup, MCP, and smoke-test instructions: [docs/INSTALL.md](docs/INSTALL.md).
+
+## First Run
+
+Run once after install or after changing local skills/rules:
+
+```bash
+lb quickstart
+```
+
+This scans supported local capability sources and writes the local graph under `~/.lazybrain`.
+
+Use the CLI manually when you want to ask what capability fits a task:
+
+```bash
+lb "review this PR for security issues"
+```
+
+Install the Claude Code hook once per project if you want automatic suggestions:
+
+```bash
+lb hook install
+lb hook status
+```
+
+After that, you do not need to type `lb` for every prompt in that project. The hook stays quiet when confidence is low.
+
+## Commands
+
+| Command | Purpose |
+| --- | --- |
+| `lb "task"` | Find the best matching capability |
+| `lb combo "task"` | Return a reusable workflow template |
+| `lb orchestrate "task"` | Build a multi-skill execution plan |
+| `lb scan` | Scan local capability files |
+| `lb compile` | Rebuild the local capability graph |
+| `lb quickstart` | Scan and compile in one first-run command |
+| `lb stats` | Show recent usage and patterns |
+| `lb discover` | Find high-value unused local capabilities |
+| `lb config show` | Print local config with secrets redacted |
+| `lb ready` / `lb ready --json` | Check graph and hook readiness |
+| `lb hook plan` | Show the hook change that would be made |
+| `lb hook install` | Install the project Claude Code hook |
+| `lb hook uninstall` | Remove the project hook |
+| `lazybrain-mcp` | Start the stdio MCP server |
+
+Example:
 
 ```text
-task text
-  -> trigger, tag, and example matcher
-  -> optional local graph from scan/compile
-  -> combo registry and orchestration rules
-  -> CLI, hook, and statusline surfaces
+$ lb "review this PR for security issues"
+
+/security-review 98%
+Scan code for OWASP Top 10, auth bypass, injection, and credential exposure.
+
+Also consider:
+- /code-review
+- /gitnexus-pr-review
 ```
 
-The hot path is deterministic: no runtime LLM call, no embedding dependency for matching, and low-confidence hook cases stay silent.
+## MCP
 
-## Works With
-
-LazyBrain scans or indexes local capability files for:
-
-`Claude Code` `Codex` `Cursor` `Windsurf` `Cline` `OpenCode` `local SKILL.md`
-
-Default scan paths include Claude skills/commands, project commands, Cursor/Windsurf/Cline rule files, `.skillshub`, `.codex/skills`, and `.agents/skills`.
-
-LazyBrain is local-first. It scans local capability metadata and writes local cache/history files; it does not call an LLM on the hot path and does not upload scanned files. See [docs/PRIVACY.md](docs/PRIVACY.md).
-
-## Orchestration
-
-`lb orchestrate` upgrades a single task into an ordered work plan:
-
-```text
-$ lb orchestrate "deploy payment feature"
-
-Orchestration Plan 94%
-payment/auth risk detected
-
-1. /security-review
-2. /tdd-workflow
-3. /code-review
-4. /ship
-
-Sequence: sequential
-Auto-activate: no
-```
-
-Workflow templates are available through `lb combo`:
-
-```text
-$ lb combo "deploy new feature to production"
-
-Recommended workflow: release_public_audit
-1. /document-release
-2. /github-ops
-3. /ci-cd-best-practices
-
-Verification: npm run audit:public && npm pack --dry-run --json
-```
-
-## MCP Server
-
-Installed package:
+Add this to an MCP-capable client:
 
 ```json
 {
@@ -116,31 +129,98 @@ Installed package:
 }
 ```
 
-Source checkout:
+Source checkout variant:
 
 ```json
 {
   "mcpServers": {
     "lazybrain": {
       "command": "node",
-      "args": ["/absolute/path/to/lazybrain/dist/bin/mcp.js"]
+      "args": ["/absolute/path/to/lazy-brain/dist/bin/mcp.js"]
     }
   }
 }
 ```
 
-## Benchmarks
+Current MCP tools:
 
-Repository-backed checks:
-
-| Claim | Evidence |
+| Tool | Purpose |
 | --- | --- |
-| Golden-set routing | 76 labeled cases plus negative checks in `test/golden/find.test.ts` |
-| Precision gate | test requires at least 88% exact top-match precision |
-| Latency gate | test requires average `find()` latency under 200ms across 100 runs |
-| Built-in matcher surface | core skills plus generated capability names in `src/knowledge/builtin.ts` |
-| Orchestration surface | 18 rules in `src/orchestrator/rules.ts`, 12 combos in `src/combos/registry.ts` |
-| Runtime model | deterministic matcher and rule engine; no runtime LLM call on the hot path |
+| `lazybrain_find` | Find matching capabilities for a task |
+| `lazybrain_orchestrate` | Build an orchestration plan |
+| `lazybrain_stats` | Read recent local usage stats |
+| `lazybrain_scan` | Scan local capability sources |
+
+Smoke test:
+
+```bash
+printf '{"jsonrpc":"2.0","id":1,"method":"tools/list"}\n' | lazybrain-mcp
+```
+
+## Supported Sources
+
+`lb quickstart`, `lb scan`, and `lb compile` read local capability metadata from common agent-tool locations, including:
+
+- Claude Code skills and commands
+- Codex skills
+- project `.claude/commands`
+- `.skillshub`
+- `.codex/skills`
+- `.agents/skills`
+- Cursor, Windsurf, Cline, and OpenCode rule files
+- local `SKILL.md`-style capability files
+
+Empty machines still work because LazyBrain includes built-in capabilities for common development workflows.
+
+## How Recommendations Are Kept Honest
+
+LazyBrain's hot path is deterministic:
+
+- no runtime LLM call for normal matching
+- no embedding dependency for normal matching
+- low-confidence hook suggestions stay silent
+- golden-set tests cover 76 labeled routing cases plus negative cases
+- precision gate requires at least 88% top-match precision
+- latency gate requires average `find()` time under 200ms
+
+Verification commands:
+
+```bash
+npm run lint
+npm test
+npm run build
+npm run audit:public
+npm pack --dry-run --json
+```
+
+## Privacy
+
+LazyBrain is local-first. It scans local capability metadata and writes local cache/history files under `~/.lazybrain`. It does not upload scanned files, does not require a cloud account, and does not send telemetry.
+
+Details: [docs/PRIVACY.md](docs/PRIVACY.md).
+
+## Beta Fit
+
+Good fit:
+
+- local AI power users
+- teams with many skills, prompts, rules, commands, or plugins
+- agent workflow authors
+- developers who want deterministic routing without a runtime LLM call
+
+Not a fit yet:
+
+- users expecting LazyBrain to execute every step automatically
+- users needing a hosted team dashboard
+- users needing cross-machine sync
+- users needing managed cloud telemetry or analytics
+
+## Docs
+
+- [Install](docs/INSTALL.md)
+- [Use cases](docs/USE_CASES.md)
+- [Privacy](docs/PRIVACY.md)
+- [Release checklist](docs/RELEASE_CHECKLIST.md)
 
 ## Contributing
 
@@ -151,14 +231,6 @@ The smallest useful PR is one trigger phrase plus one golden-set case:
 3. Run `npm test`.
 
 Useful contribution areas: trigger phrases, combo templates, orchestration rules, scanner coverage, and benchmark cases.
-
-## User Scenarios
-
-See [docs/USE_CASES.md](docs/USE_CASES.md) for supported beta workflows and examples.
-
-## Release Readiness
-
-See [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md) before publishing a beta or stable release.
 
 ## License
 

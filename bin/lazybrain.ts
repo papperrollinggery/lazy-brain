@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
-import { existsSync } from 'node:fs';
-import { readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { Graph } from '../src/graph/graph.js';
@@ -19,7 +18,7 @@ import { userRuleTemplate } from '../src/orchestrator/user-rules.js';
 import { box, bold, cyan, dim, green, highlight, progressBar, yellow } from '../src/ui/terminal.js';
 import type { Capability, RawCapability } from '../src/types.js';
 import { getPackageVersion } from '../src/version.js';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 const args = process.argv.slice(2);
 
@@ -37,6 +36,92 @@ function queryFrom(start: number): string {
 
 function loadGraphIfPresent(): Graph | undefined {
   return existsSync(GRAPH_PATH) ? Graph.load(GRAPH_PATH) : undefined;
+}
+
+function jsonFlag(): boolean {
+  return args.includes('--json');
+}
+
+function projectHooksPath(): string {
+  return join(process.cwd(), '.claude', 'hooks', 'hooks.json');
+}
+
+function currentHookPath(): string {
+  const executable = realpathSync(process.argv[1]);
+  return join(dirname(executable), 'hook.js');
+}
+
+function hookCommand(): string {
+  return `node ${JSON.stringify(currentHookPath())}`;
+}
+
+function readJsonObject(path: string): Record<string, unknown> {
+  if (!existsSync(path)) return {};
+  try {
+    const value = JSON.parse(readFileSync(path, 'utf-8')) as unknown;
+    return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
+function hookEntries(config: Record<string, unknown>): unknown[] {
+  const hooks = config.hooks;
+  if (!hooks || typeof hooks !== 'object' || Array.isArray(hooks)) return [];
+  const entries = (hooks as Record<string, unknown>).UserPromptSubmit;
+  return Array.isArray(entries) ? entries : [];
+}
+
+function normalizeHookText(entry: unknown): string {
+  return JSON.stringify(entry).replace(/\\\\/g, '/').replace(/\\?["']/g, '');
+}
+
+function isLazybrainHookEntry(entry: unknown): boolean {
+  const normalized = normalizeHookText(entry);
+  const current = currentHookPath().replace(/\\/g, '/');
+  return normalized.includes(current) || (/lazybrain/i.test(normalized) && /\/(?:dist\/)?bin\/hook\.js\b/.test(normalized));
+}
+
+function lazybrainHookCount(config: Record<string, unknown>): number {
+  return hookEntries(config).filter(isLazybrainHookEntry).length;
+}
+
+function hookRegistration(command: string): Record<string, unknown> {
+  return {
+    matcher: '',
+    hooks: [
+      {
+        type: 'command',
+        command,
+        timeout: 5,
+      },
+    ],
+  };
+}
+
+function withoutLazybrainHooks(entries: unknown[]): unknown[] {
+  return entries.filter((entry) => !isLazybrainHookEntry(entry));
+}
+
+function writeHooksConfig(path: string, config: Record<string, unknown>, entries: unknown[]): void {
+  const hooks = config.hooks && typeof config.hooks === 'object' && !Array.isArray(config.hooks)
+    ? config.hooks as Record<string, unknown>
+    : {};
+  hooks.UserPromptSubmit = entries;
+  const next = {
+    ...config,
+    hooks,
+    $schema: typeof config.$schema === 'string' ? config.$schema : 'https://json.schemastore.org/claude-code-settings.json',
+  };
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `${JSON.stringify(next, null, 2)}\n`);
+}
+
+function hookStatus(): { installed: boolean; count: number; path: string; command: string } {
+  const path = projectHooksPath();
+  const config = readJsonObject(path);
+  const count = lazybrainHookCount(config);
+  return { installed: count > 0, count, path, command: hookCommand() };
 }
 
 function words(text: string): string[] {
@@ -290,6 +375,71 @@ function runConfig(): void {
   out(JSON.stringify(redacted, null, 2));
 }
 
+function runReady(): void {
+  const graph = loadGraphIfPresent();
+  const nodes = graph?.getNodeCount() ?? 0;
+  const ready = nodes > 0;
+  if (jsonFlag()) {
+    out(JSON.stringify({
+      status: ready ? 'READY' : 'NOT_READY',
+      graphExists: existsSync(GRAPH_PATH),
+      nodeCount: nodes,
+      hook: hookStatus(),
+    }, null, 2));
+    return;
+  }
+  out(ready ? 'READY' : 'NOT_READY');
+}
+
+function runHook(): void {
+  const action = args[1] ?? 'status';
+  const status = hookStatus();
+  if (action === 'status') {
+    if (jsonFlag()) {
+      out(JSON.stringify(status, null, 2));
+      return;
+    }
+    out(status.installed ? `LazyBrain hook installed (${status.count}) at ${status.path}` : `LazyBrain hook not installed at ${status.path}`);
+    return;
+  }
+  if (action === 'plan') {
+    const plan = {
+      title: 'LazyBrain hook plan',
+      path: status.path,
+      command: status.command,
+      action: status.installed ? 'dedupe existing UserPromptSubmit hook' : 'install UserPromptSubmit hook',
+    };
+    if (jsonFlag()) {
+      out(JSON.stringify(plan, null, 2));
+      return;
+    }
+    out(box([
+      bold('LazyBrain hook plan'),
+      '',
+      `Path: ${plan.path}`,
+      `Command: ${plan.command}`,
+      `Action: ${plan.action}`,
+    ], { title: 'hook plan' }));
+    return;
+  }
+  if (action === 'install') {
+    const path = projectHooksPath();
+    const config = readJsonObject(path);
+    const entries = [...withoutLazybrainHooks(hookEntries(config)), hookRegistration(hookCommand())];
+    writeHooksConfig(path, config, entries);
+    out(jsonFlag() ? JSON.stringify(hookStatus(), null, 2) : `LazyBrain hook installed at ${path}`);
+    return;
+  }
+  if (action === 'uninstall' || action === 'rollback') {
+    const path = projectHooksPath();
+    const config = readJsonObject(path);
+    writeHooksConfig(path, config, withoutLazybrainHooks(hookEntries(config)));
+    out(jsonFlag() ? JSON.stringify(hookStatus(), null, 2) : `LazyBrain hook removed from ${path}`);
+    return;
+  }
+  out('Usage: lb hook status|plan|install|uninstall|rollback [--json]');
+}
+
 function help(): void {
   out(`LazyBrain ${getPackageVersion()}
 
@@ -302,7 +452,9 @@ Usage:
   lb combo "task"
   lb orchestrate "task"
   lb rules
-  lb quickstart`);
+  lb quickstart
+  lb ready
+  lb hook status|plan|install|uninstall|rollback`);
 }
 
 async function main(): Promise<void> {
@@ -310,6 +462,8 @@ async function main(): Promise<void> {
   if (!cmd || cmd === 'help' || cmd === '--help' || cmd === '-h') return help();
   if (cmd === '--version' || cmd === '-v' || cmd === 'version') return out(`lazybrain ${getPackageVersion()}`);
   if (cmd === 'config') return runConfig();
+  if (cmd === 'ready') return runReady();
+  if (cmd === 'hook') return runHook();
   if (cmd === 'find' || cmd === 'match') return runFind(queryFrom(1));
   if (cmd === 'stats') return runStats();
   if (cmd === 'discover') return runDiscover();

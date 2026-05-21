@@ -3,6 +3,7 @@ dist/
 .lazybrain/
 .claude/
 *.tsbuildinfo
+*.tgz
 .env
 *.env
 prompts/

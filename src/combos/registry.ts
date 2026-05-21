@@ -200,14 +200,13 @@ function scoreCombo(combo: ComboTemplate, query: string): number {
 
 export function findCombo(query: string, categories: string[] = []): ComboTemplate | undefined {
   const categorySet = new Set(categories.map((item) => item.toLowerCase()));
-  const ranked = COMBOS
-    .map((combo) => ({
-      combo,
-      score: scoreCombo(combo, query) + (categorySet.has(combo.category) ? 1 : 0),
-    }))
-    .filter((item) => item.score > 0)
-    .sort((a, b) => b.score - a.score);
-  return ranked[0]?.combo;
+  let best: { combo: ComboTemplate; score: number } | undefined;
+  for (const combo of COMBOS) {
+    const score = scoreCombo(combo, query) + (categorySet.has(combo.category) ? 1 : 0);
+    if (score <= 0) continue;
+    if (!best || score > best.score) best = { combo, score };
+  }
+  return best?.combo;
 }
 
 export function formatComboList(combos: ComboTemplate[]): string {

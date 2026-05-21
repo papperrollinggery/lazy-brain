@@ -8,7 +8,7 @@
 #   3. lazybrain scan && lazybrain compile --offline
 #   4. lazybrain ready && lazybrain hook plan
 #   5. lazybrain hook install → writes project .claude/hooks/hooks.json
-#   6. Send a test prompt via stdin to the hook → verify route context injection
+#   6. Send a test prompt via stdin to the hook → verify visible route hint
 #   7. Cleanup (rollback hook + remove temp dir)
 #
 # Usage: ./scripts/smoke-test.sh
@@ -225,7 +225,7 @@ mkdir -p "$(dirname "$CONFIG_PATH")"
 node -e "const fs=require('fs'); const p=process.argv[1]; let c={}; try { c=JSON.parse(fs.readFileSync(p,'utf8')); } catch {} c.hookSafety={...(c.hookSafety||{}), loadAvgBreaker: 9999, avgDurationBreakerMs: 999999}; fs.writeFileSync(p, JSON.stringify(c,null,2)+'\n');" "$CONFIG_PATH"
 
 # Build the stdin payload matching Claude Code hook protocol
-TEST_PROMPT="帮我审查这段代码"
+TEST_PROMPT="帮我审查代码"
 HOOK_INPUT=$(cat <<EOF
 {
   "session_id": "smoke-test-$(date +%s)",
@@ -248,19 +248,19 @@ if ! echo "$OUTPUT" | grep -q '"continue":true'; then
   exit 1
 fi
 
-# Verify the hook injected route context. Depending on the graph, this can be
-# a concrete match result, a combo route, or the generic tiny route reminder.
-ADDL_PROMPT=$(echo "$OUTPUT" | grep -o '"additionalContext":"[^"]*"' || true)
-if [[ -z "$ADDL_PROMPT" ]]; then
-  ADDL_PROMPT=$(echo "$OUTPUT" | grep -o '"additionalContext":[^,}]*' || true)
+# Verify the hook emitted a visible route hint. Depending on the prompt, this can
+# be a concrete match result or an orchestration hint.
+HOOK_HINT=$(echo "$OUTPUT" | grep -o '"systemMessage":"[^"]*"' || true)
+if [[ -z "$HOOK_HINT" ]]; then
+  HOOK_HINT=$(echo "$OUTPUT" | grep -o '"systemMessage":[^,}]*' || true)
 fi
 
-if [[ -z "$ADDL_PROMPT" ]]; then
-  log_error "Hook did not inject route context"
+if [[ -z "$HOOK_HINT" ]]; then
+  log_error "Hook did not emit route hint"
   exit 1
 fi
 
-log_pass "Hook returned route context"
+log_pass "Hook returned route hint"
 echo
 
 # Step 13: Test non-UserPromptSubmit events fail closed
@@ -298,7 +298,7 @@ log_info "  • lazybrain ready: OK"
 log_info "  • hook plan:       OK"
 log_info "  • hook install:    OK"
 log_info "  • project hooks:   Modified correctly"
-log_info "  • UserPromptSubmit: Route context"
+log_info "  • UserPromptSubmit: Route hint"
 log_info "  • Other hook events: Fail closed"
 log_info "  • hook rollback:    OK"
 log_info ""
