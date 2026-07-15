@@ -1,4 +1,4 @@
-export type CapabilityKind = 'skill' | 'agent' | 'command' | 'mode' | 'hook';
+export type CapabilityKind = 'skill' | 'plugin' | 'mcp' | 'agent' | 'command' | 'mode' | 'hook';
 
 export type Platform =
   | 'claude-code'

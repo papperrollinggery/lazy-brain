@@ -47,12 +47,18 @@ function checkPack() {
     file === 'README_CN.md' ||
     file === 'CHANGELOG.md' ||
     file === 'LICENSE' ||
+    file === '.codex-plugin/plugin.json' ||
+    file === '.mcp.json' ||
     file === 'docs/assets/lazybrain-demo.svg' ||
+    file === 'docs/assets/lazybrain-desktop-demo.svg' ||
+    file === 'docs/CODEX_DESKTOP.md' ||
     file === 'docs/INSTALL.md' ||
     file === 'docs/PRIVACY.md' ||
+    file === 'docs/PRODUCT.md' ||
     file === 'docs/RELEASE_CHECKLIST.md' ||
     file === 'docs/USE_CASES.md' ||
-    file.startsWith('dist/'));
+    file.startsWith('dist/') ||
+    file.startsWith('skills/'));
   if (!allowed) {
     fail(`npm package includes unexpected files: ${files.filter(file =>
       file !== 'package.json' &&
@@ -60,14 +66,20 @@ function checkPack() {
       file !== 'README_CN.md' &&
       file !== 'CHANGELOG.md' &&
       file !== 'LICENSE' &&
+      file !== '.codex-plugin/plugin.json' &&
+      file !== '.mcp.json' &&
       file !== 'docs/assets/lazybrain-demo.svg' &&
+      file !== 'docs/assets/lazybrain-desktop-demo.svg' &&
+      file !== 'docs/CODEX_DESKTOP.md' &&
       file !== 'docs/INSTALL.md' &&
       file !== 'docs/PRIVACY.md' &&
+      file !== 'docs/PRODUCT.md' &&
       file !== 'docs/RELEASE_CHECKLIST.md' &&
       file !== 'docs/USE_CASES.md' &&
-      !file.startsWith('dist/')).join(', ')}`);
+      !file.startsWith('dist/') &&
+      !file.startsWith('skills/')).join(', ')}`);
   }
-  const required = ['dist/bin/lazybrain.js', 'dist/bin/mcp.js', 'dist/bin/hook.js', 'dist/index.js', 'dist/index.d.ts'];
+  const required = ['.codex-plugin/plugin.json', '.mcp.json', 'skills/lazybrain-find/SKILL.md', 'docs/CODEX_DESKTOP.md', 'dist/bin/lazybrain.js', 'dist/bin/mcp.js', 'dist/bin/hook.js', 'dist/index.js', 'dist/index.d.ts'];
   for (const file of required) {
     if (!files.includes(file)) fail(`npm package missing ${file}`);
   }
@@ -77,6 +89,7 @@ const allowlist = [
   { file: /^scripts\/audit-public\.js$/, pattern: /.*/ },
   { file: /^test\/hook\/plan\.test\.ts$/, pattern: /sk-live123|Bearer abc/ },
   { file: /^test\/config\/redaction\.test\.ts$/, pattern: /real-(provider-key|registry-token|service-secret)/ },
+  { file: /^test\/fixtures\/mcp\/(?:\.mcp\.json|config\.toml)$/, pattern: /must-never-be-indexed/ },
   { file: /^src\/constants\.ts$/, pattern: /\.omc/ },
   { file: /^src\/utils\/omc-state\.ts$/, pattern: /\.omc/ },
   { file: /^dist\//, pattern: /\.omc/ },
@@ -126,10 +139,10 @@ function checkPublicContent() {
   }
 
   const untracked = run('git', ['ls-files', '--others', '--exclude-standard']).trim().split('\n').filter(Boolean);
+  for (const file of untracked) scanFileContent(file, 'untracked ');
+
   const suspicious = untracked.filter(file => /docs\/IRI-|docs\/iri-2|\.paperclip|\.omc|lazy_user/.test(file));
-  if (suspicious.length > 0) {
-    fail(`suspicious untracked public files are not ignored: ${suspicious.map(file => relative(root, file)).join(', ')}`);
-  }
+  if (suspicious.length > 0) fail(`suspicious untracked public files are not ignored: ${suspicious.map(file => relative(root, file)).join(', ')}`);
 }
 
 checkVersion();

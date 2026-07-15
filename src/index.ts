@@ -27,3 +27,12 @@ export { scan, detectSources } from './scanner/scanner.js';
 export type { ScanOptions, ScanResult, ScanSource } from './scanner/scanner.js';
 export { box, bold, cyan, dim, green, highlight, progressBar, yellow } from './ui/terminal.js';
 export { getPackageVersion } from './version.js';
+export { formatDecisionMarkdown, recommend } from './recommendation/recommend.js';
+export type {
+  RecommendOptions,
+  RecommendationAction,
+  RecommendationCandidate,
+  RecommendationDecision,
+} from './recommendation/recommend.js';
+export { formatDesktopVisualizationFallback, toDesktopVisualization } from './recommendation/desktop-visualization.js';
+export type { DesktopVisualizationCandidate, DesktopVisualizationPayload } from './recommendation/desktop-visualization.js';

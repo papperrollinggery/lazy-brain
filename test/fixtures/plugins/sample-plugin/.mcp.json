@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "sample-docs": {
+      "command": "sample-docs-mcp"
+    }
+  }
+}

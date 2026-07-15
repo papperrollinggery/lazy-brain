@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "fixture-http": {
+      "url": "https://example.invalid/mcp",
+      "headers": {
+        "Authorization": "must-never-be-indexed"
+      }
+    }
+  }
+}

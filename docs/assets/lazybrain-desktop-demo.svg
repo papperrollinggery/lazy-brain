@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700" viewBox="0 0 1200 700" role="img" aria-labelledby="title desc">
+  <title id="title">LazyBrain interactive decision explorer in Codex Desktop</title>
+  <desc id="desc">A compact comparison of three local capabilities with security-review recommended, visible evidence, platform filters, and an ordered workflow.</desc>
+  <rect width="1200" height="700" fill="#111318"/>
+  <rect x="30" y="30" width="1140" height="640" rx="20" fill="#191c23" stroke="#343946" stroke-width="2"/>
+  <text x="65" y="82" fill="#a78bfa" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18">LAZYBRAIN · CODEX DESKTOP</text>
+  <text x="65" y="125" fill="#f8fafc" font-family="Inter, system-ui, sans-serif" font-size="27" font-weight="700">Choose the safest capability for this payment PR</text>
+  <text x="65" y="158" fill="#aeb6c6" font-family="Inter, system-ui, sans-serif" font-size="16">Local snapshot · 3 candidates · selection does not execute</text>
+
+  <g font-family="Inter, system-ui, sans-serif" font-size="14">
+    <rect x="65" y="185" width="118" height="36" rx="18" fill="#7c3aed"/>
+    <text x="92" y="208" fill="#ffffff">All types</text>
+    <rect x="195" y="185" width="104" height="36" rx="18" fill="#242936" stroke="#444b5c"/>
+    <text x="220" y="208" fill="#dce2ee">Codex</text>
+    <rect x="311" y="185" width="142" height="36" rx="18" fill="#242936" stroke="#444b5c"/>
+    <text x="335" y="208" fill="#dce2ee">Show workflow</text>
+  </g>
+
+  <g font-family="Inter, system-ui, sans-serif">
+    <rect x="65" y="245" width="330" height="250" rx="16" fill="#242036" stroke="#a78bfa" stroke-width="3"/>
+    <text x="90" y="280" fill="#c4b5fd" font-size="14" font-weight="700">RECOMMENDED</text>
+    <text x="90" y="320" fill="#ffffff" font-size="23" font-weight="700">skill:security-review</text>
+    <text x="360" y="280" fill="#ffffff" font-size="22" font-weight="700" text-anchor="end">98%</text>
+    <text x="90" y="355" fill="#c8cfdb" font-size="15">Payment/auth risk detected.</text>
+    <text x="90" y="382" fill="#c8cfdb" font-size="15">Checks auth bypass, injection,</text>
+    <text x="90" y="409" fill="#c8cfdb" font-size="15">secrets, and unsafe flows.</text>
+    <text x="90" y="453" fill="#8f99aa" font-size="13">source: builtin · codex + universal</text>
+
+    <rect x="415" y="245" width="330" height="250" rx="16" fill="#20242d" stroke="#424959" stroke-width="2"/>
+    <text x="440" y="280" fill="#9aa5b7" font-size="14" font-weight="700">ALTERNATIVE</text>
+    <text x="440" y="320" fill="#f1f5f9" font-size="23" font-weight="700">skill:code-review</text>
+    <text x="710" y="280" fill="#f1f5f9" font-size="22" font-weight="700" text-anchor="end">86%</text>
+    <text x="440" y="355" fill="#c8cfdb" font-size="15">Broad correctness and quality.</text>
+    <text x="440" y="382" fill="#c8cfdb" font-size="15">Use after the focused security</text>
+    <text x="440" y="409" fill="#c8cfdb" font-size="15">pass for full PR coverage.</text>
+    <text x="440" y="453" fill="#8f99aa" font-size="13">source: builtin · universal</text>
+
+    <rect x="765" y="245" width="330" height="250" rx="16" fill="#20242d" stroke="#424959" stroke-width="2"/>
+    <text x="790" y="280" fill="#9aa5b7" font-size="14" font-weight="700">ALTERNATIVE</text>
+    <text x="790" y="320" fill="#f1f5f9" font-size="23" font-weight="700">skill:github-ops</text>
+    <text x="1060" y="280" fill="#f1f5f9" font-size="22" font-weight="700" text-anchor="end">74%</text>
+    <text x="790" y="355" fill="#c8cfdb" font-size="15">PR, checks, and repository ops.</text>
+    <text x="790" y="382" fill="#c8cfdb" font-size="15">Useful for GitHub state, but not</text>
+    <text x="790" y="409" fill="#c8cfdb" font-size="15">the primary security analysis.</text>
+    <text x="790" y="453" fill="#8f99aa" font-size="13">source: local · codex</text>
+  </g>
+
+  <text x="65" y="540" fill="#f8fafc" font-family="Inter, system-ui, sans-serif" font-size="17" font-weight="700">Suggested workflow</text>
+  <g font-family="Inter, system-ui, sans-serif" font-size="14">
+    <rect x="65" y="560" width="215" height="55" rx="12" fill="#322654"/>
+    <text x="85" y="593" fill="#ffffff">1 · security-review</text>
+    <text x="302" y="593" fill="#778195" font-size="22">→</text>
+    <rect x="335" y="560" width="175" height="55" rx="12" fill="#262b35"/>
+    <text x="355" y="593" fill="#ffffff">2 · tdd-workflow</text>
+    <text x="532" y="593" fill="#778195" font-size="22">→</text>
+    <rect x="565" y="560" width="170" height="55" rx="12" fill="#262b35"/>
+    <text x="585" y="593" fill="#ffffff">3 · code-review</text>
+    <text x="757" y="593" fill="#778195" font-size="22">→</text>
+    <rect x="790" y="560" width="125" height="55" rx="12" fill="#262b35"/>
+    <text x="814" y="593" fill="#ffffff">4 · ship</text>
+  </g>
+  <text x="65" y="646" fill="#8f99aa" font-family="Inter, system-ui, sans-serif" font-size="13">Keyboard accessible · values visible without hover · confirmation required before execution</text>
+</svg>

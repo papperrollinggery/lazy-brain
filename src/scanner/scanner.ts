@@ -13,11 +13,15 @@ import { getDefaultScanPaths, inferPlatformFromPath } from '../constants.js';
 import { parseSkill } from './parsers/skill-parser.js';
 import { parseAgent } from './parsers/agent-parser.js';
 import { parseCommand } from './parsers/command-parser.js';
+import { parseMcpConfig } from './parsers/mcp-parser.js';
+import { parsePluginManifest, parsePluginMarketplace } from './parsers/plugin-parser.js';
 import { dedup } from './dedup.js';
 
 export interface ScanOptions {
   extraPaths?: string[];
   sources?: ScanSource[];
+  /** Skip user and project defaults for isolated tests or embedded callers. */
+  includeDefaults?: boolean;
   onProgress?: (scanned: number, found: number) => void;
   /** Current platform for tier assignment */
   platform?: Platform;
@@ -112,6 +116,17 @@ function findMarkdownFilesInNamedDirs(rootPath: string, targetDirName: string): 
   return results;
 }
 
+function findFilesByName(rootPath: string, fileName: string): string[] {
+  const results: string[] = [];
+  if (!existsSync(rootPath)) return results;
+  for (const entry of readdirSync(rootPath, { withFileTypes: true })) {
+    const childPath = join(rootPath, entry.name);
+    if (entry.isFile() && entry.name === fileName) results.push(childPath);
+    if (entry.isDirectory()) results.push(...findFilesByName(childPath, fileName));
+  }
+  return results;
+}
+
 function safeReadFile(filePath: string): string | null {
   try {
     return readFileSync(filePath, 'utf-8');
@@ -132,6 +147,16 @@ function isSkillRootPath(path: string): boolean {
   return path.includes('/skills') || path.includes('/skills-disabled') || basename(path) === '.skillshub';
 }
 
+function isMcpConfigPath(path: string): boolean {
+  return basename(path) === '.mcp.json'
+    || basename(path) === 'config.toml'
+    || basename(path) === '.claude.json';
+}
+
+function isPluginMarketplacePath(path: string): boolean {
+  return basename(path) === 'marketplace.json' && path.includes('/plugins/');
+}
+
 function parseRuleFile(filePath: string, content: string, tool: string): RawCapability | null {
   const name = basename(filePath).replace(/^\./, '').replace(/\.[^.]+$/, '') || `${tool}-rules`;
   const firstLine = content.split('\n').map((line) => line.trim()).find(Boolean);
@@ -148,8 +173,10 @@ function parseRuleFile(filePath: string, content: string, tool: string): RawCapa
 }
 
 export function scan(options?: ScanOptions): ScanResult {
-  const sourcePaths = (options?.sources ?? detectSources()).flatMap((source) => source.paths);
-  const paths = [...new Set([...getDefaultScanPaths(options?.platforms), ...sourcePaths, ...(options?.extraPaths ?? [])])];
+  const configuredSources = options?.sources ?? (options?.includeDefaults === false ? [] : detectSources());
+  const sourcePaths = configuredSources.flatMap((source) => source.paths);
+  const defaultPaths = options?.includeDefaults === false ? [] : getDefaultScanPaths(options?.platforms);
+  const paths = [...new Set([...defaultPaths, ...sourcePaths, ...(options?.extraPaths ?? [])])];
   const capabilities: RawCapability[] = [];
   const errors: string[] = [];
   let scannedFiles = 0;
@@ -164,6 +191,19 @@ export function scan(options?: ScanOptions): ScanResult {
       const content = safeReadFile(path);
       if (content === null) {
         errors.push(`Failed to read: ${path}`);
+        continue;
+      }
+      if (isMcpConfigPath(path)) {
+        capabilities.push(...parseMcpConfig(path, content));
+        continue;
+      }
+      if (isPluginMarketplacePath(path)) {
+        capabilities.push(...parsePluginMarketplace(path, content));
+        continue;
+      }
+      if (basename(path) === 'plugin.json') {
+        const plugin = parsePluginManifest(path, content);
+        if (plugin) capabilities.push(plugin);
         continue;
       }
       const tool = path.includes('cursor') ? 'cursor' : path.includes('windsurf') ? 'windsurf' : path.includes('cline') ? 'cline' : 'custom';
@@ -221,6 +261,27 @@ export function scan(options?: ScanOptions): ScanResult {
           }
         }
       } else if (path.includes('/plugins')) {
+        for (const filePath of findFilesByName(path, 'plugin.json')) {
+          scannedFiles++;
+          const content = safeReadFile(filePath);
+          if (content === null) {
+            errors.push(`Failed to read: ${filePath}`);
+            continue;
+          }
+          const plugin = parsePluginManifest(filePath, content);
+          if (plugin) capabilities.push(plugin);
+        }
+
+        for (const filePath of findFilesByName(path, '.mcp.json')) {
+          scannedFiles++;
+          const content = safeReadFile(filePath);
+          if (content === null) {
+            errors.push(`Failed to read: ${filePath}`);
+            continue;
+          }
+          capabilities.push(...parseMcpConfig(filePath, content));
+        }
+
         const skillFiles = findSkillFiles(path);
         for (const filePath of skillFiles) {
           scannedFiles++;

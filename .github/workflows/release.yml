@@ -19,8 +19,52 @@ permissions:
   contents: read
 
 jobs:
+  verify:
+    name: verify (Node ${{ matrix.node-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18, 20, 22]
+    env:
+      npm_config_fetch_retries: 5
+      npm_config_fetch_retry_mintimeout: 20000
+      npm_config_fetch_retry_maxtimeout: 120000
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Install
+        run: npm ci
+
+      - name: Build and verify
+        run: |
+          npm run build
+          npm test
+          npm run lint
+          npm run validate:plugin
+          npm run audit:public
+          npm audit --audit-level=high
+          npm pack --dry-run --json
+          node dist/bin/lazybrain.js desktop "review this payment PR safely" --json > /tmp/lazybrain-desktop.json
+          node -e "const p=require('/tmp/lazybrain-desktop.json'); if(p.surface!=='codex-desktop'||p.renderer.preferredPlugin!=='@Visualize'||p.renderer.activation!=='user-selected-in-composer'||p.interaction.selectionDoesNotExecute!==true) process.exit(1)"
+
+      - name: Packed install smoke
+        run: |
+          TARBALL=$(npm pack --json | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(JSON.parse(s)[0].filename))")
+          SMOKE_DIR=$(mktemp -d)
+          npm install --prefix "$SMOKE_DIR" "$PWD/$TARBALL" --ignore-scripts
+          "$SMOKE_DIR/node_modules/.bin/lb" --version
+          "$SMOKE_DIR/node_modules/.bin/lb" desktop "review this payment PR safely" --json > /tmp/lazybrain-packed-desktop.json
+          node -e "const p=require('/tmp/lazybrain-packed-desktop.json'); if(p.surface!=='codex-desktop'||p.renderer.activation!=='user-selected-in-composer') process.exit(1)"
+
   npm-release:
     name: npm release
+    needs: verify
     runs-on: ubuntu-latest
     env:
       npm_config_fetch_retries: 5
@@ -36,16 +80,8 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
           cache: 'npm'
 
-      - name: Install
+      - name: Install verified lockfile
         run: npm ci
-
-      - name: Build and verify
-        run: |
-          npm run build
-          npm test
-          npm run lint
-          npm run audit:public
-          npm pack --dry-run --json
 
       - name: Publish dry run
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == 'true' }}

@@ -1,0 +1,39 @@
+{
+  "name": "lazybrain",
+  "version": "2.1.0",
+  "description": "Choose and visualize the right local AI-agent capability inside Codex Desktop from installed Skills, Plugins, MCP servers, agents, and commands.",
+  "author": {
+    "name": "LazyBrain contributors",
+    "url": "https://github.com/papperrollinggery"
+  },
+  "homepage": "https://github.com/papperrollinggery/lazy-brain",
+  "repository": "https://github.com/papperrollinggery/lazy-brain",
+  "license": "AGPL-3.0",
+  "keywords": [
+    "codex",
+    "claude-code",
+    "skills",
+    "plugins",
+    "mcp",
+    "agent-orchestration",
+    "visualization"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "LazyBrain",
+    "shortDescription": "Choose local capabilities in Codex Desktop",
+    "longDescription": "A Codex Desktop-first local capability router. It indexes Skills, Plugins, MCP servers, agents, and commands, then turns a vague task into an explainable recommendation, comparison, interactive @Visualize payload, or safe execution order.",
+    "developerName": "LazyBrain contributors",
+    "category": "Developer Tools",
+    "capabilities": ["Read", "Search", "Plan", "Visualize"],
+    "websiteURL": "https://github.com/papperrollinggery/lazy-brain",
+    "privacyPolicyURL": "https://github.com/papperrollinggery/lazy-brain/blob/main/docs/PRIVACY.md",
+    "defaultPrompt": [
+      "Which local skill or tool should I use for this task?",
+      "Compare my installed capabilities in an interactive decision view.",
+      "Build a safe capability sequence for this task."
+    ],
+    "brandColor": "#7C3AED"
+  }
+}
