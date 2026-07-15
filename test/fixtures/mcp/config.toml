@@ -1,0 +1,3 @@
+[mcp_servers.fixture_stdio]
+command = "fixture-mcp"
+env = { SECRET = "must-never-be-indexed" }

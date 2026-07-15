@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "lazybrain": {
+      "command": "lazybrain-mcp",
+      "args": []
+    }
+  }
+}

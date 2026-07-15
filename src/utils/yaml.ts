@@ -29,6 +29,7 @@ export function parseFrontmatter(content: string): FrontmatterResult {
   const frontmatter: Record<string, unknown> = {};
 
   for (const line of yamlLines) {
+    if (/^\s/.test(line)) continue;
     const colonIndex = line.indexOf(':');
     if (colonIndex === -1) continue;
 

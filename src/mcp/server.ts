@@ -7,6 +7,9 @@ import { orchestrate } from '../orchestrator/engine.js';
 import { signalFromQuery } from '../orchestrator/signals.js';
 import { getStats, loadRecent } from '../history/history.js';
 import { scan } from '../scanner/scanner.js';
+import { formatDecisionMarkdown, recommend } from '../recommendation/recommend.js';
+import { formatDesktopVisualizationFallback, toDesktopVisualization } from '../recommendation/desktop-visualization.js';
+import { getPackageVersion } from '../version.js';
 
 type JsonObject = Record<string, unknown>;
 
@@ -24,8 +27,8 @@ interface JsonRpcResponse {
   error?: { code: number; message: string };
 }
 
-function textContent(text: string): JsonObject {
-  return { content: [{ type: 'text', text }] };
+function textContent(text: string, structuredContent?: JsonObject): JsonObject {
+  return { content: [{ type: 'text', text }], ...(structuredContent ? { structuredContent } : {}) };
 }
 
 function argString(params: JsonObject | undefined, key: string): string {
@@ -50,6 +53,28 @@ function formatOrchestration(query: string): string {
   if (!plan) return formatFind(query);
   const steps = plan.enhancements.map((item) => `${item.priority}. /${item.name} - ${item.reason}`).join('\n');
   return `Plan ${Math.round(plan.confidence * 100)}% (${plan.sequence})\n${plan.reason}\n${steps}`;
+}
+
+function recommendation(query: string): JsonObject {
+  const decision = recommend(query, { graph: loadGraph(), history: loadRecent(30), limit: 3 });
+  const desktopVisualization = toDesktopVisualization(decision);
+  const structured = { ...decision, desktopVisualization } as unknown as JsonObject;
+  const text = desktopVisualization.shouldRender
+    ? formatDesktopVisualizationFallback(desktopVisualization)
+    : formatDecisionMarkdown(decision);
+  return textContent(text, structured);
+}
+
+function catalog(): JsonObject {
+  const graph = loadGraph();
+  const capabilities = graph?.getAllNodes() ?? scan().capabilities;
+  const byKind = capabilities.reduce<Record<string, number>>((counts, item) => {
+    counts[item.kind] = (counts[item.kind] ?? 0) + 1;
+    return counts;
+  }, {});
+  const structured = { total: capabilities.length, byKind };
+  const lines = [`Indexed capabilities: ${capabilities.length}`, ...Object.entries(byKind).sort().map(([kind, count]) => `${kind}: ${count}`)];
+  return textContent(lines.join('\n'), structured);
 }
 
 function formatStats(): string {
@@ -77,11 +102,14 @@ function formatHistory(): string {
 
 function tools(): JsonObject[] {
   const stringSchema = { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] };
+  const readOnly = { readOnlyHint: true, openWorldHint: false, destructiveHint: false };
   return [
-    { name: 'lazybrain_find', description: 'Find matching LazyBrain skills for a task.', inputSchema: stringSchema },
-    { name: 'lazybrain_orchestrate', description: 'Build an orchestration plan for a task.', inputSchema: stringSchema },
-    { name: 'lazybrain_stats', description: 'Return recent LazyBrain usage stats.', inputSchema: { type: 'object', properties: {} } },
-    { name: 'lazybrain_scan', description: 'Scan local capability sources.', inputSchema: { type: 'object', properties: {} } },
+    { name: 'lazybrain_recommend', description: 'Choose the best installed local Skill, Plugin, MCP server, agent, or command for a vague task. Returns a backward-compatible decision plus a Codex desktop @Visualize payload, alternatives, evidence, and an optional execution order. Read-only.', inputSchema: stringSchema, annotations: readOnly },
+    { name: 'lazybrain_find', description: 'Search installed local capabilities that match a task. Read-only.', inputSchema: stringSchema, annotations: readOnly },
+    { name: 'lazybrain_orchestrate', description: 'Build a read-only execution plan from installed capabilities; this does not run the plan.', inputSchema: stringSchema, annotations: readOnly },
+    { name: 'lazybrain_catalog', description: 'Summarize the local capability catalog by type. Read-only.', inputSchema: { type: 'object', properties: {} }, annotations: readOnly },
+    { name: 'lazybrain_stats', description: 'Return recent local LazyBrain usage stats. Read-only.', inputSchema: { type: 'object', properties: {} }, annotations: readOnly },
+    { name: 'lazybrain_scan', description: 'Read local capability metadata and report what is discoverable without changing files.', inputSchema: { type: 'object', properties: {} }, annotations: readOnly },
   ];
 }
 
@@ -94,8 +122,10 @@ function resources(): JsonObject[] {
 
 function toolCall(params: JsonObject | undefined): JsonObject {
   const name = typeof params?.name === 'string' ? params.name : '';
+  if (name === 'lazybrain_recommend') return recommendation(argString(params, 'query'));
   if (name === 'lazybrain_find') return textContent(formatFind(argString(params, 'query')));
   if (name === 'lazybrain_orchestrate') return textContent(formatOrchestration(argString(params, 'query')));
+  if (name === 'lazybrain_catalog') return catalog();
   if (name === 'lazybrain_stats') return textContent(formatStats());
   if (name === 'lazybrain_scan') {
     const result = scan();
@@ -119,7 +149,12 @@ export function handleRequest(request: JsonRpcRequest): JsonRpcResponse | null {
   if (!request.id && request.method.startsWith('notifications/')) return null;
   try {
     const result = request.method === 'initialize'
-      ? { protocolVersion: '2024-11-05', capabilities: { tools: {}, resources: {} }, serverInfo: { name: 'lazybrain', version: '1.0.0' } }
+      ? {
+        protocolVersion: '2024-11-05',
+        capabilities: { tools: {}, resources: {} },
+        serverInfo: { name: 'lazybrain', version: getPackageVersion() },
+        instructions: 'Use lazybrain_recommend in the Codex desktop app when a user has a vague task or asks which local Skill, Plugin, MCP server, agent, or command to use. When desktopVisualization.shouldRender is true and @Visualize is exposed because the user selected it in the composer, pass desktopVisualization.visualizePrompt to @Visualize; otherwise use the Markdown tool content and provide the exact prompt for a user-selected @Visualize task. The server only recommends and plans; it never executes the suggested workflow.',
+      }
       : request.method === 'tools/list'
         ? { tools: tools() }
         : request.method === 'tools/call'
@@ -136,16 +171,36 @@ export function handleRequest(request: JsonRpcRequest): JsonRpcResponse | null {
   }
 }
 
-function readMessages(input: string): JsonRpcRequest[] {
+export function consumeMessages(input: string): { messages: JsonRpcRequest[]; remainder: string } {
   const messages: JsonRpcRequest[] = [];
-  const trimmed = input.trim();
-  if (!trimmed) return messages;
-  if (trimmed.includes('Content-Length:')) {
-    for (const part of trimmed.split(/\r?\n\r?\n/).slice(1)) messages.push(JSON.parse(part.trim()) as JsonRpcRequest);
-    return messages;
+  let remainder = input;
+  while (remainder.length > 0) {
+    const leading = remainder.match(/^\s*/)?.[0] ?? '';
+    if (leading) remainder = remainder.slice(leading.length);
+    if (!remainder) break;
+
+    if (/^Content-Length:/i.test(remainder)) {
+      const separator = remainder.match(/\r?\n\r?\n/);
+      if (!separator || separator.index === undefined) break;
+      const header = remainder.slice(0, separator.index);
+      const lengthMatch = header.match(/Content-Length:\s*(\d+)/i);
+      if (!lengthMatch) throw new Error('Missing Content-Length value');
+      const bodyStart = separator.index + separator[0].length;
+      const bodyBuffer = Buffer.from(remainder.slice(bodyStart), 'utf8');
+      const length = Number(lengthMatch[1]);
+      if (bodyBuffer.length < length) break;
+      messages.push(JSON.parse(bodyBuffer.subarray(0, length).toString('utf8')) as JsonRpcRequest);
+      remainder = bodyBuffer.subarray(length).toString('utf8');
+      continue;
+    }
+
+    const newline = remainder.indexOf('\n');
+    if (newline === -1) break;
+    const line = remainder.slice(0, newline).trim();
+    remainder = remainder.slice(newline + 1);
+    if (line) messages.push(JSON.parse(line) as JsonRpcRequest);
   }
-  for (const line of trimmed.split(/\r?\n/)) messages.push(JSON.parse(line) as JsonRpcRequest);
-  return messages;
+  return { messages, remainder };
 }
 
 export function startServer(): void {
@@ -153,10 +208,19 @@ export function startServer(): void {
   let buffer = '';
   stdin.on('data', (chunk) => {
     buffer += chunk;
-    for (const request of readMessages(buffer)) {
+    const consumed = consumeMessages(buffer);
+    buffer = consumed.remainder;
+    for (const request of consumed.messages) {
       const response = handleRequest(request);
       if (response) stdout.write(`${JSON.stringify(response)}\n`);
     }
-    buffer = '';
+  });
+  stdin.on('end', () => {
+    if (!buffer.trim()) return;
+    const consumed = consumeMessages(`${buffer}\n`);
+    for (const request of consumed.messages) {
+      const response = handleRequest(request);
+      if (response) stdout.write(`${JSON.stringify(response)}\n`);
+    }
   });
 }

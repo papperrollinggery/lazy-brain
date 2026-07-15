@@ -1,7 +1,7 @@
 {
   "name": "lazybrain",
-  "version": "2.0.1",
-  "description": "Deterministic capability router and orchestration engine for local AI agents",
+  "version": "2.1.0",
+  "description": "Codex Desktop capability router for choosing and visualizing local Skills, Plugins, MCP servers, agents, and commands",
   "type": "module",
   "bin": {
     "lazybrain": "dist/bin/lazybrain.js",
@@ -18,14 +18,19 @@
     }
   },
   "files": [
+    ".codex-plugin",
+    ".mcp.json",
     "dist",
     "docs/assets",
+    "docs/CODEX_DESKTOP.md",
     "docs/INSTALL.md",
     "docs/PRIVACY.md",
+    "docs/PRODUCT.md",
     "docs/RELEASE_CHECKLIST.md",
     "docs/USE_CASES.md",
     "README_CN.md",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "skills"
   ],
   "scripts": {
     "build": "tsup",
@@ -33,14 +38,18 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "tsc --noEmit",
+    "validate:plugin": "node scripts/validate-codex-plugin.js",
     "audit:public": "node scripts/audit-public.js",
     "prepublishOnly": "npm run build"
   },
   "keywords": [
     "claude-code",
     "codex",
+    "codex-desktop",
+    "codex-plugin",
+    "visualization",
     "cursor",
-    "cli",
+    "local-first",
     "mcp",
     "deterministic",
     "skill-orchestration",
@@ -49,15 +58,19 @@
     "knowledge-graph",
     "lazybrain"
   ],
-  "author": "",
+  "author": "LazyBrain contributors",
   "license": "AGPL-3.0",
   "devDependencies": {
     "@types/node": "^25.6.0",
-    "esbuild": "^0.28.0",
+    "esbuild": "^0.28.1",
     "husky": "^9.1.7",
     "tsup": "^8.0.0",
     "typescript": "^5.4.0",
-    "vitest": "^2.0.0"
+    "vitest": "^3.2.6"
+  },
+  "overrides": {
+    "esbuild": "$esbuild",
+    "vite": "^6.4.3"
   },
   "engines": {
     "node": ">=18.0.0"

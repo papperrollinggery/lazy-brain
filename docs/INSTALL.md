@@ -18,10 +18,10 @@ Beta tag:
 npm install -g lazybrain@beta
 ```
 
-GitHub release tarball fallback:
+GitHub release tarball fallback after v2.1.0 is published:
 
 ```bash
-npm install -g https://github.com/papperrollinggery/lazy-brain/releases/download/v2.0.0/lazybrain-2.0.0.tgz
+npm install -g https://github.com/papperrollinggery/lazy-brain/releases/download/v2.1.0/lazybrain-2.1.0.tgz
 ```
 
 Install from a checkout:
@@ -34,6 +34,9 @@ npm run build
 npm link
 lb quickstart
 lb "review this PR for security issues"
+lb ask "help me ship this safely" --json
+lb desktop "review this payment PR safely" --json
+lb use security-review "review this PR for security issues"
 ```
 
 Without linking, run the checkout directly:
@@ -78,6 +81,30 @@ After global install:
 }
 ```
 
+The MCP server exposes read-only recommendation, catalog, find, orchestration, stats, and scan tools. It recommends or plans; it does not execute the selected capability.
+
+## Codex Desktop Plugin
+
+The checkout includes `.codex-plugin/plugin.json`, `.mcp.json`, the `$lazybrain-find` Skill, and a local marketplace entry. Build and link the CLI first so the bundled MCP command is on `PATH`:
+
+```bash
+npm ci
+npm run build
+npm link
+codex plugin marketplace add .
+codex plugin add lazybrain@lazybrain-local
+```
+
+These commands modify personal Codex configuration. Run them only when you intend to install the development plugin, then start a new Codex task. LazyBrain never performs this installation during `npm install`, `lb quickstart`, or scanning.
+
+LazyBrain is desktop-first. Its `lazybrain_recommend` MCP tool returns `desktopVisualization`. The user must select the installed OpenAI `@Visualize` plugin in the Codex Desktop composer for the task before the Skill can pass that payload's exact prompt to it. Check both plugin states with:
+
+```bash
+codex plugin list
+```
+
+If `@Visualize` is not selected or not available for the account/workspace, LazyBrain uses the same payload's Markdown/table fallback and provides the exact prompt for retry. See [CODEX_DESKTOP.md](CODEX_DESKTOP.md).
+
 From a source checkout:
 
 ```json
@@ -97,7 +124,10 @@ From a source checkout:
 
 - `~/.claude/skills`
 - `~/.claude/commands`
+- `~/.claude/plugins`
 - `~/.codex/skills`
+- `~/.codex/plugins/cache`
+- MCP server names from Codex `config.toml`, Claude config, and `.mcp.json`
 - `~/.agents/skills`
 - `~/.skillshub`
 - project `.claude/commands`
@@ -111,10 +141,12 @@ Empty machines still work. LazyBrain includes a built-in capability set, so a fi
 lb --version
 lb quickstart
 lb "review this PR for security issues"
+lb ask "help me ship this safely" --json
+lb desktop "review this payment PR safely" --json
 lb orchestrate "deploy payment feature"
 printf '{"jsonrpc":"2.0","id":1,"method":"tools/list"}\n' | lazybrain-mcp
 ```
 
-Expected result: commands exit successfully, MCP returns `lazybrain_find`, and routing returns concrete capabilities such as `/security-review`, `/code-review`, or `/ship`.
+Expected result: commands exit successfully, MCP returns `lazybrain_recommend` with `desktopVisualization`, concrete prompts return capabilities such as `/security-review`, `/code-review`, or `/ship`, and vague prompts return `clarify`.
 
 `lb compile` means compiling the local capability graph at `~/.lazybrain/graph.json`. It is not an LLM or embedding operation.

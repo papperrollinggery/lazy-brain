@@ -1,5 +1,16 @@
 # Changelog
 
+## [v2.1.0]
+
+- Repositioned LazyBrain as a local capability control plane for Codex and Claude Code rather than another installer.
+- Added local indexing for Codex/Claude plugin manifests, bundled capabilities, and MCP server names without copying credential values.
+- Added the fail-closed `lb ask` decision contract with structured JSON, alternatives, clarification, and visualization-ready data.
+- Added `lazybrain_recommend` and `lazybrain_catalog` MCP tools with explicit safety annotations and package-version readback.
+- Added a validated Codex plugin manifest, bundled `$lazybrain-find` Skill, and local marketplace development configuration.
+- Made Codex Desktop the primary product surface and added a versioned `desktopVisualization` contract for the OpenAI `@Visualize` plugin.
+- Added `lb desktop`, accessible Markdown/table fallback, selection-without-execution semantics, and desktop interaction regression tests.
+- Expanded README SEO/GEO content, FAQ, real scan matrix, use cases, privacy boundaries, and release gates.
+
 ## [v2.0.1]
 
 - Removed the leftover optional HuggingFace/embedding dependency from the public package.

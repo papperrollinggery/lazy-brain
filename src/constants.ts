@@ -33,16 +33,32 @@ export function getDefaultScanPaths(platforms?: Record<string, boolean>): string
   const home = homedir();
   const claude = getClaudeConfigDir();
   const includeClaude = platforms ? platforms['claude-code'] === true : true;
+  const includeCodex = platforms ? platforms.codex === true : true;
   const paths: string[] = [];
   if (includeClaude) {
     paths.push(
       join(claude, 'skills'),
       join(claude, 'skills-disabled'),
       join(claude, 'commands'),
+      join(claude, 'plugins'),
+      join(home, '.claude.json'),
       join(home, '.skillshub'),
     );
   }
-  if (platforms?.codex) paths.push(join(home, '.codex', 'skills'), join(home, '.codex', 'commands'));
+  if (includeCodex) {
+    paths.push(
+      join(home, '.codex', 'skills'),
+      join(home, '.codex', 'commands'),
+      join(home, '.codex', 'plugins', 'cache'),
+      join(home, '.codex', 'config.toml'),
+      join(home, '.agents', 'skills'),
+      join(home, '.agents', 'plugins', 'marketplace.json'),
+      join(process.cwd(), '.agents', 'skills'),
+      join(process.cwd(), '.agents', 'plugins', 'marketplace.json'),
+      join(process.cwd(), '.codex', 'config.toml'),
+      join(process.cwd(), '.mcp.json'),
+    );
+  }
   if (platforms?.cursor) paths.push(join(home, '.cursor', 'rules'));
   if (platforms?.opencode) paths.push(join(home, '.config', 'opencode', 'skills'), join(home, '.opencode', 'skills'));
   return paths;

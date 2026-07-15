@@ -3,6 +3,7 @@ import { basename, dirname, join, sep } from 'node:path';
 
 function readPluginManifest(dirPath: string): { name?: string; version?: string } | null {
   const candidates = [
+    join(dirPath, '.codex-plugin', 'plugin.json'),
     join(dirPath, '.claude-plugin', 'plugin.json'),
     join(dirPath, 'plugin.json'),
     join(dirPath, 'package.json'),
@@ -23,15 +24,15 @@ function readPluginManifest(dirPath: string): { name?: string; version?: string 
 
 function pluginOriginFromManifest(filePath: string): string | null {
   let dir = dirname(filePath);
-  const root = dirname(dir);
 
-  while (dir && dir !== root) {
+  while (dir) {
     const manifest = readPluginManifest(dir);
     if (manifest?.name) {
       return manifest.version
         ? `plugin:${manifest.name}@${manifest.version}`
         : `plugin:${manifest.name}`;
     }
+    if (basename(dir) === 'plugins') break;
     const next = dirname(dir);
     if (next === dir) break;
     dir = next;

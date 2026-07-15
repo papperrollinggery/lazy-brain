@@ -85,4 +85,21 @@ Paragraph`;
     expect(result.frontmatter).toEqual({ name: 'test' });
     expect(result.body).toBe('\n# Heading\n\nParagraph');
   });
+
+  it('does not let nested metadata overwrite top-level capability fields', () => {
+    const content = `---
+name: base44-cli
+description: Base44 command-line workflow
+metadata:
+  sourcePackage:
+    name: base44
+    version: 0.0.50
+---
+
+Content`;
+
+    const result = parseFrontmatter(content);
+    expect(result.frontmatter.name).toBe('base44-cli');
+    expect(result.frontmatter.description).toBe('Base44 command-line workflow');
+  });
 });

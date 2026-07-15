@@ -20,6 +20,10 @@ docs/HANDOFF.md
 docs/contingency-minimax-down.md
 docs/IRI-*.md
 docs/iri-2/
+docs/CODEX-PROMPT.md
+docs/GOAL-EXECUTION-PROMPT.md
+docs/HANDOFF-PROMPT.md
+docs/SESSION-PROMPTS.md
 
 # Test coverage
 coverage/

@@ -18,6 +18,8 @@ import { userRuleTemplate } from '../src/orchestrator/user-rules.js';
 import { box, bold, cyan, dim, green, highlight, progressBar, yellow } from '../src/ui/terminal.js';
 import type { Capability, RawCapability } from '../src/types.js';
 import { getPackageVersion } from '../src/version.js';
+import { formatDecisionMarkdown, recommend } from '../src/recommendation/recommend.js';
+import { formatDesktopVisualizationFallback, toDesktopVisualization } from '../src/recommendation/desktop-visualization.js';
 import { dirname, join } from 'node:path';
 
 const args = process.argv.slice(2);
@@ -31,7 +33,7 @@ function err(text: string): void {
 }
 
 function queryFrom(start: number): string {
-  return args.slice(start).join(' ').trim();
+  return args.slice(start).filter((arg) => !arg.startsWith('--')).join(' ').trim();
 }
 
 function loadGraphIfPresent(): Graph | undefined {
@@ -190,7 +192,34 @@ function compileGraph(): { graph: Graph; localCount: number } {
   const result = scan();
   const graph = new Graph();
   for (const skill of BUILTIN_SKILLS) graph.addNode(builtinToCapability(skill));
-  for (const raw of result.capabilities) graph.addNode(rawToCapability(raw));
+  const localCapabilities = result.capabilities.map(rawToCapability);
+  for (const capability of localCapabilities) graph.addNode(capability);
+  for (const skill of BUILTIN_SKILLS) {
+    for (const targetName of skill.composesWell) {
+      const target = graph.findByName(targetName);
+      if (!target) continue;
+      graph.addLink({
+        source: `builtin:${skill.name}`,
+        target: target.id,
+        type: 'composes_with',
+        description: `${skill.name} composes with ${targetName}`,
+        confidence: 1,
+      });
+    }
+  }
+  for (const capability of localCapabilities) {
+    if (capability.kind === 'plugin' || !capability.origin.startsWith('plugin:')) continue;
+    const pluginName = capability.origin.slice('plugin:'.length).split('@')[0];
+    const plugin = localCapabilities.find((item) => item.kind === 'plugin' && item.name === pluginName);
+    if (!plugin) continue;
+    graph.addLink({
+      source: capability.id,
+      target: plugin.id,
+      type: 'belongs_to',
+      description: `${capability.name} is provided by ${plugin.name}`,
+      confidence: 1,
+    });
+  }
   graph.save(GRAPH_PATH);
   return { graph, localCount: result.capabilities.length };
 }
@@ -221,10 +250,49 @@ function runFind(query: string): void {
       timestamp: new Date().toISOString(),
       query,
       recommended: top.skill,
-      used: top.skill,
+      used: null,
       sessionId: process.env.CLAUDE_SESSION_ID ?? process.env.TERM_SESSION_ID ?? 'cli',
     });
   }
+}
+
+function runUse(): void {
+  const selected = (args[1] ?? '').replace(/^\//, '').trim();
+  if (!selected) {
+    out('Usage: lb use <capability-name> [task description]');
+    return;
+  }
+  append({
+    timestamp: new Date().toISOString(),
+    query: queryFrom(2) || 'manual capability selection',
+    recommended: selected,
+    used: selected,
+    sessionId: process.env.CLAUDE_SESSION_ID ?? process.env.TERM_SESSION_ID ?? 'cli',
+  });
+  out(`Recorded explicit use of /${selected}.`);
+}
+
+function runRecommend(query: string): void {
+  const decision = recommend(query, {
+    graph: loadGraphIfPresent(),
+    history: loadRecent(30),
+    limit: 3,
+  });
+  out(jsonFlag() ? JSON.stringify(decision, null, 2) : formatDecisionMarkdown(decision));
+}
+
+function runDesktopRecommend(query: string): void {
+  const decision = recommend(query, {
+    graph: loadGraphIfPresent(),
+    history: loadRecent(30),
+    limit: 3,
+  });
+  const payload = toDesktopVisualization(decision);
+  if (args.includes('--visualize-prompt')) {
+    out(payload.visualizePrompt);
+    return;
+  }
+  out(jsonFlag() ? JSON.stringify(payload, null, 2) : formatDesktopVisualizationFallback(payload));
 }
 
 function runStats(): void {
@@ -378,12 +446,14 @@ function runConfig(): void {
 function runReady(): void {
   const graph = loadGraphIfPresent();
   const nodes = graph?.getNodeCount() ?? 0;
-  const ready = nodes > 0;
+  const links = graph?.getAllLinks().length ?? 0;
+  const ready = nodes > 0 && links > 0;
   if (jsonFlag()) {
     out(JSON.stringify({
       status: ready ? 'READY' : 'NOT_READY',
       graphExists: existsSync(GRAPH_PATH),
       nodeCount: nodes,
+      linkCount: links,
       hook: hookStatus(),
     }, null, 2));
     return;
@@ -445,6 +515,9 @@ function help(): void {
 
 Usage:
   lb "task"
+  lb ask "task" [--json]
+  lb desktop "task" [--json|--visualize-prompt]
+  lb use <capability-name> [task]
   lb scan
   lb compile
   lb stats
@@ -465,6 +538,9 @@ async function main(): Promise<void> {
   if (cmd === 'ready') return runReady();
   if (cmd === 'hook') return runHook();
   if (cmd === 'find' || cmd === 'match') return runFind(queryFrom(1));
+  if (cmd === 'ask' || cmd === 'recommend') return runRecommend(queryFrom(1));
+  if (cmd === 'desktop' || cmd === 'visualize') return runDesktopRecommend(queryFrom(1));
+  if (cmd === 'use' || cmd === 'accept') return runUse();
   if (cmd === 'stats') return runStats();
   if (cmd === 'discover') return runDiscover();
   if (cmd === 'combo') return runCombo(queryFrom(1));
