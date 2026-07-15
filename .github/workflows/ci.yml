@@ -25,3 +25,10 @@ jobs:
         run: |
           node dist/bin/lazybrain.js desktop "review this payment PR safely" --json > /tmp/lazybrain-desktop.json
           node -e "const p=require('/tmp/lazybrain-desktop.json'); if(p.surface!=='codex-desktop'||p.renderer.preferredPlugin!=='@Visualize'||p.interaction.selectionDoesNotExecute!==true) process.exit(1)"
+
+  required-test:
+    name: Test
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Node 18, 20, and 22 verification passed."
