@@ -26,28 +26,43 @@ function capability(filePath: string, name: string, config: JsonObject): RawCapa
     compatibility: inferPlatformFromPath(filePath),
     platform: inferSinglePlatformFromPath(filePath),
     sideEffects: ['unknown'],
+    disabled: config.enabled === false || config.disabled === true,
+    discovery: 'configured',
   };
 }
 
 function fromJson(filePath: string, content: string): RawCapability[] {
   const root = object(JSON.parse(content));
   if (!root) return [];
-  const servers = object(root.mcpServers) ?? object(root.servers);
-  if (!servers) return [];
+  const wrapped = object(root.mcpServers) ?? object(root.mcp_servers) ?? object(root.servers);
+  const servers = wrapped ?? root;
   return Object.entries(servers).flatMap(([name, value]) => {
     const config = object(value);
+    if (!wrapped && typeof config?.command !== 'string' && typeof config?.url !== 'string') return [];
     return config ? [capability(filePath, name, config)] : [];
   });
 }
 
 function fromToml(filePath: string, content: string): RawCapability[] {
-  const names = new Set<string>();
+  const servers = new Map<string, JsonObject>();
+  let current: JsonObject | undefined;
   for (const line of content.split(/\r?\n/)) {
-    const match = line.match(/^\s*\[mcp_servers\.(?:"([^"]+)"|'([^']+)'|([^\]]+))\]\s*$/);
+    const match = line.match(/^\s*\[mcp_servers\.(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9_-]+))\]\s*(?:#.*)?$/);
     const name = (match?.[1] ?? match?.[2] ?? match?.[3] ?? '').trim();
-    if (name) names.add(name);
+    if (name) {
+      current = {};
+      servers.set(name, current);
+      continue;
+    }
+    if (/^\s*\[/.test(line)) {
+      current = undefined;
+      continue;
+    }
+    if (!current) continue;
+    const enabled = line.match(/^\s*enabled\s*=\s*(true|false)\s*(?:#.*)?$/i);
+    if (enabled) current.enabled = enabled[1].toLowerCase() === 'true';
   }
-  return [...names].map((name) => capability(filePath, name, {}));
+  return [...servers.entries()].map(([name, config]) => capability(filePath, name, config));
 }
 
 export function parseMcpConfig(filePath: string, content: string): RawCapability[] {

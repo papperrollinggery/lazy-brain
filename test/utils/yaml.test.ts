@@ -102,4 +102,32 @@ Content`;
     expect(result.frontmatter.name).toBe('base44-cli');
     expect(result.frontmatter.description).toBe('Base44 command-line workflow');
   });
+
+  it('parses standard YAML collections and block descriptions', () => {
+    const result = parseFrontmatter(`---
+name: visual-helper
+description: |
+  Creates image-led work.
+  Preserves constraints.
+triggers:
+  - 图片生成
+  - visual design
+policy:
+  allow_implicit_invocation: true
+---
+
+Body`);
+    expect(result.frontmatter.description).toBe('Creates image-led work.\nPreserves constraints.\n');
+    expect(result.frontmatter.triggers).toEqual(['图片生成', 'visual design']);
+    expect(result.frontmatter.policy).toEqual({ allow_implicit_invocation: true });
+  });
+
+  it('supports CRLF frontmatter and keeps malformed metadata out of the body', () => {
+    const crlf = parseFrontmatter('---\r\nname: windows-skill\r\n---\r\n\r\nBody');
+    expect(crlf.frontmatter).toEqual({ name: 'windows-skill' });
+    expect(crlf.body).toBe('\r\nBody');
+    const malformed = parseFrontmatter('---\nname: [broken\n---\nBody');
+    expect(malformed.frontmatter).toEqual({});
+    expect(malformed.body).toBe('Body');
+  });
 });

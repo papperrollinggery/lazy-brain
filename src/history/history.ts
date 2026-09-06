@@ -61,16 +61,17 @@ export function getStats(): UsageStats {
   const recent = loadRecent(30);
   const counts = new Map<string, number>();
   for (const entry of recent) {
-    const key = entry.used ?? entry.recommended;
-    counts.set(key, (counts.get(key) ?? 0) + 1);
+    if (entry.used?.trim()) {
+      counts.set(entry.used, (counts.get(entry.used) ?? 0) + 1);
+    }
   }
   const bySkill = [...counts.entries()]
     .map(([skill, count]) => ({ skill, count }))
     .sort((a, b) => b.count - a.count || a.skill.localeCompare(b.skill));
   return {
     total: recent.length,
-    accepted: recent.filter((entry) => entry.used !== null).length,
-    ignored: recent.filter((entry) => entry.used === null).length,
+    accepted: recent.filter((entry) => Boolean(entry.used?.trim())).length,
+    ignored: recent.filter((entry) => !entry.used?.trim()).length,
     bySkill,
     recent,
   };
@@ -83,9 +84,9 @@ export function loadRecentHistory(limit = 50): LegacyHistoryEntry[] {
       timestamp: entry.timestamp,
       query: entry.query,
       matched: entry.recommended,
-      accepted: entry.used !== null,
+      accepted: Boolean(entry.used?.trim()),
       layer: 'tag' as MatchLayer,
       sessionId: entry.sessionId,
-      reason: entry.used === null ? 'low_score' : 'matched',
+      reason: entry.used?.trim() ? 'matched' : 'low_score',
     }));
 }

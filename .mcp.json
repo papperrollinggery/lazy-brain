@@ -1,8 +1,9 @@
 {
   "mcpServers": {
     "lazybrain": {
-      "command": "lazybrain-mcp",
-      "args": []
+      "command": "node",
+      "args": ["./dist/bin/mcp.js"],
+      "cwd": "."
     }
   }
 }

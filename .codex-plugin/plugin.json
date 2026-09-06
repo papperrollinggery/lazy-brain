@@ -1,7 +1,7 @@
 {
   "name": "lazybrain",
-  "version": "2.1.0",
-  "description": "Choose and visualize the right local AI-agent capability inside Codex Desktop from installed Skills, Plugins, MCP servers, agents, and commands.",
+  "version": "3.0.0",
+  "description": "Search local Skill and tool metadata when the current Codex catalog does not resolve a lookup.",
   "author": {
     "name": "LazyBrain contributors",
     "url": "https://github.com/papperrollinggery"
@@ -11,28 +11,28 @@
   "license": "AGPL-3.0",
   "keywords": [
     "codex",
-    "claude-code",
     "skills",
     "plugins",
     "mcp",
-    "agent-orchestration",
-    "visualization"
+    "local-search"
   ],
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "interface": {
     "displayName": "LazyBrain",
-    "shortDescription": "Choose local capabilities in Codex Desktop",
-    "longDescription": "A Codex Desktop-first local capability router. It indexes Skills, Plugins, MCP servers, agents, and commands, then turns a vague task into an explainable recommendation, comparison, interactive @Visualize payload, or safe execution order.",
+    "shortDescription": "Find local capability source files",
+    "longDescription": "A local metadata search companion for Codex. Find source paths and compare overlapping Skills, Plugins, MCP configurations, agents, and commands. Native tool selection and task execution remain with Codex.",
     "developerName": "LazyBrain contributors",
     "category": "Developer Tools",
-    "capabilities": ["Read", "Search", "Plan", "Visualize"],
+    "capabilities": [
+      "Read",
+      "Search"
+    ],
     "websiteURL": "https://github.com/papperrollinggery/lazy-brain",
     "privacyPolicyURL": "https://github.com/papperrollinggery/lazy-brain/blob/main/docs/PRIVACY.md",
     "defaultPrompt": [
-      "Which local skill or tool should I use for this task?",
-      "Compare my installed capabilities in an interactive decision view.",
-      "Build a safe capability sequence for this task."
+      "Find the local Skill source that fits this task.",
+      "Audit overlapping local capability entries and their sources."
     ],
     "brandColor": "#7C3AED"
   }

@@ -1,0 +1,6 @@
+{
+  "plugins": [
+    { "name": "catalog-one", "description": "First catalog plugin" },
+    { "name": "catalog-two", "description": "Second catalog plugin" }
+  ]
+}

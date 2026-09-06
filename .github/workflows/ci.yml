@@ -2,33 +2,32 @@ name: CI
 
 on: [push, pull_request]
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [18, 20, 22]
+        node-version: [18, 20, 22, 24]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
+          cache: npm
       - run: npm ci
-      - run: npm run lint
-      - run: npm run build
-      - run: npm test
-      - run: npm run validate:plugin
+      - run: npm run verify
       - run: npm audit --audit-level=high
-      - run: node dist/bin/lazybrain.js quickstart
-      - run: node dist/bin/lazybrain.js "review this PR for security"
-      - name: Verify Codex Desktop payload
-        run: |
-          node dist/bin/lazybrain.js desktop "review this payment PR safely" --json > /tmp/lazybrain-desktop.json
-          node -e "const p=require('/tmp/lazybrain-desktop.json'); if(p.surface!=='codex-desktop'||p.renderer.preferredPlugin!=='@Visualize'||p.interaction.selectionDoesNotExecute!==true) process.exit(1)"
 
   required-test:
     name: Test
+    if: always()
     needs: test
     runs-on: ubuntu-latest
     steps:
-      - run: echo "Node 18, 20, and 22 verification passed."
+      - name: Require every supported Node check
+        env:
+          RESULT: ${{ needs.test.result }}
+        run: test "$RESULT" = success

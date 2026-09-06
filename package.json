@@ -1,7 +1,7 @@
 {
   "name": "lazybrain",
-  "version": "2.1.0",
-  "description": "Codex Desktop capability router for choosing and visualizing local Skills, Plugins, MCP servers, agents, and commands",
+  "version": "3.0.0",
+  "description": "Local capability discovery for Codex: source-aware Skill and tool lookup without replacing native agent workflows",
   "type": "module",
   "bin": {
     "lazybrain": "dist/bin/lazybrain.js",
@@ -21,7 +21,6 @@
     ".codex-plugin",
     ".mcp.json",
     "dist",
-    "docs/assets",
     "docs/CODEX_DESKTOP.md",
     "docs/INSTALL.md",
     "docs/PRIVACY.md",
@@ -30,7 +29,8 @@
     "docs/USE_CASES.md",
     "README_CN.md",
     "CHANGELOG.md",
-    "skills"
+    "skills",
+    "docs/MAINTENANCE_3.0.md"
   ],
   "scripts": {
     "build": "tsup",
@@ -40,22 +40,20 @@
     "lint": "tsc --noEmit",
     "validate:plugin": "node scripts/validate-codex-plugin.js",
     "audit:public": "node scripts/audit-public.js",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "smoke": "node scripts/smoke-test.mjs",
+    "verify": "npm run lint && npm run build && npm test && npm run validate:plugin && npm run audit:public && npm run smoke"
   },
   "keywords": [
     "claude-code",
     "codex",
     "codex-desktop",
     "codex-plugin",
-    "visualization",
     "cursor",
     "local-first",
     "mcp",
     "deterministic",
-    "skill-orchestration",
-    "agent-orchestration",
     "ai-agent",
-    "knowledge-graph",
     "lazybrain"
   ],
   "author": "LazyBrain contributors",
@@ -66,7 +64,8 @@
     "husky": "^9.1.7",
     "tsup": "^8.0.0",
     "typescript": "^5.4.0",
-    "vitest": "^3.2.6"
+    "vitest": "^3.2.6",
+    "yaml": "^2.9.0"
   },
   "overrides": {
     "esbuild": "$esbuild",

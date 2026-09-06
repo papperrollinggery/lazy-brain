@@ -1,32 +1,32 @@
-/**
- * LazyBrain — File Scanner
- *
- * Discovers and scans capability files from configured paths.
- */
-
-import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs';
+/** Discover only capability metadata; discovery never proves runtime callability. */
+import { readdirSync, readFileSync, existsSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, basename, resolve } from 'node:path';
+import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 
 import type { RawCapability, Platform } from '../types.js';
-import { getDefaultScanPaths, inferPlatformFromPath } from '../constants.js';
+import { getCodexHome, getDefaultScanPaths } from '../constants.js';
 import { parseSkill } from './parsers/skill-parser.js';
-import { parseAgent } from './parsers/agent-parser.js';
+import { parseAgent, parseCodexAgentMetadata } from './parsers/agent-parser.js';
 import { parseCommand } from './parsers/command-parser.js';
 import { parseMcpConfig } from './parsers/mcp-parser.js';
 import { parsePluginManifest, parsePluginMarketplace } from './parsers/plugin-parser.js';
 import { dedup } from './dedup.js';
 
+const IGNORED_DIRECTORIES = new Set(['.git', 'node_modules', '.DS_Store', '__tests__', 'test', 'tests', 'fixtures', 'examples']);
+const MAX_FILES_PER_ROOT = 5_000;
+const MAX_DIRECTORIES_PER_ROOT = 1_000;
+const MAX_ENTRIES_PER_DIRECTORY = 2_000;
+const MAX_METADATA_BYTES = 512 * 1024;
+const MAX_PATH_LENGTH = 4_096;
+
 export interface ScanOptions {
   extraPaths?: string[];
   sources?: ScanSource[];
-  /** Skip user and project defaults for isolated tests or embedded callers. */
   includeDefaults?: boolean;
   onProgress?: (scanned: number, found: number) => void;
-  /** Current platform for tier assignment */
   platform?: Platform;
-  /** Platforms to scan (default: only current platform) */
   platforms?: Record<string, boolean>;
+  cwd?: string;
 }
 
 export interface ScanSource {
@@ -42,327 +42,181 @@ export interface ScanResult {
   errors: string[];
 }
 
-export function detectSources(): ScanSource[] {
+interface ScanPath { path: string; parser?: ScanSource['parser']; }
+
+export function detectSources(cwd = process.cwd(), platforms?: Record<string, boolean>): ScanSource[] {
   const home = homedir();
-  const cwd = process.cwd();
-  const candidates: ScanSource[] = [
-    { tool: 'claude-code', parser: 'skill-md', paths: [join(home, '.claude', 'skills'), join(home, '.claude', 'commands'), join(cwd, '.claude', 'commands')] },
-    { tool: 'cursor', parser: 'cursorrules', paths: [join(cwd, '.cursorrules'), join(cwd, '.cursor', 'rules'), join(home, '.cursor', 'rules')] },
-    { tool: 'windsurf', parser: 'markdown', paths: [join(cwd, '.windsurfrules'), join(home, '.windsurf', 'rules')] },
-    { tool: 'cline', parser: 'markdown', paths: [join(cwd, '.clinerules'), join(home, '.cline', 'rules')] },
-    { tool: 'custom', parser: 'skill-md', paths: [join(home, '.skillshub'), join(home, '.codex', 'skills'), join(home, '.agents', 'skills')] },
-  ];
-  return candidates
-    .map((source) => ({ ...source, paths: source.paths.map((path) => resolve(path)).filter(existsSync) }))
-    .filter((source) => source.paths.length > 0);
-}
-
-function isDirectory(path: string): boolean {
-  try {
-    return statSync(path).isDirectory();
-  } catch {
-    return false;
-  }
-}
-
-function findSkillFiles(dirPath: string): string[] {
-  const results: string[] = [];
-  if (!existsSync(dirPath)) return results;
-
-  const entries = readdirSync(dirPath, { withFileTypes: true });
-  for (const entry of entries) {
-    if (entry.isDirectory()) {
-      const skillPath = join(dirPath, entry.name, 'SKILL.md');
-      if (existsSync(skillPath)) {
-        results.push(skillPath);
-      } else {
-        results.push(...findSkillFiles(join(dirPath, entry.name)));
-      }
-    }
-  }
-  return results;
-}
-
-function findMarkdownFiles(dirPath: string): string[] {
-  const results: string[] = [];
-  if (!existsSync(dirPath)) return results;
-
-  const entries = readdirSync(dirPath, { withFileTypes: true });
-  for (const entry of entries) {
-    if (entry.isFile() && entry.name.endsWith('.md')) {
-      results.push(join(dirPath, entry.name));
-    }
-  }
-  return results;
-}
-
-function findMarkdownFilesInNamedDirs(rootPath: string, targetDirName: string): string[] {
-  const results: string[] = [];
-  if (!existsSync(rootPath)) return results;
-
-  const entries = readdirSync(rootPath, { withFileTypes: true });
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-
-    const childPath = join(rootPath, entry.name);
-    if (entry.name === targetDirName) {
-      results.push(...findMarkdownFiles(childPath));
-      continue;
-    }
-
-    results.push(...findMarkdownFilesInNamedDirs(childPath, targetDirName));
-  }
-
-  return results;
-}
-
-function findFilesByName(rootPath: string, fileName: string): string[] {
-  const results: string[] = [];
-  if (!existsSync(rootPath)) return results;
-  for (const entry of readdirSync(rootPath, { withFileTypes: true })) {
-    const childPath = join(rootPath, entry.name);
-    if (entry.isFile() && entry.name === fileName) results.push(childPath);
-    if (entry.isDirectory()) results.push(...findFilesByName(childPath, fileName));
-  }
-  return results;
-}
-
-function safeReadFile(filePath: string): string | null {
-  try {
-    return readFileSync(filePath, 'utf-8');
-  } catch (err) {
-    return null;
-  }
+  const codex = getCodexHome();
+  const enabled = (platform: string) => !platforms || platforms[platform] === true;
+  const candidates: ScanSource[] = [];
+  if (enabled('claude-code')) candidates.push({ tool: 'claude-code', parser: 'skill-md', paths: [join(home, '.claude', 'skills'), join(home, '.claude', 'commands'), join(cwd, '.claude', 'commands')] });
+  if (enabled('cursor')) candidates.push({ tool: 'cursor', parser: 'cursorrules', paths: [join(cwd, '.cursorrules'), join(cwd, '.cursor', 'rules'), join(home, '.cursor', 'rules')] });
+  if (enabled('windsurf')) candidates.push({ tool: 'windsurf', parser: 'markdown', paths: [join(cwd, '.windsurfrules'), join(home, '.windsurf', 'rules')] });
+  if (enabled('cline')) candidates.push({ tool: 'cline', parser: 'markdown', paths: [join(cwd, '.clinerules'), join(home, '.cline', 'rules')] });
+  if (enabled('codex')) candidates.push({ tool: 'custom', parser: 'skill-md', paths: [join(home, '.skillshub'), join(codex, 'skills'), join(codex, 'agents'), join(home, '.agents', 'skills')] });
+  return candidates.map((source) => ({ ...source, paths: source.paths.map((path) => resolve(path)).filter(existsSync) })).filter((source) => source.paths.length > 0);
 }
 
 function isFile(path: string): boolean {
-  try {
-    return statSync(path).isFile();
-  } catch {
-    return false;
-  }
-}
-
-function isSkillRootPath(path: string): boolean {
-  return path.includes('/skills') || path.includes('/skills-disabled') || basename(path) === '.skillshub';
+  try { return statSync(path).isFile(); } catch { return false; }
 }
 
 function isMcpConfigPath(path: string): boolean {
-  return basename(path) === '.mcp.json'
-    || basename(path) === 'config.toml'
-    || basename(path) === '.claude.json';
+  return ['.mcp.json', 'config.toml', '.claude.json'].includes(basename(path));
 }
 
 function isPluginMarketplacePath(path: string): boolean {
   return basename(path) === 'marketplace.json' && path.includes('/plugins/');
 }
 
-function parseRuleFile(filePath: string, content: string, tool: string): RawCapability | null {
-  const name = basename(filePath).replace(/^\./, '').replace(/\.[^.]+$/, '') || `${tool}-rules`;
-  const firstLine = content.split('\n').map((line) => line.trim()).find(Boolean);
-  return {
-    kind: 'skill',
-    name: `${tool}-${name}`,
-    description: firstLine?.slice(0, 180) || `${tool} local rule file`,
-    origin: tool,
-    filePath,
-    triggers: [tool, name, `${tool} rules`],
-    compatibility: tool === 'cursor' ? ['cursor'] : ['universal'],
-    platform: tool === 'cursor' ? 'cursor' : 'universal',
-  };
+function isRuleFile(path: string, parser?: ScanSource['parser']): boolean {
+  if (['.cursorrules', '.windsurfrules', '.clinerules'].includes(basename(path))) return true;
+  return (parser === 'cursorrules' || parser === 'markdown') && /\.mdc?$/i.test(path);
 }
 
-export function scan(options?: ScanOptions): ScanResult {
-  const configuredSources = options?.sources ?? (options?.includeDefaults === false ? [] : detectSources());
-  const sourcePaths = configuredSources.flatMap((source) => source.paths);
-  const defaultPaths = options?.includeDefaults === false ? [] : getDefaultScanPaths(options?.platforms);
-  const paths = [...new Set([...defaultPaths, ...sourcePaths, ...(options?.extraPaths ?? [])])];
+function isMetadataFile(path: string, parser?: ScanSource['parser']): boolean {
+  return isMcpConfigPath(path)
+    || isPluginMarketplacePath(path)
+    || basename(path) === 'plugin.json'
+    || basename(path) === 'SKILL.md'
+    || (path.includes('/agents/') && (/\.md$/i.test(path) || /\.toml$/i.test(path)))
+    || (path.includes('/commands/') && /\.md$/i.test(path))
+    || isRuleFile(path, parser);
+}
+
+/** Bounded, metadata-only traversal. A SKILL.md marks a leaf and stops descent. */
+function walkMetadataFiles(root: string, parser: ScanSource['parser'] | undefined, errors: string[]): string[] {
+  const files: string[] = [];
+  const visited = new Set<string>();
+  let directories = 0;
+  const visit = (path: string): void => {
+    if (files.length >= MAX_FILES_PER_ROOT || directories >= MAX_DIRECTORIES_PER_ROOT) return;
+    let real: string;
+    try { real = realpathSync(path); } catch { return; }
+    if (visited.has(real)) return;
+    visited.add(real);
+    directories++;
+    const currentSkill = join(path, 'SKILL.md');
+    if (isFile(currentSkill)) {
+      files.push(currentSkill);
+      return;
+    }
+    let entries;
+    try { entries = readdirSync(path, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name)); } catch (error) {
+      errors.push(`Error scanning ${path}: ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
+    if (entries.length > MAX_ENTRIES_PER_DIRECTORY) {
+      errors.push(`Stopped scanning ${path}: directory has more than ${MAX_ENTRIES_PER_DIRECTORY} entries`);
+      return;
+    }
+    for (const entry of entries) {
+      if (files.length >= MAX_FILES_PER_ROOT || directories >= MAX_DIRECTORIES_PER_ROOT) return;
+      if (IGNORED_DIRECTORIES.has(entry.name)) continue;
+      const child = join(path, entry.name);
+      if (child.length > MAX_PATH_LENGTH) { errors.push(`Skipped overlong path: ${child}`); continue; }
+      let stat;
+      try { stat = statSync(child); } catch { continue; }
+      if (stat.isDirectory()) {
+        const skillPath = join(child, 'SKILL.md');
+        if (existsSync(skillPath)) {
+          files.push(skillPath);
+          continue;
+        }
+        visit(child);
+      } else if (stat.isFile() && isMetadataFile(child, parser)) {
+        files.push(child);
+      }
+    }
+  };
+  visit(root);
+  if (files.length >= MAX_FILES_PER_ROOT) errors.push(`Stopped scanning ${root} after ${MAX_FILES_PER_ROOT} metadata files`);
+  if (directories >= MAX_DIRECTORIES_PER_ROOT) errors.push(`Stopped scanning ${root} after ${MAX_DIRECTORIES_PER_ROOT} directories`);
+  return files;
+}
+
+function disabledPath(filePath: string): boolean {
+  return filePath.includes('/skills-disabled/');
+}
+
+function parseRuleFile(filePath: string, content: string): RawCapability {
+  const tool = filePath.includes('cursor') ? 'cursor' : filePath.includes('windsurf') ? 'windsurf' : filePath.includes('cline') ? 'cline' : 'custom';
+  const name = basename(filePath).replace(/^\./, '').replace(/\.[^.]+$/, '') || `${tool}-rules`;
+  const firstLine = content.split('\n').map((line) => line.trim()).find(Boolean);
+  return { kind: 'skill', name: `${tool}-${name}`, description: firstLine?.slice(0, 180) || `${tool} local rule file`, origin: tool, filePath,
+    triggers: [tool, name, `${tool} rules`], compatibility: tool === 'cursor' ? ['cursor'] : ['universal'], platform: tool === 'cursor' ? 'cursor' : 'universal', discovery: 'local-file' };
+}
+
+function parsed<T extends RawCapability>(value: T | null): T[] { return value ? [value] : []; }
+
+function parseFile(filePath: string, content: string, parser?: ScanSource['parser']): RawCapability[] {
+  if (isMcpConfigPath(filePath)) return parseMcpConfig(filePath, content);
+  if (isPluginMarketplacePath(filePath)) return parsePluginMarketplace(filePath, content);
+  if (basename(filePath) === 'plugin.json') return parsed(parsePluginManifest(filePath, content));
+  if (basename(filePath) === 'SKILL.md') return parsed(parseSkill(filePath, content)).map((item) => ({ ...item, disabled: item.disabled || disabledPath(filePath) }));
+  if (filePath.includes('/agents/') && filePath.endsWith('.toml')) return parsed(parseCodexAgentMetadata(filePath, content));
+  if (filePath.includes('/agents/') && filePath.endsWith('.md')) return parsed(parseAgent(filePath, content)).map((item) => ({ ...item, disabled: item.disabled || disabledPath(filePath) }));
+  if (filePath.includes('/commands/') && filePath.endsWith('.md')) return parsed(parseCommand(filePath, content)).map((item) => ({ ...item, disabled: item.disabled || disabledPath(filePath) }));
+  return isRuleFile(filePath, parser) ? [parseRuleFile(filePath, content)] : [];
+}
+
+function isWithin(path: string, parent: string): boolean {
+  const child = relative(parent, path);
+  return child === '' || (!child.startsWith('..') && !isAbsolute(child));
+}
+
+function applySourcePlatform(capabilities: RawCapability[]): void {
+  const codexHome = resolve(getCodexHome());
+  for (const capability of capabilities) {
+    if (!isWithin(resolve(capability.filePath), codexHome)) continue;
+    capability.platform = 'codex';
+    capability.compatibility = ['codex'];
+  }
+}
+
+function assignTiers(capabilities: RawCapability[], platform?: Platform): void {
+  if (!platform) return;
+  for (const capability of capabilities) {
+    capability.tier = capability.compatibility.includes(platform) ? 0 : capability.compatibility.includes('universal') ? 1 : 2;
+  }
+}
+
+export function scan(options: ScanOptions = {}): ScanResult {
+  const cwd = options.cwd ?? process.cwd();
+  const platformSelection = options.platforms ?? (options.platform ? { [options.platform]: true } : undefined);
+  const sources = options.sources ?? (options.includeDefaults === false ? [] : detectSources(cwd, platformSelection));
+  const scanPaths: ScanPath[] = [
+    ...(options.includeDefaults === false ? [] : getDefaultScanPaths(platformSelection, cwd).map((path) => ({ path }))),
+    ...sources.flatMap((source) => source.paths.map((path) => ({ path, parser: source.parser }))),
+    ...(options.extraPaths ?? []).map((path) => ({ path })),
+  ];
+  const roots = new Map<string, ScanPath>();
+  for (const source of scanPaths) {
+    const key = resolve(source.path);
+    if (!roots.has(key) || source.parser) roots.set(key, source);
+  }
   const capabilities: RawCapability[] = [];
   const errors: string[] = [];
   let scannedFiles = 0;
-  let scannedPaths = 0;
 
-  for (const path of paths) {
-    scannedPaths++;
-    if (!existsSync(path)) continue;
-
-    if (isFile(path)) {
+  for (const source of roots.values()) {
+    if (!existsSync(source.path)) continue;
+    const files = isFile(source.path) ? (isMetadataFile(source.path, source.parser) ? [source.path] : []) : walkMetadataFiles(source.path, source.parser, errors);
+    for (const filePath of files) {
+      if (filePath.length > MAX_PATH_LENGTH) { errors.push(`Skipped overlong path: ${filePath}`); continue; }
+      let stat;
+      try { stat = statSync(filePath); } catch { errors.push(`Metadata file disappeared: ${filePath}`); continue; }
+      if (stat.size > MAX_METADATA_BYTES) { errors.push(`Skipped oversized metadata file: ${filePath}`); continue; }
+      let content: string;
+      try { content = readFileSync(filePath, 'utf-8'); } catch { errors.push(`Failed to read: ${filePath}`); continue; }
       scannedFiles++;
-      const content = safeReadFile(path);
-      if (content === null) {
-        errors.push(`Failed to read: ${path}`);
-        continue;
-      }
-      if (isMcpConfigPath(path)) {
-        capabilities.push(...parseMcpConfig(path, content));
-        continue;
-      }
-      if (isPluginMarketplacePath(path)) {
-        capabilities.push(...parsePluginMarketplace(path, content));
-        continue;
-      }
-      if (basename(path) === 'plugin.json') {
-        const plugin = parsePluginManifest(path, content);
-        if (plugin) capabilities.push(plugin);
-        continue;
-      }
-      const tool = path.includes('cursor') ? 'cursor' : path.includes('windsurf') ? 'windsurf' : path.includes('cline') ? 'cline' : 'custom';
-      const capability = parseRuleFile(path, content, tool);
-      if (capability) capabilities.push(capability);
-      continue;
-    }
-
-    if (!isDirectory(path)) continue;
-
-    try {
-      if (isSkillRootPath(path)) {
-        const skillFiles = findSkillFiles(path);
-        for (const filePath of skillFiles) {
-          scannedFiles++;
-          const content = safeReadFile(filePath);
-          if (content === null) {
-            errors.push(`Failed to read: ${filePath}`);
-            continue;
-          }
-          const capability = parseSkill(filePath, content);
-          if (capability) {
-            capability.disabled = filePath.includes('/skills-disabled/');
-            capabilities.push(capability);
-          }
-        }
-      } else if (path.includes('/agents')) {
-        const mdFiles = findMarkdownFiles(path);
-        for (const filePath of mdFiles) {
-          scannedFiles++;
-          const content = safeReadFile(filePath);
-          if (content === null) {
-            errors.push(`Failed to read: ${filePath}`);
-            continue;
-          }
-          const capability = parseAgent(filePath, content);
-          if (capability) {
-            capability.disabled = filePath.includes('/skills-disabled/');
-            capabilities.push(capability);
-          }
-        }
-      } else if (path.includes('/commands')) {
-        const mdFiles = findMarkdownFiles(path);
-        for (const filePath of mdFiles) {
-          scannedFiles++;
-          const content = safeReadFile(filePath);
-          if (content === null) {
-            errors.push(`Failed to read: ${filePath}`);
-            continue;
-          }
-          const capability = parseCommand(filePath, content);
-          if (capability) {
-            capability.disabled = filePath.includes('/skills-disabled/');
-            capabilities.push(capability);
-          }
-        }
-      } else if (path.includes('/plugins')) {
-        for (const filePath of findFilesByName(path, 'plugin.json')) {
-          scannedFiles++;
-          const content = safeReadFile(filePath);
-          if (content === null) {
-            errors.push(`Failed to read: ${filePath}`);
-            continue;
-          }
-          const plugin = parsePluginManifest(filePath, content);
-          if (plugin) capabilities.push(plugin);
-        }
-
-        for (const filePath of findFilesByName(path, '.mcp.json')) {
-          scannedFiles++;
-          const content = safeReadFile(filePath);
-          if (content === null) {
-            errors.push(`Failed to read: ${filePath}`);
-            continue;
-          }
-          capabilities.push(...parseMcpConfig(filePath, content));
-        }
-
-        const skillFiles = findSkillFiles(path);
-        for (const filePath of skillFiles) {
-          scannedFiles++;
-          const content = safeReadFile(filePath);
-          if (content === null) {
-            errors.push(`Failed to read: ${filePath}`);
-            continue;
-          }
-          const capability = parseSkill(filePath, content);
-          if (capability) {
-            capability.disabled = filePath.includes('/skills-disabled/');
-            capabilities.push(capability);
-          }
-        }
-
-        const agentFiles = findMarkdownFilesInNamedDirs(path, 'agents');
-        for (const filePath of agentFiles) {
-          scannedFiles++;
-          const content = safeReadFile(filePath);
-          if (content === null) {
-            errors.push(`Failed to read: ${filePath}`);
-            continue;
-          }
-          const capability = parseAgent(filePath, content);
-          if (capability) {
-            capability.disabled = filePath.includes('/skills-disabled/');
-            capabilities.push(capability);
-          }
-        }
-
-        const commandFiles = findMarkdownFilesInNamedDirs(path, 'commands');
-        for (const filePath of commandFiles) {
-          scannedFiles++;
-          const content = safeReadFile(filePath);
-          if (content === null) {
-            errors.push(`Failed to read: ${filePath}`);
-            continue;
-          }
-          const capability = parseCommand(filePath, content);
-          if (capability) {
-            capability.disabled = filePath.includes('/skills-disabled/');
-            capabilities.push(capability);
-          }
-        }
-      }
-
-      options?.onProgress?.(scannedFiles, capabilities.length);
-    } catch (err) {
-      errors.push(`Error scanning ${path}: ${err instanceof Error ? err.message : String(err)}`);
+      capabilities.push(...parseFile(filePath, content, source.parser));
+      options.onProgress?.(scannedFiles, capabilities.length);
     }
   }
 
+  applySourcePlatform(capabilities);
   const deduplicated = dedup(capabilities);
-
-  // Assign tiers based on platform
-  if (options?.platform) {
-    assignTiers(deduplicated, options.platform);
-  }
-
-  return {
-    capabilities: deduplicated,
-    scannedFiles,
-    scannedPaths,
-    errors,
-  };
-}
-
-/**
- * Assign compilation tiers to capabilities based on current platform.
- *   tier 0: compatible with current platform
- *   tier 1: universal
- *   tier 2: other platform-specific
- */
-function assignTiers(capabilities: RawCapability[], platform: Platform): void {
-  for (const cap of capabilities) {
-    if (cap.compatibility.includes(platform)) {
-      cap.tier = 0;
-    } else if (cap.compatibility.includes('universal')) {
-      cap.tier = 1;
-    } else {
-      cap.tier = 2;
-    }
-  }
+  assignTiers(deduplicated, options.platform);
+  return { capabilities: deduplicated, scannedFiles, scannedPaths: scanPaths.length, errors };
 }

@@ -1,0 +1,4 @@
+interface:
+  display_name: Metadata Skill
+policy:
+  allow_implicit_invocation: true

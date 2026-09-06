@@ -5,53 +5,9 @@
  * Serializes to/from graph.json.
  */
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync, statSync } from 'node:fs';
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-
-function sleepSync(ms: number): void {
-  const buf = new SharedArrayBuffer(4);
-  const view = new Int32Array(buf);
-  Atomics.wait(view, 0, 0, ms);
-}
-
-function withFileLock<T>(lockPath: string, fn: () => T, timeoutMs = 3000): T {
-  const lockFile = lockPath + '.lock';
-  const start = Date.now();
-  const maxRetries = Math.ceil(timeoutMs / 50);
-
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    try {
-      writeFileSync(lockFile, String(process.pid), { flag: 'wx' });
-      // Lock acquired
-      try {
-        return fn();
-      } finally {
-        try { unlinkSync(lockFile); } catch {}
-      }
-    } catch {
-      // Lock file exists — check if it's stale
-      try {
-        const stat = statSync(lockFile);
-        if (Date.now() - stat.mtimeMs > timeoutMs) {
-          // Stale lock, force remove and retry immediately
-          try { unlinkSync(lockFile); } catch {}
-          continue;
-        }
-      } catch {
-        // Lock file disappeared between check, retry immediately
-        continue;
-      }
-      // Active lock held by another process, wait
-      sleepSync(50);
-    }
-  }
-
-  // All retries exhausted — execute without lock (degraded mode)
-  if (process.env.LAZYBRAIN_HOOK !== '1' || process.env.LAZYBRAIN_DEBUG_HOOK === '1') {
-    process.stderr.write(`[LazyBrain] Warning: could not acquire file lock after ${timeoutMs}ms, proceeding without lock\n`);
-  }
-  return fn();
-}
+import { randomUUID } from 'node:crypto';
 
 import type {
   Capability,
@@ -79,6 +35,95 @@ function isNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isCapabilityKind(value: unknown): value is Capability['kind'] {
+  return value === 'skill' || value === 'plugin' || value === 'mcp' || value === 'agent' || value === 'command' || value === 'mode' || value === 'hook';
+}
+
+function isCapabilityStatus(value: unknown): value is Capability['status'] {
+  return value === 'installed' || value === 'available' || value === 'disabled';
+}
+
+function isPlatform(value: unknown): value is Capability['compatibility'][number] {
+  return value === 'claude-code' || value === 'cursor' || value === 'codex' || value === 'kiro' || value === 'opencode' || value === 'universal';
+}
+
+function stringArray(value: unknown): string[] | undefined {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : undefined;
+}
+
+function loadCapability(value: unknown): Capability | null {
+  if (!isRecord(value)
+    || typeof value.id !== 'string' || value.id.length === 0
+    || !isCapabilityKind(value.kind)
+    || typeof value.name !== 'string'
+    || typeof value.description !== 'string'
+    || typeof value.origin !== 'string'
+    || !isCapabilityStatus(value.status)
+    || typeof value.category !== 'string') {
+    return null;
+  }
+
+  const compatibility = stringArray(value.compatibility)?.filter(isPlatform) ?? ['universal'];
+  const capability = {
+    id: value.id,
+    kind: value.kind,
+    name: value.name,
+    description: value.description,
+    origin: value.origin,
+    provider: typeof value.provider === 'string' ? value.provider : value.origin,
+    conflictGroup: typeof value.conflictGroup === 'string' ? value.conflictGroup : undefined,
+    sideEffects: stringArray(value.sideEffects) as Capability['sideEffects'],
+    status: value.status,
+    compatibility,
+    filePath: typeof value.filePath === 'string' ? value.filePath : undefined,
+    tags: stringArray(value.tags) ?? [],
+    exampleQueries: stringArray(value.exampleQueries) ?? [],
+    category: value.category,
+    scenario: typeof value.scenario === 'string' ? value.scenario : undefined,
+    explanation_template: typeof value.explanation_template === 'string' ? value.explanation_template : undefined,
+    meta: isRecord(value.meta) ? value.meta : undefined,
+    triggers: stringArray(value.triggers),
+    aliases: stringArray(value.aliases),
+    tier: value.tier === 0 || value.tier === 1 || value.tier === 2 ? value.tier : undefined,
+    evolvedTags: stringArray(value.evolvedTags),
+    costLevel: isCapabilityCostLevel(value.costLevel) ? value.costLevel : undefined,
+    riskLevel: isCapabilityRiskLevel(value.riskLevel) ? value.riskLevel : undefined,
+    requiresConfirmation: isBoolean(value.requiresConfirmation) ? value.requiresConfirmation : undefined,
+    hiddenByDefault: isBoolean(value.hiddenByDefault) ? value.hiddenByDefault : undefined,
+    sourcePriority: isNumber(value.sourcePriority) ? value.sourcePriority : undefined,
+    overlapsWith: stringArray(value.overlapsWith),
+    schema: isRecord(value.schema) ? value.schema as unknown as Capability['schema'] : undefined,
+    discovery: value.discovery === 'local-file' || value.discovery === 'plugin-cache' || value.discovery === 'configured' || value.discovery === 'catalog-entry' || value.discovery === 'builtin-example' ? value.discovery : undefined,
+    invocationPolicy: value.invocationPolicy === 'implicit-allowed' || value.invocationPolicy === 'explicit-only' ? value.invocationPolicy : undefined,
+  } as Capability & {
+    discovery?: 'local-file' | 'plugin-cache' | 'configured' | 'catalog-entry' | 'builtin-example';
+    invocationPolicy?: 'implicit-allowed' | 'explicit-only';
+  };
+  return capability;
+}
+
+function loadLink(value: unknown, nodeIds: Set<string>): Link | null {
+  if (!isRecord(value)
+    || typeof value.source !== 'string' || !nodeIds.has(value.source)
+    || typeof value.target !== 'string' || !nodeIds.has(value.target)
+    || !isLinkType(value.type)
+    || !isNumber(value.confidence)) {
+    return null;
+  }
+  return {
+    source: value.source,
+    target: value.target,
+    type: value.type,
+    confidence: value.confidence,
+    description: typeof value.description === 'string' ? value.description : undefined,
+    diff: typeof value.diff === 'string' ? value.diff : undefined,
+  };
+}
+
 export class Graph {
   private nodes: Map<string, Capability> = new Map();
   private adjacency: Map<string, Link[]> = new Map();
@@ -92,73 +137,57 @@ export class Graph {
     const g = new Graph();
     if (!existsSync(path)) return g;
 
-    return withFileLock(path, () => {
-      let raw: CapabilityGraph;
-      try {
-        raw = JSON.parse(readFileSync(path, 'utf-8')) as CapabilityGraph;
-      } catch {
-        return g;
-      }
-      for (const node of raw.nodes) {
-        const validNode: Capability = {
-          id: node.id ?? `unknown-${g.nodes.size}`,
-          kind: node.kind ?? 'skill',
-          name: node.name ?? 'Unnamed',
-          description: node.description ?? '',
-          origin: node.origin ?? 'unknown',
-          provider: node.provider ?? node.origin ?? 'unknown',
-          conflictGroup: node.conflictGroup,
-          sideEffects: Array.isArray(node.sideEffects) ? node.sideEffects : undefined,
-          status: node.status ?? 'installed',
-          compatibility: Array.isArray(node.compatibility) ? node.compatibility : ['universal'],
-          filePath: node.filePath,
-          tags: Array.isArray(node.tags) ? node.tags : [],
-          exampleQueries: Array.isArray(node.exampleQueries) ? node.exampleQueries : [],
-          category: node.category ?? 'other',
-          scenario: node.scenario,
-          explanation_template: node.explanation_template,
-          meta: node.meta,
-          triggers: Array.isArray(node.triggers) ? node.triggers : undefined,
-          aliases: Array.isArray(node.aliases) ? node.aliases : undefined,
-          tier: node.tier,
-          evolvedTags: Array.isArray(node.evolvedTags) ? node.evolvedTags : undefined,
-          costLevel: isCapabilityCostLevel(node.costLevel) ? node.costLevel : undefined,
-          riskLevel: isCapabilityRiskLevel(node.riskLevel) ? node.riskLevel : undefined,
-          requiresConfirmation: isBoolean(node.requiresConfirmation) ? node.requiresConfirmation : undefined,
-          hiddenByDefault: isBoolean(node.hiddenByDefault) ? node.hiddenByDefault : undefined,
-          sourcePriority: isNumber(node.sourcePriority) ? node.sourcePriority : undefined,
-          overlapsWith: Array.isArray(node.overlapsWith) ? node.overlapsWith.filter((name): name is string => typeof name === 'string') : undefined,
-          schema: node.schema,
-        };
-        g.nodes.set(validNode.id, validNode);
-      }
-      for (const link of raw.links ?? []) {
-        if (isLinkType(link.type)) g.addLinkInternal(link);
-      }
-      g.compileModel = raw.compileModel;
-      g.compiledAt = raw.compiledAt;
-      g.compileErrors = Array.isArray(raw.compileErrors) ? raw.compileErrors.filter((error): error is string => typeof error === 'string') : [];
+    let raw: unknown;
+    try {
+      raw = JSON.parse(readFileSync(path, 'utf-8'));
+    } catch {
       return g;
-    });
+    }
+    if (!isRecord(raw)) return g;
+
+    for (const node of Array.isArray(raw.nodes) ? raw.nodes : []) {
+      const capability = loadCapability(node);
+      if (capability) g.addNode(capability);
+    }
+    const nodeIds = new Set(g.nodes.keys());
+    for (const link of Array.isArray(raw.links) ? raw.links : []) {
+      const validLink = loadLink(link, nodeIds);
+      if (validLink) g.addLinkInternal(validLink);
+    }
+    g.compileModel = typeof raw.compileModel === 'string' ? raw.compileModel : undefined;
+    g.compiledAt = typeof raw.compiledAt === 'string' ? raw.compiledAt : undefined;
+    g.compileErrors = stringArray(raw.compileErrors) ?? [];
+    return g;
   }
 
   save(path: string = GRAPH_PATH): void {
     const dir = dirname(path);
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 
-    withFileLock(path, () => {
-      const nodes = [...this.nodes.values()];
-      const data: CapabilityGraph = {
-        version: GRAPH_VERSION,
-        compiledAt: this.compiledAt ?? new Date().toISOString(),
-        compileModel: this.compileModel,
-        compileErrors: this.compileErrors,
-        nodes,
-        links: this.getAllLinks(),
-        categories: [...new Set(nodes.map(n => n.category))].sort(),
-      };
-      writeFileSync(path, JSON.stringify(data));
-    });
+    const nodes = [...this.nodes.values()];
+    const data: CapabilityGraph = {
+      version: GRAPH_VERSION,
+      compiledAt: this.compiledAt ?? new Date().toISOString(),
+      compileModel: this.compileModel,
+      compileErrors: this.compileErrors,
+      nodes,
+      links: this.getAllLinks(),
+      categories: [...new Set(nodes.map(n => n.category))].sort(),
+    };
+    const temporaryPath = `${path}.${process.pid}.${randomUUID()}.tmp`;
+    let fd: number | undefined;
+    try {
+      fd = openSync(temporaryPath, 'wx');
+      writeFileSync(fd, JSON.stringify(data));
+      fsyncSync(fd);
+      closeSync(fd);
+      fd = undefined;
+      renameSync(temporaryPath, path);
+    } catch (error) {
+      if (fd !== undefined) closeSync(fd);
+      try { unlinkSync(temporaryPath); } catch {}
+      throw error;
+    }
   }
 
   // ─── Node CRUD ──────────────────────────────────────────────────────────

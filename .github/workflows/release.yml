@@ -7,96 +7,69 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: 'Run npm publish as dry-run'
+        description: Run npm publish as a dry run
         required: true
         default: 'true'
         type: choice
-        options:
-          - 'true'
-          - 'false'
+        options: ['true', 'false']
 
 permissions:
   contents: read
 
 jobs:
   verify:
-    name: verify (Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [18, 20, 22]
-    env:
-      npm_config_fetch_retries: 5
-      npm_config_fetch_retry_mintimeout: 20000
-      npm_config_fetch_retry_maxtimeout: 120000
-
+        node-version: [18, 20, 22, 24]
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-          cache: 'npm'
-
-      - name: Install
-        run: npm ci
-
-      - name: Build and verify
-        run: |
-          npm run build
-          npm test
-          npm run lint
-          npm run validate:plugin
-          npm run audit:public
-          npm audit --audit-level=high
-          npm pack --dry-run --json
-          node dist/bin/lazybrain.js desktop "review this payment PR safely" --json > /tmp/lazybrain-desktop.json
-          node -e "const p=require('/tmp/lazybrain-desktop.json'); if(p.surface!=='codex-desktop'||p.renderer.preferredPlugin!=='@Visualize'||p.renderer.activation!=='user-selected-in-composer'||p.interaction.selectionDoesNotExecute!==true) process.exit(1)"
-
-      - name: Packed install smoke
-        run: |
-          TARBALL=$(npm pack --json | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(JSON.parse(s)[0].filename))")
-          SMOKE_DIR=$(mktemp -d)
-          npm install --prefix "$SMOKE_DIR" "$PWD/$TARBALL" --ignore-scripts
-          "$SMOKE_DIR/node_modules/.bin/lb" --version
-          "$SMOKE_DIR/node_modules/.bin/lb" desktop "review this payment PR safely" --json > /tmp/lazybrain-packed-desktop.json
-          node -e "const p=require('/tmp/lazybrain-packed-desktop.json'); if(p.surface!=='codex-desktop'||p.renderer.activation!=='user-selected-in-composer') process.exit(1)"
+          cache: npm
+      - run: npm ci
+      - run: npm run verify
+      - run: npm audit --audit-level=high
+      - name: Verify tag identity
+        if: github.event_name == 'push'
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node -e "if(process.env.RELEASE_TAG !== 'v'+require('./package.json').version) process.exit(1)"
+      - name: Pack verified distribution
+        if: matrix.node-version == 24
+        run: npm pack
+      - uses: actions/upload-artifact@v4
+        if: matrix.node-version == 24
+        with:
+          name: lazybrain-package
+          path: lazybrain-*.tgz
 
   npm-release:
-    name: npm release
     needs: verify
     runs-on: ubuntu-latest
-    env:
-      npm_config_fetch_retries: 5
-      npm_config_fetch_retry_mintimeout: 20000
-      npm_config_fetch_retry_maxtimeout: 120000
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          registry-url: 'https://registry.npmjs.org'
-          cache: 'npm'
-
-      - name: Install verified lockfile
-        run: npm ci
-
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@v4
+        with:
+          name: lazybrain-package
+          path: release-package
       - name: Publish dry run
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == 'true' }}
-        run: npm publish --dry-run
+        if: github.event_name == 'workflow_dispatch' && inputs.dry_run == 'true'
+        run: npm publish release-package/*.tgz --dry-run
+      - name: Publish verified package when registry credentials exist
+        if: github.event_name == 'push' || inputs.dry_run == 'false'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Publish
-        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.dry_run == 'false') }}
         run: |
           if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "::notice::NPM_TOKEN is not configured; skipping npm publish."
-            echo "Set the NPM_TOKEN repository secret, then rerun this workflow_dispatch with dry_run=false."
+            echo "Registry publication skipped: no repository NPM_TOKEN is configured." >> "$GITHUB_STEP_SUMMARY"
+            echo "The verified tarball remains available as a workflow artifact." >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          npm publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          npm publish release-package/*.tgz --ignore-scripts
+          echo "Registry publication completed." >> "$GITHUB_STEP_SUMMARY"

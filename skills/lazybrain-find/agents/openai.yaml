@@ -1,12 +1,5 @@
 interface:
-  display_name: "LazyBrain Desktop Router"
-  short_description: "Choose and visualize the right local capability"
+  display_name: "LazyBrain Local Lookup"
+  short_description: "Find local capability sources beyond the host catalog"
   brand_color: "#7C3AED"
-  default_prompt: "Use $lazybrain-find to choose the best installed local capability for my task and explain the tradeoff. If I selected @Visualize in this Codex Desktop task, use it for a useful comparison."
-
-dependencies:
-  tools:
-    - type: "mcp"
-      value: "lazybrain"
-      description: "Local LazyBrain recommendation and catalog server"
-      transport: "stdio"
+  default_prompt: "Use $lazybrain-find to find a local capability source when the current Codex catalog does not resolve my lookup."
