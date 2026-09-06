@@ -106,4 +106,24 @@ describe('source-aware local recommendations', () => {
     expect(recommend('special-task', { graph }).primary?.invocationPolicy).toBe('explicit-only');
     expect(formatDecisionMarkdown(recommend('special-task', { graph }))).toContain('explicit-only');
   });
+
+  test('reuses metadata safely when fields, arrays, or graph membership change', () => {
+    const graph = new Graph();
+    const entry = localCapability('entry', 'solar observation', { triggers: ['sunspot'], tags: ['optics'] });
+    graph.addNode(entry);
+    expect(find('sunspot', { graph })[0]?.capability).toBe(entry);
+    entry.description = 'ocean currents';
+    entry.triggers![0] = 'tide';
+    entry.tags[0] = 'water';
+    expect(find('sunspot', { graph })).toEqual([]);
+    expect(find('tide', { graph })[0]?.capability).toBe(entry);
+    entry.name = 'marine';
+    expect(find('marine', { graph })[0]?.skill).toBe('marine');
+    entry.status = 'disabled';
+    expect(find('marine', { graph })).toEqual([]);
+    graph.removeNode(entry.id);
+    graph.addNode(localCapability('replacement', 'snow observation', { id: entry.id }));
+    expect(find('snow', { graph })[0]?.skill).toBe('replacement');
+    expect(find('tide', { graph })).toEqual([]);
+  });
 });

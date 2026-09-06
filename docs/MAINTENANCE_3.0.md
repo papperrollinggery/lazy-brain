@@ -25,3 +25,9 @@ Keep old branches and archives according to the repository's version-control pol
 ## Current verification boundary
 
 The historical v2.1 baseline recorded 157 passing tests, yet a Seedance screenplay lookup could still be misrouted to a Claude agent-development result through a generic trigger. That result is why 3.0 reserves built-in generic matching for `lb demo` and requires representative local lookup cases. Source and package checks establish code/package behavior only. Specific Codex integration, model availability, release CI, and real media or deployment results require fresh evidence in their actual environments.
+
+## Research behind the changes
+
+- Codex already selects Skills from descriptions and loads details progressively. This supports a narrow fallback lookup instead of routing ordinary tasks. [OpenAI skill documentation](https://learn.chatgpt.com/docs/build-skills)
+- A few distinct tools with bounded, useful responses are easier for an agent to use than overlapping wrappers. This informed the two-tool interface and realistic task tests. [Anthropic tool-design guidance](https://www.anthropic.com/engineering/writing-tools-for-agents)
+- Standard Skill metadata uses YAML and separates the entrypoint from optional resources. This informed the maintained parser and small Skill with a bundled CLI fallback. [Agent Skills specification](https://agentskills.io/specification)

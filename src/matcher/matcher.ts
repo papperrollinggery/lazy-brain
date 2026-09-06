@@ -108,17 +108,36 @@ function scoreSkill(query: string, queryTokens: Set<string>, item: BuiltinSkill)
   } : null;
 }
 
-function localMatches(query: string, capabilities: Capability[]): FindResult[] {
-  const positive = positiveSearchText(query);
-  const queryTerms = searchTerms(positive, true);
-  if (!queryTerms.size) return [];
-  const documents = capabilities.map((capability) => ({
+interface SearchDocument {
+  capability: Capability;
+  name: Set<string>;
+  triggers: Set<string>;
+  all: Set<string>;
+}
+
+const documentCache = new WeakMap<Capability, { signature: string; document: SearchDocument }>();
+
+function documentFor(capability: Capability): SearchDocument {
+  const signature = JSON.stringify([capability.name, capability.description, capability.triggers,
+    capability.exampleQueries, capability.tags]);
+  const cached = documentCache.get(capability);
+  if (cached?.signature === signature) return cached.document;
+  const document = {
     capability,
     name: searchTerms(capability.name, true),
     triggers: searchTerms((capability.triggers ?? []).join(' '), true),
     all: searchTerms([capability.name, capability.description, ...(capability.triggers ?? []),
       ...capability.exampleQueries, ...capability.tags].join(' '), true),
-  }));
+  };
+  documentCache.set(capability, { signature, document });
+  return document;
+}
+
+function localMatches(query: string, capabilities: Capability[]): FindResult[] {
+  const positive = positiveSearchText(query);
+  const queryTerms = searchTerms(positive, true);
+  if (!queryTerms.size) return [];
+  const documents = capabilities.map(documentFor);
   const frequencies = new Map<string, number>();
   for (const doc of documents) for (const term of doc.all) {
     frequencies.set(term, (frequencies.get(term) ?? 0) + 1);
