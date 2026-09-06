@@ -57,6 +57,7 @@ function checkPack() {
     file === 'docs/PRODUCT.md' ||
     file === 'docs/RELEASE_CHECKLIST.md' ||
     file === 'docs/USE_CASES.md' ||
+    file === 'docs/MAINTENANCE_3.0.md' ||
     file.startsWith('dist/') ||
     file.startsWith('skills/'));
   if (!allowed) {
@@ -76,6 +77,7 @@ function checkPack() {
       file !== 'docs/PRODUCT.md' &&
       file !== 'docs/RELEASE_CHECKLIST.md' &&
       file !== 'docs/USE_CASES.md' &&
+      file !== 'docs/MAINTENANCE_3.0.md' &&
       !file.startsWith('dist/') &&
       !file.startsWith('skills/')).join(', ')}`);
   }

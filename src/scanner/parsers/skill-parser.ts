@@ -8,6 +8,9 @@ import { inferPlatformFromPath, inferSinglePlatformFromPath } from '../../consta
 import { inferOrigin } from '../origin.js';
 import { parseCapabilityMetadata } from '../metadata.js';
 import { parseSkillSchema } from '../../schema/skill-schema.js';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import type { InvocationPolicy } from '../../types.js';
 
 /**
  * Parse a trigger value that might be a JSON array string or a plain string.
@@ -25,6 +28,23 @@ function parseTriggerValue(value: string): string[] {
     }
   }
   return [trimmed];
+}
+
+function invocationPolicy(filePath: string): InvocationPolicy | undefined {
+  const metadataPath = join(dirname(filePath), 'agents', 'openai.yaml');
+  if (!existsSync(metadataPath)) return undefined;
+  try {
+    const { frontmatter } = parseFrontmatter(`---\n${readFileSync(metadataPath, 'utf-8')}\n---`);
+    const policy = frontmatter.policy;
+    if (!policy || typeof policy !== 'object' || Array.isArray(policy)) return undefined;
+    return (policy as Record<string, unknown>).allow_implicit_invocation === true
+      ? 'implicit-allowed'
+      : (policy as Record<string, unknown>).allow_implicit_invocation === false
+        ? 'explicit-only'
+        : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -94,5 +114,7 @@ export function parseSkill(filePath: string, content: string): RawCapability | n
     compatibility: inferPlatformFromPath(filePath),
     platform: inferSinglePlatformFromPath(filePath),
     schema: parseSkillSchema(frontmatter),
+    discovery: filePath.includes('/plugins/cache/') ? 'plugin-cache' : 'local-file',
+    invocationPolicy: invocationPolicy(filePath),
   };
 }

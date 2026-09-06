@@ -10,6 +10,7 @@
 
 import type { RawCapability } from '../types.js';
 import { TRANSLATION_PATH_PATTERNS } from '../constants.js';
+import { realpathSync } from 'node:fs';
 
 /**
  * Check if a file path is a translation/localization variant.
@@ -23,17 +24,20 @@ export function isTranslationPath(filePath: string): boolean {
  *
  * Rules:
  * - Translation paths are skipped entirely
- * - Same origin + name = duplicate → keep first, merge triggers
- * - Same name but different origin = different capabilities (keep both)
+ * - Only the same canonical file, kind, and provider is duplicate evidence
+ * - Same names from separate user/project/plugin scopes remain distinct
  */
 export function dedup(capabilities: RawCapability[]): RawCapability[] {
   // Phase 1: Filter out translations
   const nonTranslation = capabilities.filter(c => !isTranslationPath(c.filePath));
 
-  // Phase 2: Group by origin:platform:name (different platforms are different capabilities)
+  // Phase 2: preserve source identity. `realpathSync` only collapses aliases to
+  // the same file, never same-named files from different scopes.
   const groups = new Map<string, RawCapability[]>();
   for (const cap of nonTranslation) {
-    const key = `${cap.origin}:${[...cap.compatibility].sort().join(',')}:${cap.name}`;
+    let canonicalPath = cap.filePath;
+    try { canonicalPath = realpathSync(cap.filePath); } catch {}
+    const key = `${cap.kind}:${cap.provider ?? ''}:${cap.name}:${canonicalPath}`;
     const group = groups.get(key);
     if (group) {
       group.push(cap);
@@ -42,11 +46,12 @@ export function dedup(capabilities: RawCapability[]): RawCapability[] {
     }
   }
 
-  // Phase 3: Merge each group into one canonical entry
-  // Prefer the one with more platforms in compatibility
+  // Phase 3: Merge duplicate aliases only.
   const result: RawCapability[] = [];
   for (const group of groups.values()) {
     const canonical = group.reduce((best, cap) => {
+      if (best.disabled !== cap.disabled) return best.disabled ? cap : best;
+      if (best.discovery !== cap.discovery) return best.discovery === 'plugin-cache' ? cap : best;
       return cap.compatibility.length > best.compatibility.length ? cap : best;
     });
 

@@ -58,5 +58,6 @@ export function parseCommand(filePath: string, content: string): RawCapability |
     filePath,
     compatibility: inferPlatformFromPath(filePath),
     platform: inferSinglePlatformFromPath(filePath),
+    discovery: filePath.includes('/plugins/cache/') ? 'plugin-cache' : 'local-file',
   };
 }

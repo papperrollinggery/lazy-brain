@@ -15,12 +15,12 @@ export interface DesktopVisualizationCandidate {
 }
 
 export interface DesktopVisualizationPayload {
-  schemaVersion: 1;
+  schemaVersion: 2;
   surface: 'codex-desktop';
   renderer: {
     preferredPlugin: '@Visualize';
-    availability: 'preview';
-    activation: 'user-selected-in-composer';
+    availability: 'host-dependent';
+    activation: 'host-tool-discovery';
     fallback: 'markdown-and-table';
   };
   shouldRender: boolean;
@@ -84,6 +84,7 @@ function markdownCell(value: string): string {
 }
 
 function titleFor(decision: RecommendationDecision): string {
+  if (decision.action === 'no_match') return 'No local capability found';
   if (decision.action === 'clarify') return 'Clarify the task before choosing a capability';
   if (decision.action === 'compare') return 'Compare the strongest local capabilities';
   return 'Recommended local capability';
@@ -103,7 +104,7 @@ function buildVisualizePrompt(
     'Include a keyboard-accessible table fallback, visible focus states, readable contrast, redundant recommended labels, and reduced motion.',
     decision.action === 'clarify'
       ? 'There is no reliable candidate. Show the clarification question as the primary action instead of a chart.'
-      : 'End with the exact follow-up prompt the user can send after choosing, while preserving the execution-confirmation boundary.',
+      : 'Use metadata scores only as relevance indicators, never as success probabilities. Preserve the current task and existing authorization.',
     `DATA=${JSON.stringify(data)}`,
   ].join('\n');
 }
@@ -131,12 +132,12 @@ export function toDesktopVisualization(decision: RecommendationDecision): Deskto
       ]
     : [];
   const withoutPrompt: Omit<DesktopVisualizationPayload, 'visualizePrompt'> = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     surface: 'codex-desktop',
     renderer: {
       preferredPlugin: '@Visualize',
-      availability: 'preview',
-      activation: 'user-selected-in-composer',
+      availability: 'host-dependent',
+      activation: 'host-tool-discovery',
       fallback: 'markdown-and-table',
     },
     shouldRender,
@@ -144,7 +145,7 @@ export function toDesktopVisualization(decision: RecommendationDecision): Deskto
       family: 'interactive-decision-explorer',
       title: titleFor(decision),
       insight: boundedDisplayText(decision.summary),
-      readingPath: ['recommendation', 'evidence', 'alternatives', 'workflow', 'confirmation'],
+      readingPath: ['recommendation', 'evidence', 'alternatives'],
     },
     query,
     action: decision.action,
@@ -155,7 +156,7 @@ export function toDesktopVisualization(decision: RecommendationDecision): Deskto
     interaction: {
       selectionDoesNotExecute: true,
       authorizationRequiredBeforeExecution: true,
-      selectedCandidatePrompt: `Use {{candidateName}} for this task: ${query}. Explain the plan and ask before any external or destructive action.`,
+      selectedCandidatePrompt: `Use {{candidateName}} for this task: ${query}. Read its scope and continue under my existing authorization.`,
     },
     accessibility: {
       keyboardNavigation: true,
@@ -182,6 +183,6 @@ export function formatDesktopVisualizationFallback(payload: DesktopVisualization
     payload.workflow.forEach((step) => lines.push(`${step.order}. ${markdownCell(step.name)} — ${markdownCell(step.reason)}`));
   }
   if (payload.clarification) lines.push('', `Clarify: ${markdownCell(payload.clarification)}`);
-  lines.push('', 'Selecting a candidate does not execute it. Confirm before any external or destructive action.');
+  lines.push('', 'Scores indicate metadata relevance. Selecting a candidate does not execute it; existing user authorization remains in effect.');
   return lines.join('\n');
 }

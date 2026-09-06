@@ -8,9 +8,9 @@ import { orchestrate } from '../../src/orchestrator/engine.js';
 import { signalFromQuery } from '../../src/orchestrator/signals.js';
 
 describe('edge cases', () => {
-  test('empty graph falls back to built-in matches', () => {
+  test('empty graph does not imply installed built-ins', () => {
     const results = find('review this PR for security issues', { graph: new Graph(), limit: 1 });
-    expect(results[0]?.skill).toBe('security-review');
+    expect(results).toEqual([]);
   });
 
   test('corrupted graph loads as empty graph', () => {
@@ -24,7 +24,7 @@ describe('edge cases', () => {
     }
   });
 
-  test('concurrent graph writes keep a readable graph', () => {
+  test('legacy stale locks do not block pure snapshot reads', () => {
     const dir = mkdtempSync(join(tmpdir(), 'lazybrain-edge-'));
     const graphPath = join(dir, 'graph.json');
     try {

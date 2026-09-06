@@ -27,6 +27,12 @@ export type CapabilitySideEffect =
   | 'destructive'
   | 'unknown';
 
+/** Evidence recorded during discovery. It does not assert runtime availability. */
+export type CapabilityDiscovery = 'local-file' | 'plugin-cache' | 'configured' | 'catalog-entry' | 'builtin-example';
+
+/** Whether a host may select a capability without an explicit user invocation. */
+export type InvocationPolicy = 'implicit-allowed' | 'explicit-only';
+
 export interface WorkflowStep {
   id?: string;
   title: string;
@@ -91,6 +97,8 @@ export interface Capability {
   overlapsWith?: string[];
   meta?: CapabilityMeta;
   schema?: SkillSchema;
+  discovery?: CapabilityDiscovery;
+  invocationPolicy?: InvocationPolicy;
 }
 
 export const LINK_TYPES = ['similar_to', 'composes_with', 'supersedes', 'depends_on', 'belongs_to'] as const;
@@ -156,6 +164,8 @@ export interface RawCapability {
   disabled?: boolean;
   platform?: Platform;
   schema?: SkillSchema;
+  discovery?: CapabilityDiscovery;
+  invocationPolicy?: InvocationPolicy;
 }
 
 export interface UserConfig {

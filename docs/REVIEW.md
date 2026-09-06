@@ -1,92 +1,25 @@
-# LazyBrain Review Gate
+# Reviewing LazyBrain
 
-LazyBrain uses local checks and CI as the required release gate. Codex Cloud review is optional until the repository has a stable account and workflow.
-
-## Required Local Review
-
-Run before opening or updating a release PR:
+Run the same checks used by CI:
 
 ```bash
 npm ci
-npm run build
-npm test
-npm run lint
-npm run audit:public
-npm pack --dry-run --json
+npm run verify
+npm audit --audit-level=high
 ```
 
-For hook, matcher, config, workflow, package, or release-doc changes, also run:
+The verification command checks types, builds the distribution, runs the tests, validates the plugin, audits public package contents, and performs an isolated tarball install with real CLI and stdio MCP calls. It does not run model inference or prove current Codex host activation.
+
+Before a release, have an independent reviewer read the current diff and verify the discovery/availability boundary, source identity, task scope, read-only queries, and compatibility changes. Reproduce findings and recheck the fixes. A workflow that only prepares a prompt or uploads a diff is not a completed review.
+
+The optional model exercise uses existing Codex account authentication and writes its reports to a directory you choose. Run it only when inference evaluation is intended:
 
 ```bash
-node dist/bin/lazybrain.js ready --json
-node dist/bin/lazybrain.js hook plan --json
-node dist/bin/lazybrain.js hook status --json
-node dist/bin/lazybrain.js orchestrate "deploy payment feature"
+node scripts/model-smoke.mjs --run --model MODEL --effort EFFORT --output /absolute/report-directory
 ```
 
-## Required PR Gate
+Read the actual tool-call transcripts and generated text. Check both a lookup that should use LazyBrain and ordinary/known-entry work that should bypass it. Model selection in the command is a requested configuration; do not infer backend identity, quality across all models, or saved credits from it.
 
-Single-maintainer policy:
+The main branch uses the required `Test` CI check. Release changes go through a reviewed pull request; CI validates Node 18, 20, 22, and 24. The release workflow verifies tag/package identity and produces a tarball. Registry publication and GitHub release publication are separate, externally verifiable actions.
 
-- main changes go through PRs
-- required approvals: `0`
-- CODEOWNERS review is not required
-- required status check: `Test`
-- force push and branch deletion are blocked on `main`
-
-High-risk PRs must include a PR comment with:
-
-- what changed
-- affected surface
-- test evidence
-- `npm run audit:public` result
-- package impact
-- rollback note
-- risk label
-
-High-risk paths:
-
-- `src/hook/`
-- `bin/hook.ts`
-- `src/config/`
-- `src/matcher/`
-- `package.json`
-- `.github/workflows/`
-- release docs
-
-## Optional Codex Cloud Review
-
-Use this only as advisory review.
-
-1. Open the PR in GitHub.
-2. Generate a diff:
-
-```bash
-git fetch origin main
-git diff --no-ext-diff --unified=80 origin/main...HEAD > /tmp/lazybrain-pr.diff
-```
-
-3. Send the diff to Codex Cloud or a Codex review Action with this prompt:
-
-```text
-Review this LazyBrain PR.
-
-Return:
-- findings: file, line, severity, issue, fix
-- risk: low/medium/high
-- verdict: pass/fail/needs_changes
-- confidence: 0..1
-
-Focus on:
-- hook safety and non-destructive behavior
-- privacy leaks, private paths, keys, transcripts, internal workflow docs
-- version/package consistency
-- API calls only when explicitly requested
-- GUI routes staying read-only unless a user confirms an action
-- graph/cache correctness and atomic writes
-- package contents suitable for public npm release
-```
-
-4. Paste the review summary as a PR comment.
-
-Do not send private transcripts, local secrets, `.paperclip`, `.omc`, or internal planning docs into any cloud review.
+Keep private transcripts, credentials, local paths, and pre-existing personal drafts out of the public review and release. Record current evidence rather than copying an earlier release's results.

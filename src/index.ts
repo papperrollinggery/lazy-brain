@@ -36,3 +36,5 @@ export type {
 } from './recommendation/recommend.js';
 export { formatDesktopVisualizationFallback, toDesktopVisualization } from './recommendation/desktop-visualization.js';
 export type { DesktopVisualizationCandidate, DesktopVisualizationPayload } from './recommendation/desktop-visualization.js';
+export { readCatalog, rawToCapability, catalogEvidence } from './catalog/catalog.js';
+export type { CatalogOptions, CatalogSnapshot } from './catalog/catalog.js';

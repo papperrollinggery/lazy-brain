@@ -54,3 +54,10 @@ HOW_TO_WORK_WITH_TRAE.md
 .gstack/
 .gitnexus
 .gitnexus.*
+
+# Personal development notes and retired local helpers
+docs/CODEX_HANDOFF.md
+docs/DESIGN-DOC.md
+docs/GOAL-EXECUTION-PLAN.md
+docs/RESTRUCTURE-PLAN.md
+docs/agents/

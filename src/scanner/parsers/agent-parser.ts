@@ -60,5 +60,14 @@ export function parseAgent(filePath: string, content: string): RawCapability | n
     filePath,
     compatibility: inferPlatformFromPath(filePath),
     platform: inferSinglePlatformFromPath(filePath),
+    discovery: filePath.includes('/plugins/cache/') ? 'plugin-cache' : 'local-file',
   };
+}
+
+/** Parse Codex role metadata without interpreting the agent's instructions. */
+export function parseCodexAgentMetadata(filePath: string, content: string): RawCapability | null {
+  const name = content.match(/^\s*name\s*=\s*"([^"]+)"\s*$/m)?.[1] ?? filePath.split('/').pop()?.replace(/\.toml$/, '');
+  if (!name) return null;
+  const description = content.match(/^\s*description\s*=\s*"([^"]*)"\s*$/m)?.[1] ?? `Codex agent role ${name}`;
+  return { kind: 'agent', name, description, origin: 'codex-agent-metadata', filePath, compatibility: ['codex'], platform: 'codex', discovery: 'local-file' };
 }

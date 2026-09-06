@@ -44,10 +44,13 @@ for (const field of ['skills', 'mcpServers']) {
 
 const server = mcp?.mcpServers?.lazybrain;
 if (!server || typeof server !== 'object') fail('.mcp.json must define mcpServers.lazybrain');
-if (typeof server?.command !== 'string' || server.command !== 'lazybrain-mcp') {
-  fail('lazybrain MCP command must be lazybrain-mcp');
+if (server?.command !== 'node' || server?.cwd !== '.') {
+  fail('lazybrain MCP must launch node in its own plugin directory');
 }
-if (!Array.isArray(server?.args)) fail('lazybrain MCP args must be an array');
+if (JSON.stringify(server?.args) !== JSON.stringify(['./dist/bin/mcp.js'])) {
+  fail('lazybrain MCP must launch the bundled ./dist/bin/mcp.js');
+}
+if (!existsSync(join(root, 'dist/bin/mcp.js'))) fail('build the bundled MCP server before validating');
 
 if (marketplace.name !== 'lazybrain-local') fail('marketplace name must be lazybrain-local');
 const entry = Array.isArray(marketplace.plugins) ? marketplace.plugins.find((item) => item?.name === manifest.name) : undefined;

@@ -1,5 +1,18 @@
 # Changelog
 
+## [v3.0.0]
+
+This release candidate narrows LazyBrain to local, source-aware capability discovery for Codex.
+
+- Catalogs local Skills, plugins, MCP declarations, agents, commands, and marketplace metadata with origin, path, discovery state, compatibility, and non-callability evidence.
+- Advertises read-only `lazybrain_recommend` and `lazybrain_catalog` MCP tools with `cwd`, platform/kind filters, bounded pagination, `refresh`, and a 15-second in-memory cache.
+- Keeps matching local: no runtime LLM, embedding, or network matching; no host-model override.
+- Makes queries read-only. `compile` explicitly saves a snapshot; `use` records adoption without claiming execution; `stats` counts explicit adoption only.
+- Retires automatic routing hooks to inert shims and delegates legacy workflow commands to the host.
+- Treats built-in recipes as `lb demo` examples only, never as installed capabilities.
+
+Publication state for the GitHub artifact and npm registry is intentionally not recorded here; verify each through its own release evidence.
+
 ## [v2.1.0]
 
 - Repositioned LazyBrain as a local capability control plane for Codex and Claude Code rather than another installer.

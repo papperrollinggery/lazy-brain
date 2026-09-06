@@ -14,6 +14,8 @@ export default defineConfig({
   sourcemap: true,
   clean: true,
   target: 'node18',
-  splitting: false,
+  splitting: true,
   shims: true,
+  noExternal: ['yaml'],
+  banner: { js: "import { createRequire as lbCreateRequire } from 'node:module'; const require = lbCreateRequire(import.meta.url);" },
 });

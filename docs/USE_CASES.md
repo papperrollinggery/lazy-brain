@@ -1,99 +1,25 @@
-# LazyBrain Use Cases
+# Use cases
 
-## 1. Find the Right Capability
+## Local capability lookup
 
-```bash
-lb "review this PR for security issues"
-```
+Use `lazybrain_recommend` or `lb find` when the available local capability is unclear.
 
-Expected result: LazyBrain recommends `/security-review` and nearby alternatives.
+| Situation | Appropriate action |
+| --- | --- |
+| Several video-analysis Skills are installed | Search specific terms such as `evidence video breakdown`; read the returned source before use. |
+| A project has multiple deck or portfolio tools | Use `lb catalog` with `cwd`, `kind`, and pagination to compare local entries. |
+| A plugin cache and a configured MCP server have similar names | Audit their paths and discovery states; neither proves callability. |
+| A known image/video/presentation tool is already selected | Use the native Skill or tool directly; do not route through LazyBrain. |
+| A request asks to generate media or publish a site | Use the selected execution tool and verify its real output separately. |
 
-Use this when the user has many skills or slash commands and does not remember the exact name.
+## Creative and evidence work
 
-## 2. Resolve a Vague Prompt
+LazyBrain can locate a local Seedance, storyboard, video-evidence, image, presentation, or web capability. The returned metadata does not create a prompt, analyze the supplied video, generate a frame, make a deck, or put a portfolio online. Each result must be read and then used through the host under the current task's authorization.
 
-First turn a vague request into an explicit decision:
+## Automation and operations
 
-```bash
-lb ask "help me ship this safely" --json
-```
+Use the catalog to find an installed automation or operational capability when its name or source is unknown. Existing native automations should be inspected or invoked through their own host surface. LazyBrain does not schedule, trigger, or modify them.
 
-Expected result: LazyBrain either selects one installed capability, compares close candidates, or asks one concrete clarification question.
+## Auditing overlap
 
-## 3. Turn a Task Into an Execution Plan
-
-```bash
-lb orchestrate "deploy payment feature"
-```
-
-Expected result: LazyBrain returns an ordered sequence such as security review, TDD, code review, and ship.
-
-Use this for risky tasks where ordering matters.
-
-## 4. Pick a Reusable Workflow
-
-```bash
-lb combo "deploy new feature to production"
-```
-
-Expected result: LazyBrain returns a reusable workflow template plus verification commands.
-
-Use this for repeated work such as releases, incident response, audits, and documentation.
-
-## 5. Discover Underused Local Tools
-
-```bash
-lb discover
-lb stats
-```
-
-Expected result: LazyBrain shows high-value local capabilities and usage patterns.
-
-Use this after installing many local skills or when a team wants to standardize how agent tools are used.
-
-## 6. Use LazyBrain From an Agent
-
-```bash
-lazybrain-mcp
-```
-
-Expected result: the stdio MCP server exposes routing and orchestration tools to an agent client.
-
-Use this when Claude, Codex, Cursor, or another MCP client needs deterministic capability selection.
-
-## 7. Audit a Local Capability Library
-
-```bash
-lb scan
-lb compile
-```
-
-Then call `lazybrain_catalog` from an MCP client. The catalog covers local Skills, Plugins, MCP server names, agents, commands, and supported rule files without copying MCP credential values.
-
-Use this when a developer has accumulated many extensions and needs an inventory before choosing or removing anything.
-
-## 8. Choose Visually in Codex Desktop
-
-Install the local development plugin after building and linking the checkout, then ask:
-
-```text
-$lazybrain-find Which installed capability should I use to review a payment migration?
-```
-
-Codex Desktop receives a backward-compatible decision plus `desktopVisualization`. For an interactive result, the user selects `@Visualize` in the composer for that task. When multiple candidates or a workflow benefit from interaction and the plugin is exposed, the Skill passes the exact prompt to it; otherwise the same values remain visible as an accessible Markdown table with a reusable prompt.
-
-Selecting a card changes the explanation only. It does not execute, install, enable, or authorize the selected capability.
-
-## Good Beta Fit
-
-- local AI power users
-- teams with many skills, prompts, rules, or commands
-- agent workflow authors
-- developers who want deterministic routing with no runtime LLM dependency
-
-## Not a Fit Yet
-
-- users who expect LazyBrain to execute every step automatically
-- users who need a hosted team dashboard
-- users who need cross-machine sync
-- users who need managed cloud telemetry or analytics
+`lazybrain_catalog` supports `platform`, `cwd`, `kind`, `limit`, `offset`, and `refresh`. Compare origin, path, discovery state, compatibility, and status before deciding which source to read. Use `refresh: true` after a local metadata change; the default in-memory snapshot lasts at most 15 seconds.

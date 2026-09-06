@@ -5,6 +5,7 @@ import { describe, expect, test } from 'vitest';
 import { find } from '../../src/matcher/matcher.js';
 import { orchestrate } from '../../src/orchestrator/engine.js';
 import { signalFromQuery } from '../../src/orchestrator/signals.js';
+import { localCapability, workflowGraph } from '../helpers/capabilities.js';
 import { Graph } from '../../src/graph/graph.js';
 
 function avgMs(iterations: number, fn: () => void): number {
@@ -14,8 +15,12 @@ function avgMs(iterations: number, fn: () => void): number {
 }
 
 describe('performance benchmarks', () => {
-  test('find averages under 50ms', () => {
-    expect(avgMs(100, () => { find('review this PR for security issues'); })).toBeLessThan(50);
+  test('search returns a real match among 1000 local entries under 200ms on average', () => {
+    const graph = workflowGraph();
+    for (let i = 0; i < 990; i++) graph.addNode(localCapability('helper-' + i, 'A local utility for file formats and text transformations.'));
+    const query = '中文剧本转成Seedance分镜提示词';
+    expect(find(query, { graph, limit: 1 })[0]?.skill).toBe('convert-script-to-seedance');
+    expect(avgMs(10, () => { find(query, { graph, limit: 3 }); })).toBeLessThan(200);
   });
 
   test('orchestrate averages under 10ms', () => {

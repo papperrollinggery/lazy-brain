@@ -18,7 +18,7 @@ function platformForManifest(filePath: string): { compatibility: Platform[]; pla
   };
 }
 
-function pluginCapability(filePath: string, manifest: JsonObject): RawCapability | null {
+function pluginCapability(filePath: string, manifest: JsonObject, discovery: RawCapability['discovery'] = filePath.includes('/plugins/cache/') ? 'plugin-cache' : 'local-file'): RawCapability | null {
   const name = typeof manifest.name === 'string' ? manifest.name.trim() : '';
   if (!name) return null;
   const version = typeof manifest.version === 'string' ? manifest.version.trim() : undefined;
@@ -40,6 +40,7 @@ function pluginCapability(filePath: string, manifest: JsonObject): RawCapability
       url: typeof manifest.homepage === 'string' ? manifest.homepage : typeof manifest.repository === 'string' ? manifest.repository : undefined,
     },
     ...platformForManifest(filePath),
+    discovery,
   };
 }
 
@@ -66,7 +67,7 @@ export function parsePluginMarketplace(filePath: string, content: string): RawCa
         repository: typeof source?.url === 'string' ? source.url : undefined,
         keywords: [typeof value.category === 'string' ? value.category : '', 'plugin marketplace'],
       };
-      const capability = pluginCapability(filePath, manifest);
+      const capability = pluginCapability(filePath, manifest, 'catalog-entry');
       return capability ? [capability] : [];
     });
   } catch {
